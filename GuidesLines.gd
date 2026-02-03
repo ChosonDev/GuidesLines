@@ -147,16 +147,16 @@ func update(_delta):
 	if not snappy_mod_checked:
 		if self.Global.API and self.Global.API.has("ModRegistry"):
 			var registered = self.Global.API.ModRegistry.get_registered_mods()
-			# Search for custom_snap mod in registered mods
-			for mod_id in registered:
-				var mod_info = registered[mod_id]
-				if mod_info.mod and mod_info.mod.has("snappy_mod"):
-					cached_snappy_mod = mod_info.mod.snappy_mod
+			# Search for custom_snap mod by unique_id
+			if registered.has("Lievven.Snappy_Mod"):
+				var mod_info = registered["Lievven.Snappy_Mod"]
+				if mod_info.mod:
+					cached_snappy_mod = mod_info.mod
 					if LOGGER:
-						var mod_name = mod_info.mod_meta.get("name", mod_id)
+						var mod_name = mod_info.mod_meta.get("name", "Custom Snap Mod")
 						var mod_version = mod_info.mod_meta.get("version", "unknown")
 						LOGGER.info("Found custom_snap mod: %s v%s" % [mod_name, mod_version])
-					break
+			
 			if not cached_snappy_mod and LOGGER:
 				LOGGER.debug("custom_snap mod not found, using vanilla grid snapping")
 		

@@ -18,6 +18,9 @@ All notable changes to the Guides Lines mod will be documented in this file.
   - Fixed ResourceLoader cache parameter (changed from `true` to `false`)
   - Corrected ModRegistry API usage for mod detection
   - All API calls now conform to _Lib-1.2.0 standards
+- Fixed integration with Custom Snap Mod (Lievven.Snappy_Mod)
+- Markers now correctly snap to custom grid when Custom Snap Mod is enabled
+- Improved mod detection using proper unique_id lookup instead of searching for field name
 
 ### Technical Changes
 - Removed ModConfig integration (ModConfigApi builder)

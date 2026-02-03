@@ -19,7 +19,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.code-workspace
-.github/
 
 # Build artifacts
 *.o
@@ -29,3 +28,7 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+
+# Dependencies (except submodules)
+dependencies/*
+!dependencies/_Lib/
