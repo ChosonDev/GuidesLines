@@ -32,6 +32,9 @@ func _input(event):
 				
 				var pos = tool.cached_worldui.MousePosition
 				
+				if tool.LOGGER:
+					tool.LOGGER.debug("MarkerOverlay: Mouse clicked at %s, delete_mode: %s" % [pos, str(tool.delete_mode)])
+				
 				# If in delete mode, try to delete marker
 				if tool.delete_mode:
 					tool.delete_marker_at_position(pos, 20.0)

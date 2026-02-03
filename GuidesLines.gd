@@ -10,6 +10,8 @@
 
 var script_class = "tool"
 
+const CLASS_NAME = "GuidesLines"
+
 # ============================================================================
 # _LIB API
 # ============================================================================
@@ -86,9 +88,22 @@ func start():
 		
 		# Initialize Logger after registration (use self.Global.API)
 		if self.Global.API and self.Global.API.has("Logger"):
-			LOGGER = self.Global.API.Logger
-			LOGGER.info("Mod starting - version 1.0.8")
+			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
+			LOGGER.info("Mod starting - version 1.0.10")
 			LOGGER.debug("Registered with _Lib successfully")
+			
+			# Register UpdateChecker for automatic update notifications
+			if self.Global.API.has("UpdateChecker"):
+				LOGGER.debug("UpdateChecker available, registering...")
+				var update_checker = self.Global.API.UpdateChecker
+				var agent = update_checker.builder()\
+					.fetcher(update_checker.github_fetcher("ChosonDev", "GuidesLines"))\
+					.downloader(update_checker.github_downloader("ChosonDev", "GuidesLines"))\
+					.build()
+				update_checker.register(agent)
+				LOGGER.debug("UpdateChecker registered for automatic updates")
+			else:
+				LOGGER.info("UpdateChecker not available")
 		else:
 			print("GuidesLines: _Lib registered but Logger not available")
 	else:
@@ -170,13 +185,16 @@ func update(_delta):
 		guides_tool.cached_camera = Global.Camera
 		guides_tool.cached_snappy_mod = cached_snappy_mod
 		
+		# Check if tool is active by tool name
 		var is_active = Global.Editor.ActiveToolName == "GuidesLinesTool"
+		
+		# Enable/disable based on active state
 		if is_active and not guides_tool.is_enabled:
 			guides_tool.Enable()
 		elif not is_active and guides_tool.is_enabled:
 			guides_tool.Disable()
 		
-		# Update the tool if it's enabled (now WorldUI is guaranteed to be available)
+		# Always call Update when the tool is enabled
 		if guides_tool.is_enabled:
 			guides_tool.Update(_delta)
 	
@@ -278,7 +296,12 @@ func create_tool():
 	guides_tool = GuidesLinesToolClass.new(self)
 	guides_tool.GuideMarkerClass = GuideMarkerClass
 	guides_tool.MarkerOverlayClass = MarkerOverlayClass
-	guides_tool.LOGGER = LOGGER  # Pass logger to tool
+	
+	# Create ClassInstancedLogger for GuidesLinesTool
+	if LOGGER:
+		guides_tool.LOGGER = LOGGER.for_class("GuidesLinesTool")
+	else:
+		guides_tool.LOGGER = null
 	
 	# Cache global references
 	guides_tool.cached_world = Global.World

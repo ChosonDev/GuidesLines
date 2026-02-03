@@ -2,6 +2,43 @@
 
 All notable changes to the Guides Lines mod will be documented in this file.
 
+## [1.0.10] - 2026-02-04
+
+### Added
+- **UpdateChecker Integration**: Automatic update notifications
+  - Integrated with _Lib UpdateChecker API for GitHub release tracking
+  - Automatic version checking on startup
+  - Visual notifications when new versions are available
+  - One-click access to download page from "Mod Versions" window (Mods menu)
+  - Follows semantic versioning (SemVer 2.0.0) for proper version comparison
+
+- **HistoryApi Integration**: Full undo/redo support for marker operations
+  - Press Ctrl+Z to undo marker placement/deletion
+  - Press Ctrl+Y to redo marker placement/deletion
+  - History tracking for individual marker placement (limit: 100 records)
+  - History tracking for individual marker deletion (limit: 100 records)
+  - History tracking for "Delete All Markers" operation
+  - Proper integration with Dungeondraft's native undo/redo system
+  - Seamless cooperation with other mods using HistoryApi
+
+### Fixed
+- Corrected Logger API usage to properly use ClassInstancedLogger pattern
+- Fixed unsupported format specifier %v (changed to %s for Vector2 output)
+- Fixed Global.API references to use parent_mod.Global.API for proper _Lib access
+
+### Technical Changes
+- Implemented custom History Record classes:
+  - `PlaceMarkerRecord` - tracks marker creation with full state
+  - `DeleteMarkerRecord` - tracks single marker deletion with restoration data
+  - `DeleteAllMarkersRecord` - tracks bulk deletion with full restoration
+- Added record type identifiers for proper history grouping:
+  - `GuidesLines.PlaceMarker` - for placement operations
+  - `GuidesLines.DeleteMarker` - for deletion operations
+  - `GuidesLines.DeleteAll` - for bulk deletion
+- UpdateChecker configured for GitHub repository: Choson/GuidesLines
+- History records implement proper `redo()`, `undo()`, and `record_type()` methods
+- Max count limiting prevents history overflow (100 records per operation type)
+
 ## [1.0.9] - 2026-02-03
 
 ### Changed

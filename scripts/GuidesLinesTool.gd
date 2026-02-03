@@ -3,6 +3,84 @@ extends Reference
 # GuidesLinesTool - Tool for managing guide markers
 # Stores markers internally and draws them via overlay
 
+const CLASS_NAME = "GuidesLinesTool"
+
+# ============================================================================
+# HISTORY RECORDS FOR UNDO/REDO SUPPORT
+# ============================================================================
+
+# History record for placing a marker
+class PlaceMarkerRecord:
+	var tool
+	var marker_data
+	
+	func _init(tool_ref, data):
+		tool = tool_ref
+		marker_data = data
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerRecord created for id: %d" % [data["id"]])
+	
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerRecord.redo() called for id: %d" % [marker_data["id"]])
+		tool._do_place_marker(marker_data)
+	
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerRecord.undo() called for id: %d" % [marker_data["id"]])
+		tool._undo_place_marker(marker_data["id"])
+	
+	func record_type():
+		return "GuidesLines.PlaceMarker"
+
+# History record for deleting a single marker
+class DeleteMarkerRecord:
+	var tool
+	var marker_data
+	var marker_index
+	
+	func _init(tool_ref, data, index):
+		tool = tool_ref
+		marker_data = data
+		marker_index = index
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteMarkerRecord created for id: %d at index: %d" % [data["id"], index])
+	
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteMarkerRecord.redo() called for id: %d" % [marker_data["id"]])
+		tool._do_delete_marker(marker_index)
+	
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteMarkerRecord.undo() called for id: %d" % [marker_data["id"]])
+		tool._undo_delete_marker(marker_data, marker_index)
+	
+	func record_type():
+		return "GuidesLines.DeleteMarker"
+
+# History record for deleting all markers
+class DeleteAllMarkersRecord:
+	var tool
+	var saved_markers
+	
+	func _init(tool_ref, markers_data):
+		tool = tool_ref
+		saved_markers = markers_data
+	
+	func redo():
+		tool._do_delete_all()
+	
+	func undo():
+		tool._undo_delete_all(saved_markers)
+	
+	func record_type():
+		return "GuidesLines.DeleteAll"
+
+# ============================================================================
+# VARIABLES
+# ============================================================================
+
 var parent_mod = null
 var GuideMarkerClass = null
 var MarkerOverlayClass = null
@@ -32,20 +110,38 @@ var overlay = null  # Node2D for drawing
 # Initialize tool with reference to parent mod
 func _init(mod):
 	parent_mod = mod
+	# Note: LOGGER will be set by parent mod after initialization
 
 # Enable tool when selected in Dungeondraft
 func Enable():
 	is_enabled = true
+	if LOGGER:
+		LOGGER.info("Guide Markers tool ENABLED")
+	else:
+		print("GuidesLinesTool: Tool enabled but LOGGER is null!")
 
 # Disable tool when deselected
 func Disable():
 	is_enabled = false
+	if LOGGER:
+		LOGGER.info("Guide Markers tool DISABLED")
 
 var update_count = 0
+var last_log_update = 0
 
 # Main update loop - manages overlay and drawing
 func Update(_delta):
 	update_count += 1
+	
+	# Debug: Check LOGGER status on first update
+	if update_count == 1:
+		if LOGGER:
+			LOGGER.info("GuidesLinesTool.Update() first call - LOGGER is available")
+	
+	# Log status every 300 frames (5 seconds at 60fps)
+	if LOGGER and is_enabled and update_count - last_log_update > 300:
+		last_log_update = update_count
+		LOGGER.debug("Tool active: overlay=%s, markers=%d" % [str(overlay != null), markers.size()])
 	
 	if not is_enabled:
 		return
@@ -60,10 +156,14 @@ func Update(_delta):
 
 # Create overlay node for drawing markers and guide lines
 func _create_overlay():
+	if LOGGER:
+		LOGGER.info("Creating MarkerOverlay...")
 	overlay = MarkerOverlayClass.new()
 	overlay.tool = self
 	cached_worldui.add_child(overlay)
 	overlay.set_z_index(100)
+	if LOGGER:
+		LOGGER.info("MarkerOverlay created successfully")
 
 # Place a new marker at the specified position
 # Applies grid snapping and active guide line types
@@ -71,49 +171,44 @@ func place_marker(pos):
 	# Apply grid snapping if enabled
 	var snapped_pos = snap_position_to_grid(pos)
 	
-	# Use HistoryApi if available for undo/redo support
-	if Global.API and Global.API.has("HistoryApi"):
-		var history = Global.API.HistoryApi
-		var marker_data = {
-			"position": snapped_pos,
-			"types": active_marker_types.duplicate(),
-			"coordinates": show_coordinates,
-			"id": next_id
-		}
-		
-		history.create_and_push_action()\
-			.set_undo_text("Place Guide Marker")\
-			.set_do_func(funcref(self, "_do_place_marker"), [marker_data])\
-			.set_undo_func(funcref(self, "_undo_place_marker"), [next_id])\
-			.perform()
-		
-		next_id += 1
+	var marker_data = {
+		"position": snapped_pos,
+		"types": active_marker_types.duplicate(),
+		"coordinates": show_coordinates,
+		"id": next_id
+	}
+	
+	# Execute the action first
+	_do_place_marker(marker_data)
+	next_id += 1
+	
+	# Then add to history if available
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		if LOGGER:
+			LOGGER.debug("Adding marker placement to history (id: %d)" % [marker_data["id"]])
+		var record = PlaceMarkerRecord.new(self, marker_data)
+		parent_mod.Global.API.HistoryApi.record(record, 100)
 	else:
-		# Fallback without history support
-		_do_place_marker({
-			"position": snapped_pos,
-			"types": active_marker_types.duplicate(),
-			"coordinates": show_coordinates,
-			"id": next_id
-		})
-		next_id += 1
+		if LOGGER:
+			LOGGER.info("HistoryApi not available, marker placed without history")
 
 # Delete all markers from the map
 func delete_all_markers():
-	# Use HistoryApi if available
-	if Global.API and Global.API.has("HistoryApi") and markers.size() > 0:
-		var history = Global.API.HistoryApi
-		var saved_markers = []
-		for marker in markers:
-			saved_markers.append(marker.Save())
-		
-		history.create_and_push_action()\
-			.set_undo_text("Delete All Guide Markers")\
-			.set_do_func(funcref(self, "_do_delete_all"), [])\
-			.set_undo_func(funcref(self, "_undo_delete_all"), [saved_markers])\
-			.perform()
-	else:
-		_do_delete_all()
+	if markers.size() == 0:
+		return
+	
+	# Save state before deletion
+	var saved_markers = []
+	for marker in markers:
+		saved_markers.append(marker.Save())
+	
+	# Execute the action first
+	_do_delete_all()
+	
+	# Then add to history if available
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		var record = DeleteAllMarkersRecord.new(self, saved_markers)
+		parent_mod.Global.API.HistoryApi.record(record)
 
 func _do_delete_all():
 	markers.clear()
@@ -134,25 +229,24 @@ func _undo_delete_all(saved_markers):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Restored %d markers", [saved_markers.size()])
+		LOGGER.debug("Restored %d markers" % [saved_markers.size()])
 
 # Delete marker at specific position (within threshold)
 func delete_marker_at_position(pos, threshold = 20.0):
 	for i in range(markers.size() - 1, -1, -1):  # Iterate backwards for safe removal
 		var marker = markers[i]
 		if marker.position.distance_to(pos) < threshold:
-			# Use HistoryApi if available
-			if Global.API and Global.API.has("HistoryApi"):
-				var history = Global.API.HistoryApi
-				var marker_data = marker.Save()
-				
-				history.create_and_push_action()\
-					.set_undo_text("Delete Guide Marker")\
-					.set_do_func(funcref(self, "_do_delete_marker"), [i])\
-					.set_undo_func(funcref(self, "_undo_delete_marker"), [marker_data, i])\
-					.perform()
-			else:
-				_do_delete_marker(i)
+			# Save marker data before deletion
+			var marker_data = marker.Save()
+			
+			# Execute the action first
+			_do_delete_marker(i)
+			
+			# Then add to history if available
+			if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+				var record = DeleteMarkerRecord.new(self, marker_data, i)
+				parent_mod.Global.API.HistoryApi.record(record, 100)
+			
 			return true  # Marker was deleted
 	return false  # No marker found
 
@@ -163,7 +257,7 @@ func _do_delete_marker(index):
 		if overlay:
 			overlay.update()
 		if LOGGER:
-			LOGGER.debug("Marker deleted at index %d", [index])
+			LOGGER.debug("Marker deleted at index %d" % [index])
 
 func _undo_delete_marker(marker_data, index):
 	var marker = GuideMarkerClass.new()
@@ -175,7 +269,7 @@ func _undo_delete_marker(marker_data, index):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Marker restored at index %d", [index])
+		LOGGER.debug("Marker restored at index %d" % [index])
 
 # Helper functions for HistoryApi - place marker
 func _do_place_marker(marker_data):
@@ -190,8 +284,7 @@ func _do_place_marker(marker_data):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Marker placed at %v with types: %s", 
-			[marker_data["position"], str(marker_data["types"])])
+		LOGGER.debug("Marker placed at %s with types: %s" % [marker_data["position"], str(marker_data["types"])])
 
 func _undo_place_marker(marker_id):
 	# Find and remove marker by id
@@ -202,7 +295,7 @@ func _undo_place_marker(marker_id):
 			if overlay:
 				overlay.update()
 			if LOGGER:
-				LOGGER.debug("Marker placement undone (id: %d)", [marker_id])
+				LOGGER.debug("Marker placement undone (id: %d)" % [marker_id])
 			break
 
 # Toggle a guide line type on/off for new markers

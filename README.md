@@ -1,6 +1,6 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 1.0.9  
+**Version:** 1.0.10  
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
@@ -12,6 +12,18 @@ GuidesLines provides a flexible system for adding guide lines to your Dungeondra
 
 All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
 
+### What's New
+
+**Automatic Update Notifications**: The mod now checks for updates automatically using _Lib's UpdateChecker. When a new version is released on GitHub, you'll see a notification in the "Mod Versions" window (accessible from the Mods menu). Click the button to visit the download page.
+
+> **Note**: UpdateChecker will show "Repository does not have any releases" until the first GitHub Release is created. This is normal and doesn't affect mod functionality.
+
+**Full Undo/Redo Support**: All marker operations are now fully undoable:
+- Press **Ctrl+Z** to undo marker placement or deletion
+- Press **Ctrl+Y** (or Ctrl+Shift+Z) to redo operations
+- Works seamlessly with Dungeondraft's native undo system
+- History is preserved across all marker operations
+
 ## Features
 
 ### Placeable Guide Markers
@@ -22,6 +34,10 @@ All settings are conveniently located in the Guide Markers tool panel - no need 
 - **Persistent**: Markers are saved with your map
 - **Delete Mode**: Right-click to delete individual markers, or use "Delete All Markers" button
 - **Undo/Redo Support**: Full integration with Dungeondraft's history system (Ctrl+Z/Ctrl+Y)
+  - Undo/redo marker placement
+  - Undo/redo marker deletion
+  - Undo/redo "Delete All Markers" operations
+  - History limit: 100 operations per type (prevents memory overflow)
 
 ### Guide Line Types
 Select any combination of guide line types for each marker:
