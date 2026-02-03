@@ -19,6 +19,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.code-workspace
+.github/
 
 # Build artifacts
 *.o
