@@ -2,7 +2,253 @@
 
 All notable changes to the Guides Lines mod will be documented in this file.
 
-## [Unreleased] - Work in Progress
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.0.0] - 2026-02-15
+
+### 🎉 Major Release - Complete Redesign
+
+This is a **major breaking release** with a complete architectural overhaul. Maps saved with v2.0.0+ are **NOT** compatible with v1.x versions.
+
+### 🚀 Added
+
+**New Marker System**:
+- **Line Markers**: 
+  - Any angle (0-360°) with infinite length to map boundaries
+  - Mirror mode for symmetrical designs
+  - Mouse wheel adjustment (5° increments)
+  - Custom color per marker
+  
+- **Shape Markers**: 
+  - 5 subtypes: Circle, Square, Pentagon, Hexagon, Octagon
+  - Adjustable radius (0.5-100 cells)
+  - Full rotation (0-360°)
+  - Mouse wheel radius adjustment (0.5 cell increments)
+  - Mouse wheel rotation adjustment (5° increments)
+  - Custom color per marker
+  
+- **Path Markers**: 
+  - Multi-point custom paths with sequential placement
+  - Click to add points (minimum 2, no maximum)
+  - Right-click to finish as open path
+  - Click near first point to close path (creates loop, requires 3+ points)
+  - ESC to cancel placement
+  - Real-time preview with visual feedback:
+    - First point: green, larger
+    - Intermediate points: red, semi-transparent
+    - Preview line to cursor: white, dashed
+    - Pulsing green indicator when hovering to close
+  - Grid snapping support for each point
+  - Custom color per marker
+  
+- **Arrow Markers**: 
+  - 2-point directional arrows with arrowheads
+  - Automatic completion at second point
+  - Customizable arrowhead:
+    - Length: 10-200 pixels
+    - Angle: 10-60 degrees
+  - Right-click or ESC to cancel before second point
+  - Real-time preview showing arrow line and arrowhead
+  - Custom color per marker
+
+**Enhanced Features**:
+- Mouse wheel parameter adjustment while hovering over controls
+- Color picker for each marker with independent color memory per type
+- Smart UI: type-specific settings appear dynamically
+- Preview system shows exact appearance before placement
+- Quick angle buttons (0°, 45°, 90°, 135°) for Line markers
+- Quick angle buttons for Shape rotation
+
+### 🔄 Changed
+
+**Complete UI Redesign**:
+- Single marker type selector (dropdown instead of checkboxes)
+- Dynamic settings panels based on selected type
+- All marker parameters accessible before placement
+- Cleaner, more intuitive layout
+- Reset to Defaults button for all settings
+
+**Architecture Improvements**:
+- Single `marker_type` field instead of `marker_types` array
+- Each marker stores its own visual parameters
+- Type-specific settings stored independently
+- Simplified data model with better extensibility
+
+**Behavior Changes**:
+- Right-click now cancels Path/Arrow placement (no longer deletes markers during preview)
+- Right-click deletion only works when NOT in placement mode
+- Settings are remembered per-type when switching between marker types
+- Lines always extend to map boundaries (infinite appearance)
+
+### 💔 Breaking Changes
+
+**⚠️ THIS RELEASE BREAKS BACKWARD COMPATIBILITY**
+
+- **Save Format**: Maps saved with v2.0.0 cannot be loaded in v1.x
+  - Old marker format (vertical/horizontal/diagonal) completely removed
+  - New format uses single type with parameters
+  - No automatic migration from v1.x to v2.0.0
+  
+- **API Changes**: 
+  - `GuideMarker.has_type()` removed
+  - `GuideMarker.add_type()` removed
+  - `GuideMarker.remove_type()` removed
+  - Replaced with: `marker_type`, `angle`, `line_range`, `circle_radius`, `shape_subtype`, `shape_angle`, `path_points`, `path_closed`, `arrow_head_length`, `arrow_head_angle`, `color`, `mirror`
+
+**Migration Path**:
+- ⚠️ **Backup all maps** before upgrading from v1.x
+- Old maps must be recreated with new marker system
+- No automated conversion tool available
+
+### 🐛 Fixed
+
+- Fixed Shape markers not showing in correct rotation
+- Fixed coordinate display showing incorrect distances for diagonal lines
+- Fixed undo/redo not properly restoring marker visual state
+- Fixed preview not updating when adjusting parameters with mouse wheel
+- Fixed Path placement allowing single-point paths
+- Fixed Arrow placement allowing cancellation after completion
+- Fixed color not persisting when switching marker types
+- Fixed Shape angle controls not disabling for Circle subtype
+
+### 🔧 Technical Changes
+
+**Code Structure**:
+- Refactored `GuidesLinesTool.gd` (~800 lines modified)
+  - Single `active_marker_type` instead of array
+  - Added `type_settings` dictionary for per-type state
+  - Path/Arrow placement state machines
+  - Mouse wheel event handling
+  
+- Refactored `GuideMarker.gd` (~200 lines modified)
+  - Flat property structure for all marker types
+  - Simplified serialization/deserialization
+  - Removed backward compatibility code
+  
+- Refactored `MarkerOverlay.gd` (~640 lines modified)
+  - Path preview rendering with visual feedback
+  - Arrow preview with arrowhead display
+  - Shape rendering with rotation support
+  - Mouse wheel input handling
+  - ESC key cancellation support
+
+**History System**:
+- Custom record classes now track full marker state including visual parameters
+- Proper restoration of color, angle, radius, and all type-specific properties
+- History limits maintained (100 records per operation type)
+
+**Constants**:
+- Added: `MARKER_TYPE_LINE`, `MARKER_TYPE_SHAPE`, `MARKER_TYPE_PATH`, `MARKER_TYPE_ARROW`
+- Added: `SHAPE_SUBTYPE_CIRCLE`, `SHAPE_SUBTYPE_SQUARE`, etc.
+- Renamed: `LINE_COLOR` → `DEFAULT_LINE_COLOR`
+- Added: Default values for all marker parameters
+
+### 📝 Documentation
+
+- Complete README rewrite for new marker system
+- Updated all screenshots and examples
+- New usage sections for each marker type
+- Migration guide for v1.x users (see "Breaking Changes" above)
+
+### ⚡ Performance
+
+- Optimized rendering for multiple markers
+- Reduced redundant coordinate calculations
+- Improved preview update efficiency
+- Better memory management for Path markers with many points
+
+### 🧪 Testing Status
+
+- ✅ Line markers: angles, mirror, color, infinite extension
+- ✅ Shape markers: all subtypes, rotation, radius, color
+- ✅ Path markers: placement, closing, cancellation, preview
+- ✅ Arrow markers: placement, cancellation, arrowhead customization
+- ✅ Undo/redo: all operations with full state restoration
+- ✅ Save/load: new format serialization
+- ✅ Custom_snap integration: grid snapping with custom grids
+- ✅ Performance testing with 100+ markers
+- ✅ Edge cases: large radii, extreme arrow lengths
+
+---
+
+## [1.0.10] - 2026-02-04
+
+### Added
+- **UpdateChecker Integration**: Automatic update notifications
+- **HistoryApi Integration**: Full undo/redo support
+
+### Fixed
+- Corrected Logger API usage
+- Fixed Global.API references
+
+### Technical Changes
+- Custom History Record classes
+- UpdateChecker for GitHub repository
+
+---
+
+## [1.0.9] - 2026-02-03
+
+### Changed
+- **UI Redesign**: All settings in tool panel
+
+### Fixed
+- **_Lib-1.2.0 Compatibility**: Complete rewrite for new API
+
+### Technical Changes
+- Removed ModConfig integration
+- Updated Logger initialization
+
+---
+
+## [1.0.8] - 2026-02-01
+
+### Added
+- **Logger API Integration**
+- **HistoryApi Integration**
+- **ModConfigApi Integration**
+
+### Improved
+- **ModRegistry Integration**
+- **Code Quality**
+
+---
+
+## [1.0.7] - 2026-02-01
+
+### Updated
+- **Compatibility Update**: _Lib 1.2.0
+
+---
+
+## [1.0.6] - 2026-01-17
+
+### Fixed
+- Application crash when `custom_snap` not activated
+
+### Improved
+- Smart Coordinates Toggle
+
+---
+
+## [1.0.5] - 2026-01-XX
+
+### Features
+- Basic guide lines system
+- Multiple marker types (vertical, horizontal, diagonal)
+- Grid coordinate display
+- Snap to grid with custom_snap support
+
+---
+
+[2.0.0]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.10...v2.0.0
+[1.0.10]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.9...v1.0.10
+[1.0.9]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.8...v1.0.9
+[1.0.8]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.7...v1.0.8
+[1.0.7]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.6...v1.0.7
+[1.0.6]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.5...v1.0.6
+[1.0.5]: https://github.com/ChosonDev/GuidesLines/releases/tag/v1.0.5
 
 ### Changed - Major Refactoring (Phase 2)
 - **Shape Marker System**: Completely redesigned Circle markers into versatile Shape markers

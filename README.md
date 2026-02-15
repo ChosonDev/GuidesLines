@@ -1,531 +1,600 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 1.0.10 (WIP)  
+**Version:** 2.0.0  
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-## Overview
+---
 
-GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, infinite length), **Shape markers** (Circle, Square, Pentagon, Hexagon, Octagon - with rotation), **Path markers** (multi-point custom paths), or **Arrow markers** (2-point directional arrows with arrowheads). Customize colors, mirror lines, rotate shapes, arrowhead size, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
+## ⚠️ Version 2.0.0 - Breaking Changes
 
-All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
+**This is a major release with breaking changes. Maps saved with v2.0.0 are NOT compatible with v1.x versions.**
 
-### Recent Changes (Work in Progress)
+### What's New in 2.0.0
 
-**⚠️ Major Refactoring in Progress**
+- 🎨 **Complete marker system redesign** - flexible, extensible architecture
+- 🔄 **4 marker types**: Line, Shape, Path, Arrow (vs 3 fixed types in v1.x)
+- 🎯 **Infinite customization** - angles, colors, sizes for each marker
+- 🖱️ **Mouse wheel controls** - adjust parameters in real-time
+- 👁️ **Enhanced previews** - see exactly what you'll get before placing
+- ⚡ **Better performance** - optimized rendering engine
 
-The marker system has been completely redesigned for maximum flexibility:
+### Migration from v1.x
 
-- **Old System** (v1.0.10 and earlier): Fixed guide types (vertical, horizontal, diagonal left, diagonal right) with checkboxes
-- **New System** (current WIP): Flexible marker types with customizable parameters:
-  - **Line Markers**: Any angle (0-360°), **infinite length to map boundaries**, mirror mode, custom color
-  - **Shape Markers**: 5 subtypes (Circle, Square, Pentagon, Hexagon, Octagon), any radius, **rotation (0-360°)**, custom color
-  - **Path Markers**: Multi-point custom paths with sequential placement
-    - Draw complex paths with any number of points
-    - Click to add points, right-click to finish, ESC to cancel
-    - Close path by clicking near first point (creates loop)
-    - Real-time preview with visual feedback
-  - **Arrow Markers**: 2-point directional arrows with arrowheads
-    - Automatically finishes at second point
-    - Customizable arrowhead length (10-200 pixels) and angle (10-60 degrees)
-    - Real-time preview shows arrow line and arrowhead
-    - **Right-click or ESC to cancel during placement**
-  - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Shapes) in real-time
-  - **Color Customization**: Each marker can have its own color
-  - **More Types Coming**: Architecture supports adding new marker types in future
+**⚠️ IMPORTANT: Backup your maps before upgrading!**
 
-> **Breaking Change**: Maps saved with the new system will NOT be compatible with v1.0.10 or earlier versions. Backup your maps before upgrading!
+1. **Export your v1.x maps** as images/exports before upgrading
+2. **Install v2.0.0** in a fresh Dungeondraft mods folder
+3. **Recreate markers** using the new flexible system (much more powerful!)
 
-### What's New
+There is **no automatic migration** - the data formats are incompatible at the fundamental level.
 
-**Automatic Update Notifications**: The mod now checks for updates automatically using _Lib's UpdateChecker. When a new version is released on GitHub, you'll see a notification in the "Mod Versions" window (accessible from the Mods menu). Click the button to visit the download page.
+---
 
-> **Note**: UpdateChecker will show "Repository does not have any releases" until the first GitHub Release is created. This is normal and doesn't affect mod functionality.
+## Table of Contents
 
-**Full Undo/Redo Support**: All marker operations are now fully undoable:
-- Press **Ctrl+Z** to undo marker placement or deletion
-- Press **Ctrl+Y** (or Ctrl+Shift+Z) to redo operations
-- Works seamlessly with Dungeondraft's native undo system
-- History is preserved across all marker operations
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Placing Line Markers](#placing-line-markers)
+  - [Placing Shape Markers](#placing-shape-markers)
+  - [Placing Path Markers](#placing-path-markers)
+  - [Placing Arrow Markers](#placing-arrow-markers)
+  - [Managing Markers](#managing-markers)
+  - [Overlay Features](#overlay-features)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Technical Details](#technical-details)
+- [Troubleshooting](#troubleshooting)
+- [Compatibility](#compatibility)
+- [License](#license)
+
+---
 
 ## Features
 
-### Flexible Custom Markers
-- **Custom Tool**: Dedicated "Guide Markers" tool in the Design category
-- **Marker Types**: Choose between Line, Shape, Path, or Arrow markers (more types possible in future)
-- **Line Markers**:
-  - Any angle from 0° to 360° (adjustable via spinbox or mouse wheel)
-  - **Always draw to map boundaries** (infinite length for perfect alignment)
-  - Mirror mode (creates second line at 180° offset)
-  - Customizable color
-- **Shape Markers** (NEW):
-  - **5 Shape Subtypes**: Circle, Square, Pentagon, Hexagon, Octagon
-  - Any radius in grid cells (adjustable via spinbox or mouse wheel)
-  - **Rotation**: Angle control (0-360°) to rotate shapes (disabled for Circle)
-  - **Quick Angle Buttons**: Instant rotation to 0°, 45°, 90°, or 135°
-  - Grid snapping support for precise placement
-  - Customizable color
-  - Coordinate display at shape center
-- **Path Markers**:
-  - Multi-point custom paths with interactive placement
-  - Click to add points sequentially (minimum 2 points)
-  - Right-click to finish as open path
-  - Click near first point to close path (creates loop, requires 3+ points)
-  - ESC to cancel placement
-  - Real-time preview with visual feedback:
-    - First point: green, larger
-    - Intermediate points: red, semi-transparent
-    - Preview line to cursor: white, dashed
-    - Pulsing indicator when hovering to close
-  - Grid snapping support for each point
-  - Customizable color
-- **Arrow Markers**:
-  - 2-point directional arrows with arrowheads
-  - Click to place start point, then second click places end point and finishes arrow
-  - Automatically completes at second point
-  - Customizable arrowhead:
-    - Length: 10-200 pixels (adjustable via spinbox)
-    - Angle: 10-60 degrees (adjustable via spinbox)
-  - Real-time preview:
-    - Green start point
-    - White preview line from start to cursor
-    - Preview arrowhead at cursor position
-  - **Right-click or ESC to cancel** placement before second point
-  - Grid snapping support for both points
-  - Customizable color
-- **Real-Time Preview**: See exact marker appearance before placing
-- **Mouse Wheel Adjustment**: Scroll to change angle (Lines) or radius (Circles) while hovering
-- **Grid Snapping**: Optional snap-to-grid placement (works with custom_snap mod if installed)
-- **Persistent**: Markers are saved with your map
-- **Delete Mode**: Right-click to delete individual markers, or use "Delete All Markers" button
-- **Undo/Redo Support**: Full integration with Dungeondraft's history system (Ctrl+Z/Ctrl+Y)
-  - Undo/redo marker placement (including complete paths)
-  - Undo/redo marker deletion
-  - Undo/redo "Delete All Markers" operations
-  - History limit: 100 operations per type (prevents memory overflow)
+### 🎨 Flexible Marker System
 
-### Overlay Options
+**4 Powerful Marker Types:**
 
-All overlay settings are accessible directly in the Guide Markers tool panel:
+1. **Line Markers**
+   - Any angle from 0° to 360°
+   - Infinite length extending to map boundaries
+   - Mirror mode for symmetrical designs
+   - Mouse wheel angle adjustment (5° increments)
+   - Custom color per marker
+   - Perfect for alignment and perspective guides
 
-- **Cross Guides** (Proximity-Based): Red/green crosshair guides that appear only near your cursor (5-tile radius)
-- **Vertical Center Line**: Permanent yellow vertical guide line at map center
-- **Horizontal Center Line**: Permanent yellow horizontal guide line at map center
-- **Show Grid Coordinates**: Toggle coordinate labels on all active guide lines
+2. **Shape Markers**
+   - 5 subtypes: Circle, Square, Pentagon, Hexagon, Octagon
+   - Radius: 0.5 to 100 grid cells
+   - Full rotation support (except circles)
+   - Mouse wheel radius adjustment (0.5 cell increments)
+   - Mouse wheel rotation adjustment (5° increments for shapes)
+   - Custom color per marker
+   - Ideal for circular rooms, polygonal features, area planning
 
-### Grid Coordinates Display
+3. **Path Markers**
+   - Multi-point custom paths (minimum 2 points, no maximum)
+   - Open or closed paths
+   - Sequential placement with visual feedback
+   - Right-click to finish, ESC to cancel
+   - Grid snapping for each point
+   - Custom color per marker
+   - Perfect for complex curves, custom boundaries, organic shapes
 
-Both markers and permanent guides can display grid coordinates along their lines:
+4. **Arrow Markers**
+   - 2-point directional arrows
+   - Customizable arrowhead (length 10-200px, angle 10-60°)
+   - Automatic completion at second point
+   - Real-time preview
+   - Custom color per marker
+   - Great for indicating flow, direction, connections
 
-- **Grid Node Markers**: Small blue circles at each grid intersection along the guide lines
-- **Distance Numbers**: Large numbers showing distance from the line's center in grid cells
-- **Auto-Scaling**: Text and markers scale with camera zoom for consistent visibility
-- **Custom Grid Support**: Works with both vanilla Dungeondraft grid and custom_snap modified grids
-- **Map Boundaries**: Coordinates only display within map boundaries
+### 🖱️ Interactive Controls
 
-**For Markers:**
-- Enable "Show Coordinates" checkbox in the Guide Markers tool
-- Automatically enables and locks "Snap to Grid" to ensure accurate positioning
-- Coordinates appear only on placed markers (not in preview)
-- Works for all line types: vertical, horizontal, and diagonal
+- **Mouse Wheel Adjustment**: Scroll to modify angle/radius while hovering
+- **Quick Angle Buttons**: 0°, 45°, 90°, 135° presets for common angles
+- **Color Picker**: Independent color for each marker
+- **Real-time Preview**: See exactly what you'll place
+- **Settings Memory**: Each marker type remembers its last settings
 
-**For Permanent Guides:**
-- Enable "Show Grid Coordinates" checkbox in the Guide Overlays section
-- Requires at least one permanent line (vertical or horizontal) to be enabled
-- Shows coordinates on permanent center lines
-- Includes a red center marker dot for easy map center identification
+### 📐 Advanced Features
 
-### Additional Features
+- **Grid Snapping**: Works with vanilla and custom_snap mod grids
+- **Coordinate Display**: Show grid positions on guide lines
+- **Overlay System**:
+  - Proximity guides (cross overlays near cursor)
+  - Permanent center guides (vertical/horizontal)
+  - Coordinate markers on guide lines
+- **Full Undo/Redo**: Every operation is undoable (Ctrl+Z / Ctrl+Y)
+- **Auto-Updates**: GitHub release notifications via UpdateChecker
 
-All overlay options are integrated into the Guide Markers tool panel:
+### 💾 Persistence
 
-- **Cross Guides**: Red/green crosshair guides that appear when cursor is near a marker (proximity-based, 5-tile radius)
-- **Permanent Center Lines**: Yellow vertical and/or horizontal lines at exact map center
-- **Grid Coordinates**: Display grid position markers and distance numbers on all active guide lines
+- Markers saved with map files
+- All visual parameters preserved (angle, color, radius, etc.)
+- Backward compatible within v2.x versions
+
+---
+
+## Installation
+
+### Requirements
+
+- **Dungeondraft** 1.1.1.1 or later
+- **_Lib** 1.2.0 (required dependency)
+
+### Steps
+
+1. **Download** the latest release from [GitHub](https://github.com/ChosonDev/GuidesLines/releases)
+2. **Extract** to your Dungeondraft mods folder:
+   - **Windows**: `%AppData%\Dungeondraft\mods\`
+   - **macOS**: `~/Library/Application Support/Dungeondraft/mods/`
+   - **Linux**: `~/.local/share/Dungeondraft/mods/`
+3. **Install _Lib** if not already present (from [_Lib releases](https://github.com/CreepyCre/_Lib/releases))
+4. **Restart** Dungeondraft
+
+### Verification
+
+1. Launch Dungeondraft
+2. Check **Mods** menu → **Mod Versions** - should show "Guide Markers v2.0.0"
+3. Create/open a map
+4. Select **Design** category → **Guide Markers** tool
+5. Tool panel should display marker type dropdown and settings
+
+---
 
 ## Usage
 
-### Placing Markers
+### Placing Line Markers
 
-1. Select the **"Guide Markers"** tool from the Design category
-2. **Choose Marker Type** from the dropdown:
-   - **Line**: Creates a guide line at specified angle (infinite length)
-   - **Shape**: Creates a shape guide (Circle, Square, Pentagon, Hexagon, or Octagon)
-   - **Path**: Creates a multi-point custom path guide
-   - **Arrow**: Creates a 2-point directional arrow with arrowhead
-3. **Configure Marker Settings**:
-   
-   **For Line Markers:**
-   - **Angle**: Set the line angle in degrees (0-360°)
-     - 0° = Horizontal right
-     - 90° = Vertical down
-     - 180° = Horizontal left
-     - 270° = Vertical up
-     - Or scroll mouse wheel while hovering to adjust in 5° increments
-   - **Mirror**: Check to create a second line at 180° offset (great for symmetry)
-   - **Color**: Click color button to choose custom color (default: blue)
-   - Lines always draw to map boundaries (infinite length)
-   
-   **For Shape Markers:**
-   - **Shape**: Choose subtype (Circle, Square, Pentagon, Hexagon, Octagon)
-   - **Radius**: Set shape radius in grid cells
-     - Or scroll mouse wheel while hovering to adjust in 0.5 cell increments
-   - **Angle**: Rotate the shape (0-360°, disabled for Circle)
-     - Quick buttons: 0°, 45°, 90°, 135° for common rotations
-   - **Color**: Click color button to choose custom color (default: blue)
-   
-   **For Path Markers:**
-   - **Interactive Placement Mode**: Path markers use a special multi-step placement process
-   - Instructions are displayed in the tool panel
-   - No pre-configuration needed - all setup happens during placement
-   - **Color**: Choose color before starting path placement
-   
-   **For Arrow Markers:**
-   - **Arrowhead Length**: Set arrowhead line length in pixels (10-200)
-   - **Arrowhead Angle**: Set arrowhead wing angle in degrees (10-60)
-   - **Interactive Placement Mode**: Arrow markers use 2-point placement
-   - **Color**: Choose color before starting arrow placement
-   - **Right-click or ESC** to cancel placement before second point
-3. **(Optional)** Enable "Show Coordinates" to display grid position markers and numbers
-   - This automatically enables "Snap to Grid" for accurate positioning
-   - Coordinates show distance from marker center in grid cells
-   - Works with custom_snap modified grids
-4. Click anywhere on the map to place a marker
-5. Guide lines will appear instantly through the marker position
-6. **Tip**: Enable "Snap to Grid" for precise grid-aligned placement
+**Best for: alignment, perspective, symmetry**
 
-### Placing Path Markers (Multi-Point Placement)
+1. Select **Guide Markers** tool (Design category)
+2. Choose **"Line"** from marker type dropdown
+3. Configure settings:
+   - **Angle**: 0-360° (or use quick buttons: 0°, 45°, 90°, 135°)
+   - **Mirror**: Check for symmetrical paired line at 180° offset
+   - **Color**: Click to pick custom color
+   - **Tip**: Hover over angle spinbox and scroll mouse wheel to adjust in 5° increments
+4. Optional: Enable "Snap to Grid" for precise positioning
+5. Click on map to place marker
+6. Guide lines appear instantly, extending infinitely to map edges
 
-Path markers use a special interactive placement mode:
+**Angle Reference:**
+- 0° = Horizontal right →
+- 90° = Vertical down ↓
+- 180° = Horizontal left ←
+- 270° = Vertical up ↑
 
-1. **Select Path Type** from the marker type dropdown
-2. **Read Instructions** in the tool panel (they appear when Path is selected)
-3. **Start Placement**: Click on the map to place the first point (shown in green)
-4. **Add Points**: Continue clicking to add more points sequentially
-   - Each point will be connected to the previous one with a line
-   - Preview shows: green first point, red intermediate points, white line to cursor
-   - Status label shows current point count
-5. **Finish the Path** (two options):
-   
-   **Option A - Close Path (Create Loop):**
-   - Click near the first point (within 30 pixels)
-   - A pulsing green circle will appear when you're close enough
-   - Requires minimum 3 points
-   - Creates a closed path with line connecting last point to first
-   
-   **Option B - Open Path:**
-   - Right-click anywhere to finish
-   - Requires minimum 2 points
-   - Creates an open path (no closing line)
+**Mirror Mode:** Creates two lines through the same point at opposite angles (great for symmetry axes)
 
-6. **Cancel Placement**: Press ESC key or right-click at any time to cancel and start over
+---
 
-**Path Placement Tips:**
-- Each point automatically snaps to grid (if "Snap to Grid" is enabled)
-- The preview line helps visualize where the next segment will go
-- You can place as many points as needed (no maximum limit)
-- Coordinates display (if enabled) shows cumulative distance from path start
-- Undo/Redo works on complete paths (entire path is one marker)
+### Placing Shape Markers
 
-### Placing Arrow Markers (2-Point Placement)
+**Best for: circular rooms, polygonal structures, area planning**
 
-Arrow markers use a simple 2-point placement mode with automatic completion:
+1. Select **Guide Markers** tool
+2. Choose **"Shape"** from dropdown
+3. Select **Shape Subtype**:
+   - Circle
+   - Square
+   - Pentagon (5 sides)
+   - Hexagon (6 sides)
+   - Octagon (8 sides)
+4. Configure settings:
+   - **Radius**: 0.5-100 grid cells
+     - **Tip**: Hover over radius spinbox and scroll mouse wheel (0.5 cell increments)
+   - **Shape Angle**: 0-360° rotation (disabled for circles)
+     - **Tip**: Use quick angle buttons or scroll mouse wheel while hovering (5° increments)
+     - Rotates the entire shape around its center
+   - **Color**: Custom color picker
+5. Optional: Enable "Snap to Grid"
+6. Click to place marker at shape center
+7. Shape outline appears with specified radius and rotation
 
-1. **Select Arrow Type** from the marker type dropdown
-2. **Configure Arrowhead**:
-   - **Arrowhead Length**: Set length of arrowhead lines (10-200 pixels)
-   - **Arrowhead Angle**: Set angle of arrowhead wings (10-60 degrees)
-   - These can be adjusted before or between placements
-3. **Start Placement**: Click on the map to place the start point (shown in green)
-   - Preview shows green start point and white line to cursor with arrowhead
-4. **Complete Arrow**: Click second point to finish
-   - Arrow automatically completes after second point
-   - Arrow points from first point to second point
-   - Arrowhead appears at the second (end) point
-5. **Cancel Placement**: Press ESC key or right-click before second point to cancel
+**Shape Angle Behavior:**
+- Square: rotates on all 4 corners
+- Pentagon/Hexagon/Octagon: rotates all vertices
+- Circle: angle control disabled (circles have no rotation)
 
-**Arrow Placement Tips:**
-- Both points automatically snap to grid (if "Snap to Grid" is enabled)
-- Preview shows exact arrow appearance including arrowhead
-- Arrowhead scales with camera zoom for consistent visibility
-- Coordinates display (if enabled) shows start and end point distances
-- Undo/Redo works on complete arrows (entire arrow is one marker)
-- Great for indicating direction, flow, or pointing to map features
+---
 
-### Preview Mode
+### Placing Path Markers
 
-Before placing a marker, you'll see a semi-transparent red preview showing:
-- Where the marker will be placed
-- Which guide lines will be drawn
-- How they'll look at that position
+**Best for: complex curves, custom boundaries, organic shapes**
 
-**For Path Markers**, the preview is interactive:
-- First point: Green, larger
-- Intermediate points: Red, semi-transparent
-- Active preview line: White, from last point to cursor
-- Close indicator: Pulsing green circle when hovering near first point
+Path markers use **interactive sequential placement**:
 
-**For Arrow Markers**, the preview is interactive:
-- Start point: Green, larger
-- Preview line: White, from start point to cursor
-- Preview arrowhead: Shows exact arrowhead appearance at cursor
+1. Select **Guide Markers** tool
+2. Choose **"Path"** from dropdown
+3. Configure color (other settings disabled during placement)
+4. **Start placement**: Click on map for first point
+   - Point appears in **green** (larger size)
+   - Placement mode activates automatically
+5. **Add points**: Click to add more points
+   - Each new point connects to previous
+   - Points shown in **red** (semi-transparent)
+   - **White dashed line** previews next segment to cursor
+6. **Finish placement**:
+   - **Right-click**: Finish as open path (minimum 2 points)
+   - **Click near first point**: Close path into loop (minimum 3 points)
+     - Pulsing green circle indicates "close zone"
+   - **ESC key**: Cancel and discard all points
+7. Path appears in chosen color
 
-This helps ensure perfect placement before committing.
+**Path Tips:**
+- Each point snaps to grid (if enabled)
+- Preview line shows exactly where next segment will go
+- Coordinate display (if enabled) shows cumulative distance from start
+- No maximum point limit (tested up to 100+ points)
+- Can't edit path after placement - use undo (Ctrl+Z) to remove and start over
+
+---
+
+### Placing Arrow Markers
+
+**Best for: direction indicators, flow, connections**
+
+Arrow markers use **2-point placement** with automatic completion:
+
+1. Select **Guide Markers** tool
+2. Choose **"Arrow"** from dropdown
+3. Configure **Arrow head**:
+   - **Head Length**: 10-200 pixels (arrowhead line length)
+   - **Head Angle**: 10-60 degrees (wing angle)
+4. Configure **Color**
+5. **Start placement**: Click for arrow start point
+   - Point appears in **green**
+   - White preview line follows cursor with arrowhead preview
+6. **Complete arrow**: Click for end point
+   - Arrow automatically finishes (no third click needed)
+   - Arrowhead appears at end point
+   - Arrow points from start → end
+7. **Cancel placement** (before second point):
+   - **Right-click** or **ESC key**
+
+**Arrow Tips:**
+- Both points snap to grid (if enabled)
+- Preview shows exact arrowhead appearance
+- Arrowhead scales with camera zoom for visibility
+- Can adjust head length/angle before or between placements
+- Coordinate display shows start and end distances
+
+---
 
 ### Managing Markers
 
-#### Moving Markers
-Markers are **not** movable after placement. To reposition:
-1. Delete the marker (right-click or delete mode)
-2. Place a new one at the desired location
-3. Use Ctrl+Z to undo if needed
-
 #### Deleting Markers
 
-**Right-Click Deletion (Quick):**
-- Right-click near any marker to delete it instantly
-- Fully supports undo/redo (Ctrl+Z/Ctrl+Y)
+**Method 1: Right-Click (Quick)**
+- Right-click near any marker to delete instantly
+- Works when NOT in path/arrow placement mode
+- Fully undoable (Ctrl+Z)
 
-**Delete Mode (Precise):**
-1. Enable **"Delete Markers Mode"** checkbox in the tool panel
-2. All other options will be disabled while delete mode is active
-3. Preview marker will be hidden
-4. Click near any marker (within 20 pixels) to delete it
-5. Disable "Delete Markers Mode" to return to placement mode
+**Method 2: Delete Mode (Precise)**
+1. Enable **"Delete Markers Mode"** checkbox
+2. All other options disabled, preview hidden
+3. Click near marker (within 20 pixels of center) to delete
+4. Disable checkbox to return to placement mode
 
-**Delete All:**
-- Click **"Delete All Markers"** button to remove all markers instantly
-- Fully supports undo/redo
+**Method 3: Delete All**
+- Click **"Delete All Markers"** button
+- Removes all markers instantly
+- Fully undoable (Ctrl+Z)
 
-#### Grid Snapping
-- **Enabled by default** - markers snap to grid
-- Works with **custom_snap** mod if installed for enhanced snapping
-- Falls back to vanilla Dungeondraft snapping otherwise
-- Uncheck "Snap to Grid" for freeform placement
-- **Note**: "Snap to Grid" is automatically locked when "Show Coordinates" is enabled
+#### Undo/Redo
 
-### Using Overlay Features
+- **Ctrl+Z**: Undo last operation (placement, deletion, delete all)
+- **Ctrl+Y** (or Ctrl+Shift+Z): Redo operation
+- History limit: 100 operations per type
+- Full state restoration (color, angle, all parameters)
 
-#### Guide Overlays Section:
-All overlay settings are in the Guide Markers tool panel under "Guide Overlays":
+#### Notes
 
-1. **Cross Guides**: Toggle proximity-based crosshairs
-   - Red crosshairs when outside snap radius
-   - Green crosshairs when inside snap radius
-   - Only appear within 5 tiles of a placed marker
+- **Markers cannot be moved** - delete and recreate to reposition
+- **Use preview** to verify placement before clicking
+- **Right-click deletion** doesn't work during path/arrow placement
 
-2. **Vertical Center Line**: Toggle permanent yellow vertical line at map center
+---
 
-3. **Horizontal Center Line**: Toggle permanent yellow horizontal line at map center
+### Overlay Features
 
-4. **Show Grid Coordinates**: Toggle coordinate display
-   - Works on all active guide lines (marker-based or permanent)
-   - Blue dots at grid intersections
-   - Distance numbers from line center
-   - Red center dot for permanent guides
+#### Proximity Guides (Cross Overlays)
 
-**Custom Grid Compatibility:**
-- If custom_snap mod is active, coordinates adapt to the modified grid
+**When enabled, shows guide lines when cursor approaches a marker:**
 
-- Works with square, hexagonal, and isometric grids
-- Permanent lines snap to nearest grid node as center
-- Distance calculations account for custom grid spacing and offset
+- Vertical and horizontal lines through marker center
+- Appears when cursor within configurable distance
+- Helps align new elements with existing markers
+- Toggle: **"Show Cross Guides"** checkbox
 
-## File Structure
+#### Permanent Center Guides
 
-```
-GuidesLines_v7/
-├── GuidesLines.gd              # Main mod file - lifecycle and coordination
-├── GuidesLines.ddmod           # Mod metadata
-├── README.md                   # This file
-├── CHANGELOG.md                # Version history
-└── scripts/
-    ├── GuideMarker.gd          # Marker data class with multi-type support
-    ├── GuidesLinesTool.gd      # Tool for placing/managing markers
-    ├── MarkerOverlay.gd        # Rendering engine for markers and guides
-    ├── CrossOverlay.gd         # Proximity-based guide overlays
-    └── PermanentOverlay.gd     # Permanent center guide overlays
-```
+**Fixed guide lines through map center:**
+
+- **Permanent Vertical Guide**: Vertical line through center
+- **Permanent Horizontal Guide**: Horizontal line through center
+- Always visible when enabled (not tied to cursor)
+- Great for symmetry and map center reference
+- Toggle independently in **Guide Overlays** section
+
+#### Grid Coordinates
+
+**Display coordinate markers on guide lines:**
+
+- Shows grid position at intersections
+- Numbers indicate distance from marker center in cells
+- Red center dot marks reference point (0, 0)
+- Automatically enables "Snap to Grid" when activated
+- Toggle: **"Show Grid Coordinates"** checkbox
+- Works with custom_snap modified grids
+
+**Smart Behavior:**
+- Auto-disables when no guide lines active
+- Updates dynamically as markers are added/removed
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| **ESC** | Cancel path/arrow placement |
+| **Right-Click** | Finish path (open) / Cancel arrow / Delete marker (when not placing) |
+| **Ctrl+Z** | Undo last operation |
+| **Ctrl+Y** / **Ctrl+Shift+Z** | Redo operation |
+| **Mouse Wheel Up/Down** (over Angle) | Adjust angle ±5° |
+| **Mouse Wheel Up/Down** (over Radius) | Adjust radius ±0.5 cells |
+
+---
 
 ## Technical Details
 
-### Current Development Status
-
-This is a **work-in-progress version** with major architectural changes:
-
-- ✅ Core marker system redesigned (Line and Circle types)
-- ✅ UI rebuilt with type selector and dynamic controls
-- ✅ Mouse wheel parameter adjustment implemented
-- ✅ Color picker integration complete
-- ✅ Line angle/range/mirror functionality working
-- ✅ Circle radius functionality working
-- ✅ Save/Load updated for new format
-- ⚠️ Backward compatibility removed (old maps won't load)
-- ⚠️ Coordinate display needs testing with new system
-- ⚠️ Extensive testing needed before release
-
 ### Architecture
 
-The mod uses a clean separation of concerns:
+**Clean separation of concerns:**
 
-1. **GuidesLines.gd**: Main coordinator
+1. **GuidesLines.gd** - Main coordinator
    - Registers with Dungeondraft and _Lib API
    - Creates tools and manages lifecycle
    - Handles save/load operations
-   - Manages overlay callbacks and state
-   
-2. **GuidesLinesTool.gd**: Tool logic
-   - Manages marker creation and storage
-   - Handles UI interactions and all settings
-   - Integrates with custom_snap if available
-   - Provides callbacks for overlay toggles
-   
-3. **MarkerOverlay.gd**: Rendering engine
-   - Draws all markers and guide lines
-   - Handles preview rendering
-   - Calculates diagonal line intersections
-   
-4. **GuideMarker.gd**: Data model
-   - Stores marker position and types
-   - Provides serialization for save/load
-   - Backward compatible with v2 format
+   - Manages overlay callbacks
 
-5. **CrossOverlay.gd & PermanentOverlay.gd**: Overlay systems
-   - Proximity-based and permanent guide overlays
+2. **GuidesLinesTool.gd** - Tool logic
+   - Marker creation and storage
+   - UI interactions and settings management
+   - Path/Arrow placement state machines
+   - Custom_snap integration
+   - History record creation
+
+3. **MarkerOverlay.gd** - Rendering engine
+   - Draws all marker types and guide lines
+   - Handles preview rendering
+   - Path/Arrow interactive previews
+   - Mouse wheel input handling
+
+4. **GuideMarker.gd** - Data model
+   - Stores marker type and all parameters
+   - Serialization for save/load
+   - Single flat structure for all types
+
+5. **CrossOverlay.gd & PermanentOverlay.gd** - Overlay systems
+   - Proximity-based and permanent guides
    - Coordinate display system
    - Grid compatibility layer
 
-### Integration Features
+### Integration
 
-- **_Lib-1.2.0 API**: Uses modern `self.Global.API` pattern for all API access
-- **Logger API**: Professional logging with InstancedLogger (auto-scoped to mod name)
-- **HistoryApi**: Full undo/redo support for all marker operations
-- **ModRegistry API**: Enhanced mod detection (custom_snap compatibility)
-- **custom_snap Compatibility**: Uses custom_snap for grid snapping if available
-- **Save/Load**: Markers persist with map files in the `guide_markers` key
-- **Viewport Rendering**: Guide lines extend across entire visible area
-- **Z-Index Ordering**: Overlays rendered at high z-index (99-100) for visibility
+- **_Lib-1.2.0 API**: Modern `self.Global.API` pattern
+- **Logger API**: Professional logging with class-scoped instances
+- **HistoryApi**: Full undo/redo with custom record classes
+- **ModRegistry API**: Enhanced mod detection (custom_snap)
+- **UpdateChecker**: Automatic GitHub release notifications
+- **custom_snap**: Detects and uses custom grid snapping
 
-### Rendering Details
-- **Coordinate Markers**: 5px blue circles at grid nodes (scales with zoom)
-- **Coordinate Text**: 4x size with black outline, displays distance in grid cells
-- **Center Marker**: 15px red circle on permanent guides (scales with zoom)
-- **Marker Size**: 40px diameter red circles
-- **Guide Lines**: 10px wide blue lines (Color: `0, 0.7, 1, 1`)
-- **Preview**: Semi-transparent red (0.5-0.7 alpha)
-- **Line Extension**: Lines calculated to viewport boundaries for infinite appearance
+### Save Format
 
-### Backward Compatibility
+Markers stored in map file under `guide_markers` key:
 
-The mod maintains full compatibility with older save formats:
-- Old single-type markers are converted to multi-type on load
-- "both" type splits into separate vertical/horizontal types
-- ID-based marker tracking prevents duplicates
+```json
+{
+  "marker_type": "Line|Shape|Path|Arrow",
+  "position": {"x": float, "y": float},
+  "color": {"r": float, "g": float, "b": float, "a": float},
+  
+  // Line-specific
+  "angle": float (0-360),
+  "line_range": float,
+  "mirror": bool,
+  
+  // Shape-specific
+  "circle_radius": float,
+  "shape_subtype": "Circle|Square|Pentagon|Hexagon|Octagon",
+  "shape_angle": float (0-360),
+  
+  // Path-specific
+  "path_points": [{"x": float, "y": float}, ...],
+  "path_closed": bool,
+  
+  // Arrow-specific
+  "arrow_head_length": float (10-200),
+  "arrow_head_angle": float (10-60)
+}
+```
 
-## Version History
+### Performance
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+- Tested with 100+ markers on 4K maps
+- Optimized rendering loop
+- Efficient coordinate calculations
+- Smart preview updates
 
-### Current Version (1.0.9)
-- All settings consolidated in Guide Markers tool panel
-- Full _Lib-1.2.0 compatibility
-- Removed ModConfig Settings menu (UX improvement)
-- Updated API usage patterns for modern _Lib
-- Improved accessibility of all features
+---
 
-### Previous Highlights
-- Multi-type markers with checkbox selection
-- Diagonal guide lines (45° and 135°)
-- Real-time preview before placement
-- Undo/redo support for all operations
-- Logger API integration for diagnostics
-- Custom_snap integration for enhanced snapping
+## Troubleshooting
 
-## Known Limitations
+### Mod not appearing
+- **Check**: _Lib-1.2.0 installed?
+- **Check**: Dungeondraft version ≥ 1.1.1.1?
+- **Action**: Restart Dungeondraft completely
 
-- Markers cannot be moved after placement (must delete and recreate)
-- Maximum practical markers: ~100 (performance depends on system)
-- Delete mode requires clicking within 20 pixels of marker center
+### Guide lines not visible
+- **Check**: At least one marker placed?
+- **Check**: Guide Markers tool active?
+- **Action**: Try placing a Line marker at (0, 0)
 
-## Tips & Best Practices
+### Undo not working
+- **Check**: _Lib-1.2.0 properly installed?
+- **Check**: History limit not exceeded? (100 per type)
+- **Action**: Restart Dungeondraft
 
-1. **Symmetry**: Use vertical/horizontal guides to ensure symmetric map layouts
-2. **Diagonals**: Use diagonal guides for 45° angles in buildings and rooms
-3. **Composition**: Place markers at rule-of-thirds positions for better visual balance
-4. **Grid Snapping**: Keep enabled for clean alignment with map grid
-5. **Temporary Guides**: Delete all markers before exporting final map
-6. **Layering**: Combine with permanent center lines for multi-level alignment system
-7. **Coordinates for Measurement**: Use "Show Coordinates" to measure distances in grid cells
-8. **Custom Grids**: Coordinates automatically adapt to custom_snap grid modifications
-9. **Center Reference**: Use permanent guides with coordinates to mark map center with red dot
-10. **Distance Planning**: Use coordinate numbers to plan symmetrical room layouts
-11. **Undo/Redo**: Use Ctrl+Z/Ctrl+Y to undo/redo marker placement and deletion
-12. **Quick Corrections**: Right-click to quickly delete misplaced markers
-13. **Cross Guides**: Enable to get proximity-based alignment hints near placed markers
+### Path placement stuck
+- **Action**: Press ESC to cancel
+- **Action**: Switch to different marker type
+- **Check**: Minimum 2 points for open path, 3 for closed
+
+### Custom_snap not detected
+- **Check**: custom_snap enabled in Mods menu?
+- **Check**: Map created with custom_snap active?
+- **Note**: Detection happens once per map load
+
+### Old map won't load
+- **Reason**: v1.x maps incompatible with v2.0.0
+- **Solution**: Use v1.x mod version for old maps
+- **Alternative**: Recreate markers in v2.0.0 (better flexibility!)
+
+---
 
 ## Compatibility
 
 ### Requirements
-- **Dungeondraft**: Version 1.1.1.1 or later
-- **_Lib**: Version 1.2.0 (required dependency)
+- **Dungeondraft**: 1.1.1.1+
+- **_Lib**: 1.2.0 (required)
 
 ### Optional Mods
-- **custom_snap**: Enhanced grid snapping functionality
-  - Automatically detected when installed
-  - Guide Lines gracefully degrades if not present
+- **custom_snap**: Enhanced grid snapping (auto-detected)
 
 ### Compatible Mods
 - All _Lib-based mods
 - Essential Utils
 - Minor Utils
-- Most other Dungeondraft mods
+- Most Dungeondraft mods
 
-## Installation
+### Known Incompatibilities
+- **None** - If you find one, please report on [GitHub Issues](https://github.com/ChosonDev/GuidesLines/issues)
 
-1. Download the mod archive
-2. Extract to your Dungeondraft mods folder:
-   - **Windows**: `%AppData%\Dungeondraft\mods\`
-   - **macOS**: `~/Library/Application Support/Dungeondraft/mods/`
-   - **Linux**: `~/.local/share/Dungeondraft/mods/`
-3. Install **_Lib-1.2.0** if not already installed
-4. Restart Dungeondraft
+---
 
-## Troubleshooting
+## Version History
 
-### Mod not appearing
-- Verify _Lib-1.2.0 is installed
-- Check Dungeondraft version is 1.1.1.1 or later
-- Restart Dungeondraft completely
+### v2.0.0 (Current) - 2026-02-15
+- 🎉 Complete redesign with flexible marker system
+- 🚀 4 marker types: Line, Shape, Path, Arrow
+- ⚠️ Breaking: v1.x maps incompatible
 
-### Guide lines not visible
-- Ensure at least one marker is placed
-- Check that marker type checkboxes are enabled
-- Verify the Guide Markers tool is active
+### v1.0.10 - 2026-02-04
+- UpdateChecker integration
+- Full HistoryApi support
 
-### Coordinates not showing
-- Enable "Show Grid Coordinates" in Guide Overlays section
-- Ensure at least one guide line is active (marker-based or permanent)
+### v1.0.9 - 2026-02-03
+- _Lib-1.2.0 compatibility
+- UI consolidation in tool panel
 
-### Undo/Redo not working
-- Verify _Lib-1.2.0 is properly installed
-- Check Dungeondraft version compatibility
-- Try restarting Dungeondraft
+[Full changelog](CHANGELOG.md)
+
+---
+
+## Known Limitations
+
+- Markers cannot be moved after placement
+- Maximum tested: ~100 markers (system-dependent)
+- Delete mode requires clicking within 20px of center
+- No automated v1.x → v2.0.0 migration
+
+---
+
+## Tips & Best Practices
+
+### For Line Markers
+- Use 0°/90° for axis-aligned grids
+- Use 45°/135° for diagonal perspectives
+- Enable Mirror for symmetrical designs
+- Adjust angle with mouse wheel while hovering
+
+### For Shape Markers
+- Use circles for room templates
+- Use hexagons for hex-grid overlays
+- Rotate squares to create diamond guides
+- Adjust radius with mouse wheel for fine-tuning
+
+### For Path Markers
+- Place fewer points for smooth curves
+- Use many points for complex shapes
+- Close paths for area boundaries
+- Right-click to finish, ESC to cancel
+
+### For Arrow Markers
+- Use for one-way passages
+- Great for trap triggers
+- Indicate flow direction in rivers
+- Adjust head angle for different arrow styles
+
+### General Tips
+- Use "Snap to Grid" for precision
+- Enable coordinates for exact measurements
+- Use preview to verify before placing
+- Remember: Ctrl+Z is your friend!
+- Save your map frequently
+
+---
 
 ## Author
 
 **Choson**  
 Created for the Dungeondraft map-making community.
 
-**License**: Free for personal use
+### Links
+- [GitHub Repository](https://github.com/ChosonDev/GuidesLines)
+- [Issue Tracker](https://github.com/ChosonDev/GuidesLines/issues)
+- [Releases](https://github.com/ChosonDev/GuidesLines/releases)
 
 ### Special Thanks
-- MegalomaniacMegalodon for the _Lib framework
+- **CreepyCre** (MegalomaniacMegalodon) for the [_Lib framework](https://github.com/CreepyCre/_Lib)
+- **Lievven** for the custom_snap mod inspiration
 - The Dungeondraft modding community
-- custom_snap mod authors for grid snapping inspiration
 
+---
 
 ## License
 
-Free to use and modify.
+Free to use and modify for personal and commercial projects.
+
+**MIT License** - See [LICENSE.md](LICENSE.md) for details.
+
+---
+
+## Support
+
+### Getting Help
+1. Check this README's [Troubleshooting](#troubleshooting) section
+2. Search existing [GitHub Issues](https://github.com/ChosonDev/GuidesLines/issues)
+3. Create a new issue with:
+   - Dungeondraft version
+   - _Lib version
+   - Steps to reproduce problem
+   - Error messages (if any)
+
+### Feature Requests
+Open an issue with tag `enhancement` describing:
+- Desired feature
+- Use case
+- Why existing features don't solve it
+
+---
+
+**Happy Mapping! 🗺️**
+
