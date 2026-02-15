@@ -8,7 +8,7 @@ Advanced guide system with fully customizable markers for precise map alignment 
 
 ## Overview
 
-GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits), **Circle markers** (any radius), or **Path markers** (multi-point custom paths). Customize colors, mirror lines, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
+GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits), **Circle markers** (any radius), **Path markers** (multi-point custom paths), or **Arrow markers** (2-point directional arrows with arrowheads). Customize colors, mirror lines, arrowhead size, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
 
 All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
 
@@ -27,6 +27,11 @@ The marker system has been completely redesigned for maximum flexibility:
     - Click to add points, right-click to finish, ESC to cancel
     - Close path by clicking near first point (creates loop)
     - Real-time preview with visual feedback
+  - **Arrow Markers**: 2-point directional arrows with arrowheads (NEW!)
+    - Automatically finishes at second point
+    - Customizable arrowhead length (10-200 pixels) and angle (10-60 degrees)
+    - Real-time preview shows arrow line and arrowhead
+    - ESC to cancel during placement
   - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Circles) in real-time
   - **Color Customization**: Each marker can have its own color
   - **More Types Coming**: Architecture supports adding new marker types in future
@@ -49,7 +54,7 @@ The marker system has been completely redesigned for maximum flexibility:
 
 ### Flexible Custom Markers
 - **Custom Tool**: Dedicated "Guide Markers" tool in the Design category
-- **Marker Types**: Choose between Line, Circle, or Path markers (more types possible in future)
+- **Marker Types**: Choose between Line, Circle, Path, or Arrow markers (more types possible in future)
 - **Line Markers**:
   - Any angle from 0° to 360° (adjustable via spinbox or mouse wheel)
   - Optional range limit (infinite by default, or specify length in grid cells)
@@ -70,6 +75,20 @@ The marker system has been completely redesigned for maximum flexibility:
     - Preview line to cursor: white, dashed
     - Pulsing indicator when hovering to close
   - Grid snapping support for each point
+  - Customizable color
+- **Arrow Markers** (NEW):
+  - 2-point directional arrows with arrowheads
+  - Click to place start point, then second click places end point and finishes arrow
+  - Automatically completes at second point
+  - Customizable arrowhead:
+    - Length: 10-200 pixels (adjustable via spinbox)
+    - Angle: 10-60 degrees (adjustable via spinbox)
+  - Real-time preview:
+    - Green start point
+    - White preview line from start to cursor
+    - Preview arrowhead at cursor position
+  - ESC to cancel placement before second point
+  - Grid snapping support for both points
   - Customizable color
 - **Real-Time Preview**: See exact marker appearance before placing
 - **Mouse Wheel Adjustment**: Scroll to change angle (Lines) or radius (Circles) while hovering
@@ -153,6 +172,12 @@ All overlay options are integrated into the Guide Markers tool panel:
    - Instructions are displayed in the tool panel
    - No pre-configuration needed - all setup happens during placement
    - **Color**: Choose color before starting path placement
+   
+   **For Arrow Markers:**
+   - **Arrowhead Length**: Set arrowhead line length in pixels (10-200)
+   - **Arrowhead Angle**: Set arrowhead wing angle in degrees (10-60)
+   - **Interactive Placement Mode**: Arrow markers use 2-point placement
+   - **Color**: Choose color before starting arrow placement
 3. **(Optional)** Enable "Show Coordinates" to display grid position markers and numbers
    - This automatically enables "Snap to Grid" for accurate positioning
    - Coordinates show distance from marker center in grid cells
@@ -195,6 +220,32 @@ Path markers use a special interactive placement mode:
 - Coordinates display (if enabled) shows cumulative distance from path start
 - Undo/Redo works on complete paths (entire path is one marker)
 
+### Placing Arrow Markers (2-Point Placement)
+
+Arrow markers use a simple 2-point placement mode with automatic completion:
+
+1. **Select Arrow Type** from the marker type dropdown
+2. **Configure Arrowhead**:
+   - **Arrowhead Length**: Set length of arrowhead lines (10-200 pixels)
+   - **Arrowhead Angle**: Set angle of arrowhead wings (10-60 degrees)
+   - These can be adjusted before or between placements
+3. **Start Placement**: Click on the map to place the start point (shown in green)
+   - Preview shows green start point and white line to cursor with arrowhead
+4. **Complete Arrow**: Click second point to finish
+   - Arrow automatically completes after second point
+   - Arrow points from first point to second point
+   - Arrowhead appears at the second (end) point
+5. **Cancel Placement**: Press ESC key before second point to cancel
+   - Or click the "Cancel Arrow" button in the tool panel
+
+**Arrow Placement Tips:**
+- Both points automatically snap to grid (if "Snap to Grid" is enabled)
+- Preview shows exact arrow appearance including arrowhead
+- Arrowhead scales with camera zoom for consistent visibility
+- Coordinates display (if enabled) shows start and end point distances
+- Undo/Redo works on complete arrows (entire arrow is one marker)
+- Great for indicating direction, flow, or pointing to map features
+
 ### Preview Mode
 
 Before placing a marker, you'll see a semi-transparent red preview showing:
@@ -207,6 +258,11 @@ Before placing a marker, you'll see a semi-transparent red preview showing:
 - Intermediate points: Red, semi-transparent
 - Active preview line: White, from last point to cursor
 - Close indicator: Pulsing green circle when hovering near first point
+
+**For Arrow Markers**, the preview is interactive:
+- Start point: Green, larger
+- Preview line: White, from start point to cursor
+- Preview arrowhead: Shows exact arrowhead appearance at cursor
 
 This helps ensure perfect placement before committing.
 

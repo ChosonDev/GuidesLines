@@ -20,6 +20,13 @@ All notable changes to the Guides Lines mod will be documented in this file.
     - Cancel placement with ESC key
     - Real-time preview shows points, lines, and closing indicator
     - Supports grid snapping for each point
+  - **NEW: Arrow markers** with 2-point directional arrows and customizable arrowheads
+    - Simplified Path variant with exactly 2 points (auto-finishes at second point)
+    - Draws directional arrow from first point to second point
+    - Customizable arrowhead with length (10-200 pixels) and angle (10-60 degrees)
+    - Real-time preview shows arrow line and arrowhead to cursor
+    - Cancel placement with ESC key before placing second point
+    - Supports grid snapping for both points
   - Added per-marker color customization (default blue, but any color supported)
   - Each marker type has independent settings (angle/range/mirror for Lines; radius for Circles; multi-point for Paths)
 
@@ -29,6 +36,7 @@ All notable changes to the Guides Lines mod will be documented in this file.
   - **Line Controls**: Angle spinbox (0-360°), Range spinbox (0+ cells, 0=infinite), Mirror checkbox
   - **Circle Controls**: Radius spinbox (0.1+ cells)
   - **Path Controls**: Interactive multi-point placement mode with instructions and status display
+  - **Arrow Controls**: Arrowhead Length spinbox (10-200 pixels), Arrowhead Angle spinbox (10-60 degrees)
   - Added color picker button for customizing marker colors
   - Type-specific settings are remembered when switching between types
   - Mouse wheel support for quick parameter adjustment:
@@ -44,11 +52,12 @@ All notable changes to the Guides Lines mod will be documented in this file.
 
 ### Technical Changes
 - **GuideMarker.gd**:
-  - Replaced `marker_types` array with single `marker_type` field ("Line", "Circle", or "Path")
+  - Replaced `marker_types` array with single `marker_type` field ("Line", "Circle", "Path", or "Arrow")
   - Added properties: `angle`, `line_range`, `circle_radius`, `color`, `mirror`
   - Added Path properties: `path_points` (Array of Vector2), `path_closed` (bool)
+  - Added Arrow properties: `arrow_head_length` (float), `arrow_head_angle` (float)
   - Removed old methods: `has_type()`, `add_type()`, `remove_type()`
-  - Updated `Save()` and `Load()` methods for new data format including Path serialization
+  - Updated `Save()` and `Load()` methods for new data format including Path and Arrow serialization
   - Removed backward compatibility with v1.0.9 and earlier save formats
   - Changed default LINE_COLOR constant to DEFAULT_LINE_COLOR
 
@@ -56,9 +65,10 @@ All notable changes to the Guides Lines mod will be documented in this file.
   - Replaced `active_marker_types` array with `active_marker_type` single value
   - Added active settings variables: `active_angle`, `active_line_range`, `active_circle_radius`, `active_color`, `active_mirror`
   - Added Path state variables: `path_placement_active`, `path_temp_points`, `path_preview_point`
+  - Added Arrow state variables: `arrow_placement_active`, `arrow_temp_points`, `arrow_preview_point`, `arrow_head_length`, `arrow_head_angle`
   - Added `type_settings` dictionary to store per-type settings independently
-  - Added constants: `MARKER_TYPE_LINE`, `MARKER_TYPE_CIRCLE`, `MARKER_TYPE_PATH`, default value constants
-  - Added UI reference variables: `type_selector`, `type_specific_container`, type-specific containers including `path_settings_container`
+  - Added constants: `MARKER_TYPE_LINE`, `MARKER_TYPE_CIRCLE`, `MARKER_TYPE_PATH`, `MARKER_TYPE_ARROW`, default value constants
+  - Added UI reference variables: `type_selector`, `type_specific_container`, type-specific containers including `path_settings_container` and `arrow_settings_container`
   - Completely rewrote `_build_tool_panel()` to support new UI layout
   - Removed `toggle_marker_type()` function (no longer needed)
   - Updated `place_marker()` to handle Path type with multi-point logic
@@ -66,7 +76,11 @@ All notable changes to the Guides Lines mod will be documented in this file.
     - `_handle_path_placement()` - handles sequential point placement
     - `_finalize_path_marker()` - creates Path marker from collected points
     - `_cancel_path_placement()` - resets Path placement state
-  - Updated `_do_place_marker()` to create markers with new format including Path
+  - Added Arrow-specific methods:
+    - `_handle_arrow_placement()` - handles 2-point placement with auto-finish
+    - `_finalize_arrow_marker()` - creates Arrow marker from two points
+    - `_cancel_arrow_placement()` - resets Arrow placement state
+  - Updated `_do_place_marker()` to create markers with new format including Path and Arrow
   - Added spinner/color change callbacks for all new UI controls
   - Added methods: `adjust_angle_with_wheel()`, `adjust_circle_radius_with_wheel()`
   - Updated `update_ui_checkboxes_state()` to handle new UI elements
@@ -81,22 +95,31 @@ All notable changes to the Guides Lines mod will be documented in this file.
   - Added input handling for Path type:
     - Right-click (RMB) finalizes open path
     - ESC key cancels Path placement
-  - Updated `_process()` to track mouse position for Path preview
-  - Completely rewrote `_draw()` to support custom marker types including Path preview
-  - Added `_draw_custom_marker()` - unified drawing for any marker type (Line, Circle, Path)
+  - Added input handling for Arrow type:
+    - ESC key cancels Arrow placement before second point
+  - Updated `_process()` to track mouse position for Path and Arrow previews
+  - Completely rewrote `_draw()` to support custom marker types including Path and Arrow previews
+  - Added `_draw_custom_marker()` - unified drawing for any marker type (Line, Circle, Path, Arrow)
   - Added `_draw_custom_marker_preview()` - preview drawing at cursor
   - Added `_draw_path_preview()` - interactive path placement preview with:
     - Visual differentiation for first point (green, larger)
     - Intermediate points (red, semi-transparent)
     - Preview line from last point to cursor (white, dashed style)
     - Pulsing indicator when hovering near first point to close path
+  - Added `_draw_arrow_preview()` - interactive arrow placement preview with:
+    - Green start point
+    - White preview line from start to cursor
+    - Preview arrowhead at cursor position
+  - Added `_draw_arrowhead()` - helper function to draw arrowhead chevron using trigonometry
   - Added `_calculate_line_endpoints()` - computes line endpoints for any angle/range
   - Removed old separate drawing code for vertical/horizontal/diagonal lines
   - Line rendering now supports arbitrary angles and finite ranges
   - Circle rendering with proper coordinate display
   - Path rendering with lines connecting all points (closed or open)
+  - Arrow rendering with main line and arrowhead chevron
   - Preview now shows exact appearance before placement
   - Added `_draw_coordinates_on_path()` - displays cumulative distance at each path point
+  - Updated `_draw_marker_coordinates()` to handle Arrow type
 
 - **GuidesLines.gd**:
   - Removed unused callback: `_on_marker_type_toggled()`

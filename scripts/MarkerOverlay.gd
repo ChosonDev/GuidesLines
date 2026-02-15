@@ -16,6 +16,10 @@ func _process(_delta):
 	# Track mouse position for path preview
 	if tool and tool.path_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		tool.path_preview_point = tool.cached_worldui.MousePosition
+	
+	# Track mouse position for arrow preview
+	if tool and tool.arrow_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+		tool.arrow_preview_point = tool.cached_worldui.MousePosition
 
 # Handle mouse input for placing markers
 func _input(event):
@@ -33,6 +37,11 @@ func _input(event):
 	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
 		if tool.path_placement_active:
 			tool._cancel_path_placement()
+			get_tree().set_input_as_handled()
+			return
+		# Handle ESC key for Arrow cancellation
+		if tool.arrow_placement_active:
+			tool._cancel_arrow_placement()
 			get_tree().set_input_as_handled()
 			return
 	
@@ -128,6 +137,9 @@ func _draw():
 		# Special preview for Path type
 		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
 			_draw_path_preview(world_left, world_right, world_top, world_bottom)
+		# Special preview for Arrow type
+		elif tool.active_marker_type == tool.MARKER_TYPE_ARROW:
+			_draw_arrow_preview(world_left, world_right, world_top, world_bottom)
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
 			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
@@ -198,6 +210,18 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 					marker.color,
 					LINE_WIDTH
 				)
+	
+	elif marker.marker_type == "Arrow":
+		# Draw arrow (always 2 points)
+		if marker.path_points.size() == 2:
+			var start = marker.path_points[0]
+			var end = marker.path_points[1]
+			
+			# Draw main line
+			draw_line(start, end, marker.color, LINE_WIDTH)
+			
+			# Draw arrowhead
+			_draw_arrowhead(end, start, marker.arrow_head_length, marker.arrow_head_angle, marker.color, LINE_WIDTH)
 	
 	# Draw marker circle on top
 	draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
@@ -314,6 +338,64 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 			var pulse = sin(OS.get_ticks_msec() * 0.005) * 0.5 + 0.5
 			draw_arc(first_point, MARKER_SIZE, 0, TAU, 32, Color(0, 1, 0, 0.5 + pulse * 0.3), 4)
 
+# Draw preview for Arrow type (temp points + line to cursor with arrowhead)
+func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
+	if not tool.arrow_placement_active or tool.arrow_temp_points.size() == 0:
+		return
+	
+	var MARKER_SIZE = 40.0
+	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
+	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
+	var LINE_WIDTH = 8.0
+	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
+	
+	# Draw start point (green, larger)
+	var start_point = tool.arrow_temp_points[0]
+	draw_circle(start_point, MARKER_SIZE / 1.5, Color(0, 1, 0, 0.6))  # Green first point
+	draw_arc(start_point, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
+	
+	# If we have 1 point and cursor preview, draw preview arrow
+	if tool.arrow_temp_points.size() == 1 and tool.arrow_preview_point != null:
+		var preview_end = tool.arrow_preview_point
+		
+		# Draw preview line
+		draw_line(start_point, preview_end, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
+		
+		# Draw preview arrowhead
+		_draw_arrowhead(
+			preview_end,
+			start_point,
+			tool.active_arrow_head_length,
+			tool.active_arrow_head_angle,
+			PREVIEW_LINE_COLOR,
+			LINE_WIDTH * 0.7
+		)
+		
+		# Draw cursor preview circle
+		draw_circle(preview_end, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
+
+# Draw arrowhead at the end point
+# end: arrowhead position, start: direction reference point
+# length: arrowhead length in pixels, angle: arrowhead angle in degrees
+func _draw_arrowhead(end, start, length, angle_deg, color, line_width):
+	# Calculate direction from start to end
+	var direction = (end - start).normalized()
+	
+	# Calculate arrow angle in radians
+	var angle_rad = deg2rad(angle_deg)
+	
+	# Calculate the two points of the arrowhead
+	# Rotate direction by +/- angle_deg to get the two arrowhead lines
+	var left_angle = direction.angle() + PI - angle_rad
+	var right_angle = direction.angle() + PI + angle_rad
+	
+	var left_point = end + Vector2(cos(left_angle), sin(left_angle)) * length
+	var right_point = end + Vector2(cos(right_angle), sin(right_angle)) * length
+	
+	# Draw the two arrowhead lines
+	draw_line(end, left_point, color, line_width)
+	draw_line(end, right_point, color, line_width)
+
 # Calculate line endpoints based on angle, range, and viewport bounds
 func _calculate_line_endpoints(origin, angle_deg, range_cells, world_left, world_right, world_top, world_bottom):
 	var angle_rad = deg2rad(angle_deg)
@@ -421,6 +503,14 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 	
 	elif marker.marker_type == "Path":
 		# Draw coordinates at each path point
+		_draw_coordinates_on_path(
+			marker.path_points,
+			cam_zoom,
+			marker.color
+		)
+	
+	elif marker.marker_type == "Arrow":
+		# Draw coordinates at arrow start and end points
 		_draw_coordinates_on_path(
 			marker.path_points,
 			cam_zoom,

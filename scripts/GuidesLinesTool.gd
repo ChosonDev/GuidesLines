@@ -102,6 +102,7 @@ var delete_mode = false  # Delete mode - click to remove markers
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_CIRCLE = "Circle"
 const MARKER_TYPE_PATH = "Path"
+const MARKER_TYPE_ARROW = "Arrow"
 
 var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 
@@ -109,6 +110,8 @@ var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 var active_angle = 0.0
 var active_line_range = 0.0  # In grid cells
 var active_circle_radius = 1.0  # Circle radius in grid cells
+var active_arrow_head_length = 50.0  # Arrow head length in pixels
+var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
 
@@ -124,6 +127,10 @@ var type_settings = {
 	},
 	"Path": {
 		# Path has no persistent settings, it's point-based
+	},
+	"Arrow": {
+		"head_length": 50.0,
+		"head_angle": 30.0
 	}
 }
 
@@ -131,6 +138,8 @@ var type_settings = {
 const DEFAULT_ANGLE = 0.0
 const DEFAULT_LINE_RANGE = 0.0
 const DEFAULT_CIRCLE_RADIUS = 1.0
+const DEFAULT_ARROW_HEAD_LENGTH = 50.0
+const DEFAULT_ARROW_HEAD_ANGLE = 30.0
 const DEFAULT_COLOR = Color(0, 0.7, 1, 1)
 const DEFAULT_MIRROR = false
 
@@ -146,11 +155,17 @@ var type_specific_container = null  # Container for type-specific settings
 var line_settings_container = null  # Settings for Line type
 var circle_settings_container = null  # Settings for Circle type
 var path_settings_container = null  # Settings for Path type
+var arrow_settings_container = null  # Settings for Arrow type
 
 # Path placement state
 var path_placement_active = false  # Whether we're in path placement mode
 var path_temp_points = []  # Temporary storage for points being placed
 var path_preview_point = null  # Current mouse position for line preview
+
+# Arrow placement state (similar to path but auto-finishes at 2 points)
+var arrow_placement_active = false  # Whether we're in arrow placement mode
+var arrow_temp_points = []  # Temporary storage for arrow points (max 2)
+var arrow_preview_point = null  # Current mouse position for arrow preview
 
 # Initialize tool with reference to parent mod
 func _init(mod):
@@ -216,6 +231,11 @@ func place_marker(pos):
 	# Special handling for Path type
 	if active_marker_type == MARKER_TYPE_PATH:
 		_handle_path_placement(pos)
+		return
+	
+	# Special handling for Arrow type
+	if active_marker_type == MARKER_TYPE_ARROW:
+		_handle_arrow_placement(pos)
 		return
 	
 	# Apply grid snapping if enabled
@@ -320,6 +340,68 @@ func _cancel_path_placement():
 	if overlay:
 		overlay.update()
 
+# Handle arrow marker placement (2-point auto-finish)
+func _handle_arrow_placement(pos):
+	var snapped_pos = snap_position_to_grid(pos)
+	
+	# First point - start arrow placement
+	if not arrow_placement_active:
+		arrow_placement_active = true
+		arrow_temp_points = [snapped_pos]
+		if LOGGER:
+			LOGGER.info("Arrow placement started at %s" % [str(snapped_pos)])
+		update_ui()
+		return
+	
+	# Second point - auto-finish arrow
+	if arrow_temp_points.size() == 1:
+		arrow_temp_points.append(snapped_pos)
+		if LOGGER:
+			LOGGER.info("Arrow completed with 2 points")
+		_finalize_arrow_marker()
+		return
+
+# Finalize arrow marker (auto-called after 2 points)
+func _finalize_arrow_marker():
+	if not arrow_placement_active or arrow_temp_points.size() != 2:
+		_cancel_arrow_placement()
+		return
+	
+	# Create marker data
+	var marker_data = {
+		"position": arrow_temp_points[0],  # First point is marker position
+		"marker_type": MARKER_TYPE_ARROW,
+		"color": active_color,
+		"coordinates": show_coordinates,
+		"id": next_id,
+		"path_points": arrow_temp_points.duplicate(),
+		"arrow_head_length": active_arrow_head_length,
+		"arrow_head_angle": active_arrow_head_angle
+	}
+	
+	# Execute the action first
+	_do_place_marker(marker_data)
+	next_id += 1
+	
+	# Add to history
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		if LOGGER:
+			LOGGER.debug("Adding arrow marker to history (id: %d)" % [marker_data["id"]])
+		var record = PlaceMarkerRecord.new(self, marker_data)
+		parent_mod.Global.API.HistoryApi.record(record, 100)
+	
+	# Reset arrow state
+	_cancel_arrow_placement()
+
+# Cancel arrow placement (ESC or new type selected)
+func _cancel_arrow_placement():
+	arrow_placement_active = false
+	arrow_temp_points = []
+	arrow_preview_point = null
+	update_ui()
+	if overlay:
+		overlay.update()
+
 # Delete all markers from the map
 func delete_all_markers():
 	if markers.size() == 0:
@@ -418,6 +500,10 @@ func _do_place_marker(marker_data):
 	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
 		marker.path_points = marker_data["path_points"].duplicate()
 		marker.path_closed = marker_data["path_closed"]
+	elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
+		marker.path_points = marker_data["path_points"].duplicate()
+		marker.arrow_head_length = marker_data["arrow_head_length"]
+		marker.arrow_head_angle = marker_data["arrow_head_angle"]
 	
 	markers.append(marker)
 	update_ui()
@@ -441,6 +527,11 @@ func _do_place_marker(marker_data):
 				marker_data["path_points"].size(),
 				str(marker_data["path_closed"])
 			])
+		elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
+			LOGGER.debug("Arrow marker placed with 2 points (head: %.1fpx at %.1f°)" % [
+				marker_data["arrow_head_length"],
+				marker_data["arrow_head_angle"]
+			])
 
 func _undo_place_marker(marker_id):
 	# Find and remove marker by id
@@ -462,6 +553,9 @@ func set_snap_to_grid(enabled):
 	# Cancel path if disabling snap during path placement
 	if not enabled and path_placement_active:
 		_cancel_path_placement()
+	# Cancel arrow if disabling snap during arrow placement
+	if not enabled and arrow_placement_active:
+		_cancel_arrow_placement()
 	snap_to_grid = enabled
 	update_snap_checkbox_state()
 
@@ -543,6 +637,8 @@ func update_ui():
 		if info_label:
 			if path_placement_active:
 				info_label.text = "Path mode: %d points placed\nClick to add, RMB to finish" % [path_temp_points.size()]
+			elif arrow_placement_active:
+				info_label.text = "Arrow mode: %d/2 points placed\nClick to place %s point" % [arrow_temp_points.size(), "end" if arrow_temp_points.size() == 1 else "start"]
 			else:
 				info_label.text = "Click to place markers.\nMarkers: " + str(markers.size())
 		
@@ -563,6 +659,24 @@ func update_ui():
 				
 				if cancel_btn:
 					cancel_btn.visible = path_placement_active
+		
+		# Update arrow status label if in Arrow mode
+		if active_marker_type == MARKER_TYPE_ARROW:
+			var arrow_container = type_specific_container.get_node_or_null("ArrowSettings")
+			if arrow_container:
+				var status_label = arrow_container.get_node_or_null("ArrowStatusLabel")
+				var cancel_btn = arrow_container.get_node_or_null("ArrowCancelButton")
+				
+				if status_label:
+					if arrow_placement_active:
+						status_label.text = "Points: %d/2" % [arrow_temp_points.size()]
+						status_label.add_color_override("font_color", Color(1.0, 1.0, 0.5, 1))
+					else:
+						status_label.text = "Ready to start"
+						status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
+				
+				if cancel_btn:
+					cancel_btn.visible = arrow_placement_active
 
 # Serialize all markers for saving to map file
 func save_markers():
@@ -729,6 +843,8 @@ func create_ui_panel():
 	type_selector.set_item_metadata(1, MARKER_TYPE_CIRCLE)
 	type_selector.add_item("Path")
 	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
+	type_selector.add_item("Arrow")
+	type_selector.set_item_metadata(3, MARKER_TYPE_ARROW)
 	type_selector.selected = 0
 	type_selector.name = "TypeSelector"
 	type_selector.connect("item_selected", self, "_on_marker_type_changed")
@@ -756,6 +872,12 @@ func create_ui_panel():
 	path_settings_container.name = "PathSettings"
 	path_settings_container.visible = false
 	type_specific_container.add_child(path_settings_container)
+	
+	# Create Arrow settings UI
+	arrow_settings_container = _create_arrow_settings_ui()
+	arrow_settings_container.name = "ArrowSettings"
+	arrow_settings_container.visible = false
+	type_specific_container.add_child(arrow_settings_container)
 	
 	container.add_child(type_specific_container)
 	
@@ -983,6 +1105,49 @@ func _update_circle_radius_spinbox():
 		if spinbox:
 			spinbox.value = active_circle_radius
 
+# UI Callbacks for Arrow settings
+func _on_arrow_head_length_changed(value):
+	# Ensure minimum length of 10
+	if value < 10.0:
+		value = 10.0
+	active_arrow_head_length = value
+	
+	# Update the spinbox if it was set below minimum
+	_update_arrow_head_length_spinbox()
+	
+	# Update preview
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Arrow head length changed to: %.1f px" % [value])
+
+func _on_arrow_head_angle_changed(value):
+	active_arrow_head_angle = value
+	
+	# Update preview
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Arrow head angle changed to: %.1f°" % [value])
+
+func _update_arrow_head_length_spinbox():
+	if not tool_panel:
+		return
+	var container = tool_panel.Align.get_child(0)
+	if container:
+		var spinbox = container.find_node("ArrowHeadLengthSpinBox", true, false)
+		if spinbox:
+			spinbox.value = active_arrow_head_length
+
+func _update_arrow_head_angle_spinbox():
+	if not tool_panel:
+		return
+	var container = tool_panel.Align.get_child(0)
+	if container:
+		var spinbox = container.find_node("ArrowHeadAngleSpinBox", true, false)
+		if spinbox:
+			spinbox.value = active_arrow_head_angle
+
 func _create_spacer(height):
 	var spacer = Control.new()
 	spacer.rect_min_size = Vector2(0, height)
@@ -1148,6 +1313,98 @@ func _create_path_settings_ui():
 	
 	return container
 
+# Create UI for Arrow marker type
+func _create_arrow_settings_ui():
+	var container = VBoxContainer.new()
+	
+	var info_label = Label.new()
+	info_label.text = "Two-point arrow guide"
+	info_label.align = Label.ALIGN_CENTER
+	info_label.add_color_override("font_color", Color(0.8, 0.8, 0.8, 1))
+	container.add_child(info_label)
+	
+	container.add_child(_create_spacer(10))
+	
+	var instructions = Label.new()
+	instructions.text = "Instructions:\n• Click to set arrow start\n• Click again to set arrow end\n• Arrow auto-completes after 2 points\n• ESC to cancel"
+	instructions.autowrap = true
+	instructions.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(instructions)
+	
+	container.add_child(_create_spacer(10))
+	
+	# Arrow head length SpinBox
+	var head_length_hbox = HBoxContainer.new()
+	var head_length_label = Label.new()
+	head_length_label.text = "Head Length:"
+	head_length_label.rect_min_size = Vector2(80, 0)
+	head_length_hbox.add_child(head_length_label)
+	
+	var head_length_spin = SpinBox.new()
+	head_length_spin.min_value = 10.0
+	head_length_spin.max_value = 200.0
+	head_length_spin.step = 5.0
+	head_length_spin.value = active_arrow_head_length
+	head_length_spin.name = "ArrowHeadLengthSpinBox"
+	head_length_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_length_spin.connect("value_changed", self, "_on_arrow_head_length_changed")
+	head_length_spin.allow_greater = true
+	head_length_spin.allow_lesser = false
+	head_length_hbox.add_child(head_length_spin)
+	container.add_child(head_length_hbox)
+	
+	var head_length_hint = Label.new()
+	head_length_hint.text = "  (pixels)"
+	head_length_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(head_length_hint)
+	
+	container.add_child(_create_spacer(5))
+	
+	# Arrow head angle SpinBox
+	var head_angle_hbox = HBoxContainer.new()
+	var head_angle_label = Label.new()
+	head_angle_label.text = "Head Angle:"
+	head_angle_label.rect_min_size = Vector2(80, 0)
+	head_angle_hbox.add_child(head_angle_label)
+	
+	var head_angle_spin = SpinBox.new()
+	head_angle_spin.min_value = 10.0
+	head_angle_spin.max_value = 60.0
+	head_angle_spin.step = 5.0
+	head_angle_spin.value = active_arrow_head_angle
+	head_angle_spin.name = "ArrowHeadAngleSpinBox"
+	head_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_angle_spin.connect("value_changed", self, "_on_arrow_head_angle_changed")
+	head_angle_hbox.add_child(head_angle_spin)
+	container.add_child(head_angle_hbox)
+	
+	var head_angle_hint = Label.new()
+	head_angle_hint.text = "  (degrees)"
+	head_angle_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(head_angle_hint)
+	
+	container.add_child(_create_spacer(10))
+	
+	# Status label (shows current point count)
+	var status_label = Label.new()
+	status_label.name = "ArrowStatusLabel"
+	status_label.text = "Ready to start"
+	status_label.align = Label.ALIGN_CENTER
+	status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
+	container.add_child(status_label)
+	
+	container.add_child(_create_spacer(10))
+	
+	# Cancel button (only visible during placement)
+	var cancel_btn = Button.new()
+	cancel_btn.text = "Cancel Arrow"
+	cancel_btn.name = "ArrowCancelButton"
+	cancel_btn.connect("pressed", self, "_cancel_arrow_placement")
+	cancel_btn.visible = false
+	container.add_child(cancel_btn)
+	
+	return container
+
 # Create common settings UI (Color, Reset)
 func _create_common_settings_ui():
 	var container = VBoxContainer.new()
@@ -1216,6 +1473,10 @@ func _switch_type_ui(marker_type):
 	if active_marker_type == MARKER_TYPE_PATH and marker_type != MARKER_TYPE_PATH:
 		_cancel_path_placement()
 	
+	# Cancel arrow placement if switching away from Arrow
+	if active_marker_type == MARKER_TYPE_ARROW and marker_type != MARKER_TYPE_ARROW:
+		_cancel_arrow_placement()
+	
 	# Hide all type-specific containers
 	for child in type_specific_container.get_children():
 		child.visible = false
@@ -1231,6 +1492,9 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_PATH:
 			if path_settings_container:
 				path_settings_container.visible = true
+		MARKER_TYPE_ARROW:
+			if arrow_settings_container:
+				arrow_settings_container.visible = true
 
 # Load settings for specific marker type
 func _load_type_settings(marker_type):
@@ -1256,6 +1520,15 @@ func _load_type_settings(marker_type):
 		
 		# Update UI
 		_update_circle_radius_spinbox()
+	
+	# Load Arrow type settings
+	elif marker_type == MARKER_TYPE_ARROW:
+		active_arrow_head_length = settings["head_length"]
+		active_arrow_head_angle = settings["head_angle"]
+		
+		# Update UI
+		_update_arrow_head_length_spinbox()
+		_update_arrow_head_angle_spinbox()
 
 # Save current type settings before switching
 func _save_current_type_settings():
@@ -1271,6 +1544,11 @@ func _save_current_type_settings():
 	# Save Circle type settings
 	elif active_marker_type == MARKER_TYPE_CIRCLE:
 		type_settings[MARKER_TYPE_CIRCLE]["radius"] = active_circle_radius
+	
+	# Save Arrow type settings
+	elif active_marker_type == MARKER_TYPE_ARROW:
+		type_settings[MARKER_TYPE_ARROW]["head_length"] = active_arrow_head_length
+		type_settings[MARKER_TYPE_ARROW]["head_angle"] = active_arrow_head_angle
 
 # ============================================================================
 # MOUSE WHEEL PARAMETER ADJUSTMENT
