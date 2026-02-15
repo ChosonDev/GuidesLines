@@ -4,14 +4,37 @@ All notable changes to the Guides Lines mod will be documented in this file.
 
 ## [Unreleased] - Work in Progress
 
-### Changed - Major Refactoring
+### Changed - Major Refactoring (Phase 2)
+- **Shape Marker System**: Completely redesigned Circle markers into versatile Shape markers
+  - Replaced Circle marker type with Shape marker type
+  - Added 5 shape subtypes: Circle, Square, Pentagon, Hexagon, Octagon
+  - Added shape rotation with **Angle** parameter (0-360°, disabled for Circle)
+  - Shape markers now support polygon generation with customizable angles
+  - Quick angle buttons (0°, 45°, 90°, 135°) for fast rotation setup
+  
+- **Line Markers Simplified**: Removed Range parameter for cleaner behavior
+  - Line markers now **always draw to map boundaries** (infinite length)
+  - Removed line_range parameter and related UI controls
+  - Simplified line rendering logic - no more finite/infinite distinction
+  
+- **UI Streamlining**: Removed redundant information displays
+  - Removed InfoLabel section that showed "Ready to start" messages
+  - Cleaner, more focused tool panel
+  
+- **Consistent UX**: Unified cancellation behavior across marker types
+  - Arrow markers now use **right-click cancellation** (like Path markers)
+  - Removed Cancel Arrow button for consistency
+  - Both Path and Arrow now support right-click to cancel placement
+
+- **Bug Fixes**:
+  - Fixed Reset to Defaults button not resetting Arrow parameters (Head Length, Head Angle)
+
+### Changed - Major Refactoring (Phase 1)
 - **Complete Marker System Redesign**: Replaced fixed guide line types with flexible custom marker system
   - Removed pre-defined marker types (vertical, horizontal, diagonal left, diagonal right)
-  - Introduced marker type system: Line, Circle, and Path types (with extensibility for future types)
+  - Introduced marker type system: Line, Shape, Path, and Arrow types (with extensibility for future types)
   - Line markers now support custom angles (0-360°) instead of fixed orientations
-  - Added line range control (infinite or finite length in grid cells)
   - Added mirror option for Line markers (creates second line at 180° offset)
-  - Added Circle markers with customizable radius in grid cells
   - **NEW: Path markers** with multi-point placement for complex guide paths
     - Draw paths with any number of points (minimum 2)
     - Click to add points sequentially
@@ -25,24 +48,24 @@ All notable changes to the Guides Lines mod will be documented in this file.
     - Draws directional arrow from first point to second point
     - Customizable arrowhead with length (10-200 pixels) and angle (10-60 degrees)
     - Real-time preview shows arrow line and arrowhead to cursor
-    - Cancel placement with ESC key before placing second point
+    - Cancel placement with right-click or ESC key before placing second point
     - Supports grid snapping for both points
   - Added per-marker color customization (default blue, but any color supported)
-  - Each marker type has independent settings (angle/range/mirror for Lines; radius for Circles; multi-point for Paths)
+  - Each marker type has independent settings (angle/mirror for Lines; shape/angle/radius for Shapes; multi-point for Paths; arrowhead for Arrows)
 
 - **UI Completely Redesigned**:
   - Replaced individual line type checkboxes with unified marker type selector
   - Type-specific controls appear dynamically based on selected marker type
-  - **Line Controls**: Angle spinbox (0-360°), Range spinbox (0+ cells, 0=infinite), Mirror checkbox
-  - **Circle Controls**: Radius spinbox (0.1+ cells)
-  - **Path Controls**: Interactive multi-point placement mode with instructions and status display
+  - **Line Controls**: Angle spinbox (0-360°), Mirror checkbox
+  - **Shape Controls**: Shape subtype selector (Circle/Square/Pentagon/Hexagon/Octagon), Radius spinbox (0.1+ cells), Angle spinbox (0-360°, disabled for Circle), Quick angle buttons (0°/45°/90°/135°)
+  - **Path Controls**: Interactive multi-point placement mode with instructions
   - **Arrow Controls**: Arrowhead Length spinbox (10-200 pixels), Arrowhead Angle spinbox (10-60 degrees)
   - Added color picker button for customizing marker colors
   - Type-specific settings are remembered when switching between types
   - Mouse wheel support for quick parameter adjustment:
     - Lines: Scroll to adjust angle (5° increments, wraps around 360°)
-    - Circles: Scroll to adjust radius (0.5 cell increments, minimum 0.5)
-  - Updated preview system to show custom angles, ranges, circles, and path placement in real-time
+    - Shapes: Scroll to adjust radius (0.5 cell increments, minimum 0.5)
+  - Updated preview system to show custom angles, shapes with rotation, and path placement in real-time
   - Path preview features:
     - First point shown in green (larger)
     - Intermediate points shown in red
@@ -51,6 +74,42 @@ All notable changes to the Guides Lines mod will be documented in this file.
     - Cancel button visible during placement
 
 ### Technical Changes
+
+**Phase 2 Changes:**
+
+- **GuideMarker.gd**:
+  - Replaced `circle_radius` with `shape_radius` (applies to all Shape subtypes)
+  - Removed `line_range` property (lines now always infinite)
+  - Added `shape_angle` property (float, 0.0-360.0 degrees) for rotating Shape markers
+  - Added `shape_subtype` property (String: "Circle", "Square", "Pentagon", "Hexagon", "Octagon")
+  - Renamed `marker_points` universal property (used by Path, Arrow, and Shape markers)
+  - Updated Save() and Load() methods for new Shape system
+
+- **GuidesLinesTool.gd**:
+  - Removed `active_line_range` and all Range-related UI code
+  - Added `active_shape_angle` (0.0-360.0) with UI controls
+  - Added `active_shape_subtype` with OptionButton selector
+  - Renamed marker type constant: `MARKER_TYPE_CIRCLE` → `MARKER_TYPE_SHAPE`
+  - Added quick angle buttons (0°, 45°, 90°, 135°) for Shape rotation
+  - Updated `_generate_shape_vertices()` to accept `angle_degrees` parameter
+  - Updated `_calculate_polygon_vertices()` for N-sided polygons with rotation
+  - Removed InfoLabel and all status display logic
+  - Removed ArrowCancelButton from UI
+  - Updated `_handle_arrow_placement()` to support right-click cancellation
+  - Fixed `_on_reset_pressed()` to properly reset Arrow parameters (Head Length, Head Angle)
+  - Shape Angle control automatically disabled when Circle subtype selected
+  - Updated `update_ui()` to handle Shape Angle enable/disable logic
+
+- **MarkerOverlay.gd**:
+  - Removed `range_cells` parameter from `_calculate_line_endpoints()` - lines always draw to map boundaries
+  - Updated Shape rendering to apply `shape_angle` rotation to polygon vertices
+  - Added right-click (RMB) cancellation support for Arrow markers
+  - Simplified coordinate display: Shape markers show coordinates only at center point
+  - Updated `_draw_custom_marker()` for Shape variants with rotation
+  - Updated vertex calculation for rotated polygons
+
+**Phase 1 Changes:**
+
 - **GuideMarker.gd**:
   - Replaced `marker_types` array with single `marker_type` field ("Line", "Circle", "Path", or "Arrow")
   - Added properties: `angle`, `line_range`, `circle_radius`, `color`, `mirror`

@@ -8,7 +8,7 @@ Advanced guide system with fully customizable markers for precise map alignment 
 
 ## Overview
 
-GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits), **Circle markers** (any radius), **Path markers** (multi-point custom paths), or **Arrow markers** (2-point directional arrows with arrowheads). Customize colors, mirror lines, arrowhead size, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
+GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, infinite length), **Shape markers** (Circle, Square, Pentagon, Hexagon, Octagon - with rotation), **Path markers** (multi-point custom paths), or **Arrow markers** (2-point directional arrows with arrowheads). Customize colors, mirror lines, rotate shapes, arrowhead size, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
 
 All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
 
@@ -20,19 +20,19 @@ The marker system has been completely redesigned for maximum flexibility:
 
 - **Old System** (v1.0.10 and earlier): Fixed guide types (vertical, horizontal, diagonal left, diagonal right) with checkboxes
 - **New System** (current WIP): Flexible marker types with customizable parameters:
-  - **Line Markers**: Any angle (0-360°), optional range limit, mirror mode, custom color
-  - **Circle Markers**: Any radius, custom color
-  - **Path Markers**: Multi-point custom paths with sequential placement (NEW!)
+  - **Line Markers**: Any angle (0-360°), **infinite length to map boundaries**, mirror mode, custom color
+  - **Shape Markers**: 5 subtypes (Circle, Square, Pentagon, Hexagon, Octagon), any radius, **rotation (0-360°)**, custom color
+  - **Path Markers**: Multi-point custom paths with sequential placement
     - Draw complex paths with any number of points
     - Click to add points, right-click to finish, ESC to cancel
     - Close path by clicking near first point (creates loop)
     - Real-time preview with visual feedback
-  - **Arrow Markers**: 2-point directional arrows with arrowheads (NEW!)
+  - **Arrow Markers**: 2-point directional arrows with arrowheads
     - Automatically finishes at second point
     - Customizable arrowhead length (10-200 pixels) and angle (10-60 degrees)
     - Real-time preview shows arrow line and arrowhead
-    - ESC to cancel during placement
-  - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Circles) in real-time
+    - **Right-click or ESC to cancel during placement**
+  - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Shapes) in real-time
   - **Color Customization**: Each marker can have its own color
   - **More Types Coming**: Architecture supports adding new marker types in future
 
@@ -54,16 +54,21 @@ The marker system has been completely redesigned for maximum flexibility:
 
 ### Flexible Custom Markers
 - **Custom Tool**: Dedicated "Guide Markers" tool in the Design category
-- **Marker Types**: Choose between Line, Circle, Path, or Arrow markers (more types possible in future)
+- **Marker Types**: Choose between Line, Shape, Path, or Arrow markers (more types possible in future)
 - **Line Markers**:
   - Any angle from 0° to 360° (adjustable via spinbox or mouse wheel)
-  - Optional range limit (infinite by default, or specify length in grid cells)
+  - **Always draw to map boundaries** (infinite length for perfect alignment)
   - Mirror mode (creates second line at 180° offset)
   - Customizable color
-- **Circle Markers**:
+- **Shape Markers** (NEW):
+  - **5 Shape Subtypes**: Circle, Square, Pentagon, Hexagon, Octagon
   - Any radius in grid cells (adjustable via spinbox or mouse wheel)
+  - **Rotation**: Angle control (0-360°) to rotate shapes (disabled for Circle)
+  - **Quick Angle Buttons**: Instant rotation to 0°, 45°, 90°, or 135°
+  - Grid snapping support for precise placement
   - Customizable color
-- **Path Markers** (NEW):
+  - Coordinate display at shape center
+- **Path Markers**:
   - Multi-point custom paths with interactive placement
   - Click to add points sequentially (minimum 2 points)
   - Right-click to finish as open path
@@ -76,7 +81,7 @@ The marker system has been completely redesigned for maximum flexibility:
     - Pulsing indicator when hovering to close
   - Grid snapping support for each point
   - Customizable color
-- **Arrow Markers** (NEW):
+- **Arrow Markers**:
   - 2-point directional arrows with arrowheads
   - Click to place start point, then second click places end point and finishes arrow
   - Automatically completes at second point
@@ -87,7 +92,7 @@ The marker system has been completely redesigned for maximum flexibility:
     - Green start point
     - White preview line from start to cursor
     - Preview arrowhead at cursor position
-  - ESC to cancel placement before second point
+  - **Right-click or ESC to cancel** placement before second point
   - Grid snapping support for both points
   - Customizable color
 - **Real-Time Preview**: See exact marker appearance before placing
@@ -146,9 +151,10 @@ All overlay options are integrated into the Guide Markers tool panel:
 
 1. Select the **"Guide Markers"** tool from the Design category
 2. **Choose Marker Type** from the dropdown:
-   - **Line**: Creates a guide line at specified angle
-   - **Circle**: Creates a circle guide at specified radius
+   - **Line**: Creates a guide line at specified angle (infinite length)
+   - **Shape**: Creates a shape guide (Circle, Square, Pentagon, Hexagon, or Octagon)
    - **Path**: Creates a multi-point custom path guide
+   - **Arrow**: Creates a 2-point directional arrow with arrowhead
 3. **Configure Marker Settings**:
    
    **For Line Markers:**
@@ -158,13 +164,16 @@ All overlay options are integrated into the Guide Markers tool panel:
      - 180° = Horizontal left
      - 270° = Vertical up
      - Or scroll mouse wheel while hovering to adjust in 5° increments
-   - **Range**: Set line length in grid cells (0 = infinite, perfect for full-map guides)
    - **Mirror**: Check to create a second line at 180° offset (great for symmetry)
    - **Color**: Click color button to choose custom color (default: blue)
+   - Lines always draw to map boundaries (infinite length)
    
-   **For Circle Markers:**
-   - **Radius**: Set circle radius in grid cells
+   **For Shape Markers:**
+   - **Shape**: Choose subtype (Circle, Square, Pentagon, Hexagon, Octagon)
+   - **Radius**: Set shape radius in grid cells
      - Or scroll mouse wheel while hovering to adjust in 0.5 cell increments
+   - **Angle**: Rotate the shape (0-360°, disabled for Circle)
+     - Quick buttons: 0°, 45°, 90°, 135° for common rotations
    - **Color**: Click color button to choose custom color (default: blue)
    
    **For Path Markers:**
@@ -178,6 +187,7 @@ All overlay options are integrated into the Guide Markers tool panel:
    - **Arrowhead Angle**: Set arrowhead wing angle in degrees (10-60)
    - **Interactive Placement Mode**: Arrow markers use 2-point placement
    - **Color**: Choose color before starting arrow placement
+   - **Right-click or ESC** to cancel placement before second point
 3. **(Optional)** Enable "Show Coordinates" to display grid position markers and numbers
    - This automatically enables "Snap to Grid" for accurate positioning
    - Coordinates show distance from marker center in grid cells
@@ -210,8 +220,7 @@ Path markers use a special interactive placement mode:
    - Requires minimum 2 points
    - Creates an open path (no closing line)
 
-6. **Cancel Placement**: Press ESC key at any time to cancel and start over
-   - Or click the "Cancel Path" button in the tool panel
+6. **Cancel Placement**: Press ESC key or right-click at any time to cancel and start over
 
 **Path Placement Tips:**
 - Each point automatically snaps to grid (if "Snap to Grid" is enabled)
@@ -235,8 +244,7 @@ Arrow markers use a simple 2-point placement mode with automatic completion:
    - Arrow automatically completes after second point
    - Arrow points from first point to second point
    - Arrowhead appears at the second (end) point
-5. **Cancel Placement**: Press ESC key before second point to cancel
-   - Or click the "Cancel Arrow" button in the tool panel
+5. **Cancel Placement**: Press ESC key or right-click before second point to cancel
 
 **Arrow Placement Tips:**
 - Both points automatically snap to grid (if "Snap to Grid" is enabled)

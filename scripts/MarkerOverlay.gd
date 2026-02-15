@@ -4,6 +4,27 @@ extends Node2D
 
 var tool = null
 
+# Calculate polygon vertices for regular n-gon inscribed in circle
+# center: center point, radius: circumradius, sides: number of sides
+# rotation_offset: rotation in radians (default 0, for "point up" orientation)
+func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
+	var vertices = []
+	var angle_step = TAU / sides
+	
+	for i in range(sides):
+		var angle = angle_step * i + rotation_offset
+		var point = center + Vector2(cos(angle), sin(angle)) * radius
+		vertices.append(point)
+	
+	return vertices
+
+# Helper to draw polygon outline from vertices
+func _draw_polygon_outline(vertices, color, line_width):
+	for i in range(vertices.size()):
+		var start = vertices[i]
+		var end = vertices[(i + 1) % vertices.size()]
+		draw_line(start, end, color, line_width)
+
 func _ready():
 	set_process_input(true)
 	set_process(true)
@@ -26,10 +47,15 @@ func _input(event):
 	if not tool or not tool.is_enabled:
 		return
 	
-	# Handle RIGHT-CLICK for Path finalization
+	# Handle RIGHT-CLICK for Path finalization or Arrow cancellation
 	if event is InputEventMouseButton and event.button_index == BUTTON_RIGHT:
 		if tool.path_placement_active and event.pressed:
 			tool._finalize_path_marker(false)  # Finish as open path
+			get_tree().set_input_as_handled()
+			return
+		# Cancel arrow placement if first point is placed
+		if tool.arrow_placement_active and event.pressed:
+			tool._cancel_arrow_placement()
 			get_tree().set_input_as_handled()
 			return
 	
@@ -64,18 +90,18 @@ func _input(event):
 					get_tree().set_input_as_handled()
 					return
 			
-			# Circle type: adjust radius
-			elif tool.active_marker_type == tool.MARKER_TYPE_CIRCLE:
+			# Shape type: adjust radius
+			elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
 				if event.button_index == BUTTON_WHEEL_UP and event.pressed:
 					if tool.LOGGER:
-						tool.LOGGER.debug("MarkerOverlay: Mouse wheel UP detected (Circle)")
-					tool.adjust_circle_radius_with_wheel(1)
+						tool.LOGGER.debug("MarkerOverlay: Mouse wheel UP detected (Shape)")
+					tool.adjust_shape_radius_with_wheel(1)
 					get_tree().set_input_as_handled()
 					return
 				elif event.button_index == BUTTON_WHEEL_DOWN and event.pressed:
 					if tool.LOGGER:
-						tool.LOGGER.debug("MarkerOverlay: Mouse wheel DOWN detected (Circle)")
-					tool.adjust_circle_radius_with_wheel(-1)
+						tool.LOGGER.debug("MarkerOverlay: Mouse wheel DOWN detected (Shape)")
+					tool.adjust_shape_radius_with_wheel(-1)
 					get_tree().set_input_as_handled()
 					return
 		
@@ -161,7 +187,6 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			var line_points = _calculate_line_endpoints(
 				marker.position,
 				angle,
-				marker.line_range,
 				world_left,
 				world_right,
 				world_top,
@@ -175,47 +200,67 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 				LINE_WIDTH
 			)
 	
-	elif marker.marker_type == "Circle":
-		# Draw circle
+	elif marker.marker_type == "Shape":
+		# Draw shape based on subtype
 		var cell_size = _get_grid_cell_size()
 		if cell_size:
-			var radius_px = marker.circle_radius * min(cell_size.x, cell_size.y)
-			draw_arc(
-				marker.position,
-				radius_px,
-				0,
-				TAU,
-				64,  # 64 points for smooth circle
-				marker.color,
-				LINE_WIDTH,
-				true  # antialiased
-			)
+			var radius_px = marker.shape_radius * min(cell_size.x, cell_size.y)
+			var angle_rad = deg2rad(marker.shape_angle)  # Convert shape rotation angle to radians
+			
+			match marker.shape_subtype:
+				"Circle":
+					draw_arc(
+						marker.position,
+						radius_px,
+						0,
+						TAU,
+						64,
+						marker.color,
+						LINE_WIDTH,
+						true
+					)
+				
+				"Square":
+					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 4, PI/4 + angle_rad)
+					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
+				
+				"Pentagon":
+					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 5, -PI/2 + angle_rad)
+					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
+				
+				"Hexagon":
+					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 6, angle_rad)
+					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
+				
+				"Octagon":
+					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 8, PI/8 + angle_rad)
+					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
 	
 	elif marker.marker_type == "Path":
 		# Draw path lines
-		if marker.path_points.size() >= 2:
-			for i in range(marker.path_points.size() - 1):
+		if marker.marker_points.size() >= 2:
+			for i in range(marker.marker_points.size() - 1):
 				draw_line(
-					marker.path_points[i],
-					marker.path_points[i + 1],
+					marker.marker_points[i],
+					marker.marker_points[i + 1],
 					marker.color,
 					LINE_WIDTH
 				)
 			
-			# If path is closed, connect last to first
-			if marker.path_closed and marker.path_points.size() >= 3:
+			# Close path if enabled
+			if marker.path_closed and marker.marker_points.size() >= 3:
 				draw_line(
-					marker.path_points[marker.path_points.size() - 1],
-					marker.path_points[0],
+					marker.marker_points[marker.marker_points.size() - 1],
+					marker.marker_points[0],
 					marker.color,
 					LINE_WIDTH
 				)
 	
 	elif marker.marker_type == "Arrow":
 		# Draw arrow (always 2 points)
-		if marker.path_points.size() == 2:
-			var start = marker.path_points[0]
-			var end = marker.path_points[1]
+		if marker.marker_points.size() == 2:
+			var start = marker.marker_points[0]
+			var end = marker.marker_points[1]
 			
 			# Draw main line
 			draw_line(start, end, marker.color, LINE_WIDTH)
@@ -249,7 +294,6 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			var line_points = _calculate_line_endpoints(
 				pos,
 				angle,
-				tool.active_line_range,
 				world_left,
 				world_right,
 				world_top,
@@ -263,21 +307,41 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 				LINE_WIDTH
 			)
 	
-	elif tool.active_marker_type == tool.MARKER_TYPE_CIRCLE:
-		# Draw preview circle
+	elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
+		# Draw preview shape
 		var cell_size = _get_grid_cell_size()
 		if cell_size:
-			var radius_px = tool.active_circle_radius * min(cell_size.x, cell_size.y)
-			draw_arc(
-				pos,
-				radius_px,
-				0,
-				TAU,
-				64,
-				LINE_COLOR,
-				LINE_WIDTH,
-				true
-			)
+			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
+			var angle_rad = deg2rad(tool.active_shape_angle)  # Convert shape rotation angle to radians
+			
+			match tool.active_shape_subtype:
+				"Circle":
+					draw_arc(
+						pos,
+						radius_px,
+						0,
+						TAU,
+						64,
+						LINE_COLOR,
+						LINE_WIDTH,
+						true
+					)
+				
+				"Square":
+					var vertices = _calculate_polygon_vertices(pos, radius_px, 4, PI/4 + angle_rad)
+					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+				
+				"Pentagon":
+					var vertices = _calculate_polygon_vertices(pos, radius_px, 5, -PI/2 + angle_rad)
+					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+				
+				"Hexagon":
+					var vertices = _calculate_polygon_vertices(pos, radius_px, 6, angle_rad)
+					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+				
+				"Octagon":
+					var vertices = _calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
+					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
 	
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
@@ -396,22 +460,13 @@ func _draw_arrowhead(end, start, length, angle_deg, color, line_width):
 	draw_line(end, left_point, color, line_width)
 	draw_line(end, right_point, color, line_width)
 
-# Calculate line endpoints based on angle, range, and viewport bounds
-func _calculate_line_endpoints(origin, angle_deg, range_cells, world_left, world_right, world_top, world_bottom):
+# Calculate line endpoints - always draws to map boundaries
+func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom):
 	var angle_rad = deg2rad(angle_deg)
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
 	
-	if range_cells <= 0:
-		# Infinite ray - from origin to viewport edge in direction
-		return _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom)
-	else:
-		# Finite line - convert grid cells to pixels
-		var cell_size = _get_grid_cell_size()
-		if cell_size == null:
-			return [origin, origin]
-		var range_px = range_cells * min(cell_size.x, cell_size.y)
-		var end_point = origin + direction * range_px
-		return [origin, end_point]
+	# Always draw infinite ray from origin to viewport edge
+	return _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom)
 
 # Calculate where a ray from origin in direction intersects viewport boundaries
 # Returns [origin, intersection_point] representing a ray from marker to edge
@@ -484,7 +539,6 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 			_draw_coordinates_along_line(
 				marker_pos,
 				angle,
-				marker.line_range,
 				cam_zoom,
 				world_left,
 				world_right,
@@ -493,10 +547,11 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 				marker.color
 			)
 	
-	elif marker.marker_type == "Circle":
-		_draw_coordinates_on_circle(
-			marker_pos,
-			marker.circle_radius,
+	elif marker.marker_type == "Shape":
+		_draw_coordinates_on_shape(
+			marker.position,
+			marker.shape_radius,
+			marker.shape_subtype,
 			cam_zoom,
 			marker.color
 		)
@@ -504,7 +559,7 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 	elif marker.marker_type == "Path":
 		# Draw coordinates at each path point
 		_draw_coordinates_on_path(
-			marker.path_points,
+			marker.marker_points,
 			cam_zoom,
 			marker.color
 		)
@@ -512,19 +567,19 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 	elif marker.marker_type == "Arrow":
 		# Draw coordinates at arrow start and end points
 		_draw_coordinates_on_path(
-			marker.path_points,
+			marker.marker_points,
 			cam_zoom,
 			marker.color
 		)
 
-# Draw coordinates along a line at any angle
-func _draw_coordinates_along_line(origin, angle_deg, range_cells, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
+# Draw coordinates along a line at any angle - always to map boundaries
+func _draw_coordinates_along_line(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
 	var custom_snap = _get_custom_snap()
 	
 	if custom_snap and custom_snap.custom_snap_enabled:
-		_draw_coords_custom_snap(origin, angle_deg, range_cells, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap)
+		_draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap)
 	else:
-		_draw_coords_vanilla(origin, angle_deg, range_cells, cam_zoom, world_left, world_right, world_top, world_bottom, line_color)
+		_draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color)
 
 # Get custom_snap mod reference if available
 func _get_custom_snap():
@@ -548,8 +603,8 @@ func _get_grid_cell_size():
 		return null
 	return tool.cached_world.Level.TileMap.CellSize
 
-# Draw coordinates using vanilla Dungeondraft grid
-func _draw_coords_vanilla(origin, angle_deg, range_cells, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
+# Draw coordinates using vanilla Dungeondraft grid - always to map boundaries
+func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
 	# Get cell size (may be from custom_snap if active)
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
@@ -564,8 +619,8 @@ func _draw_coords_vanilla(origin, angle_deg, range_cells, cam_zoom, world_left, 
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
 	
 	var step = min(cell_size.x, cell_size.y)
-	var range_px = range_cells * step if range_cells > 0 else 0
-	var max_dist = range_px if range_px > 0 else sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
+	# Always draw to map boundaries
+	var max_dist = sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
 	var distance = step
 	
 	var map_rect = tool.cached_world.WorldRect
@@ -596,8 +651,8 @@ func _draw_coords_vanilla(origin, angle_deg, range_cells, cam_zoom, world_left, 
 		
 		distance += step
 
-# Draw coordinates using custom_snap grid
-func _draw_coords_custom_snap(origin, angle_deg, range_cells, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap):
+# Draw coordinates using custom_snap grid - always to map boundaries
+func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap):
 	var marker_size = 5.0 * cam_zoom.x
 	var text_offset = 20.0 * cam_zoom.x
 	var marker_color = line_color
@@ -610,8 +665,8 @@ func _draw_coords_custom_snap(origin, angle_deg, range_cells, cam_zoom, world_le
 	var angle_rad = deg2rad(angle_deg)
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
 	
-	var range_px = range_cells * min(snap_interval.x, snap_interval.y) if range_cells > 0 else 0
-	var max_dist = range_px if range_px > 0 else sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
+	# Always draw to map boundaries
+	var max_dist = sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
 	var checked_positions = {}
 	var distance = test_spacing
 	
@@ -678,35 +733,24 @@ func _draw_text_with_outline(text, position, color):
 	# Reset transform
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
-# Draw coordinates on circle (at cardinal points: N, S, E, W)
-func _draw_coordinates_on_circle(center, radius_cells, cam_zoom, circle_color):
+# Draw coordinates on shape (only at center)
+func _draw_coordinates_on_shape(center, radius_cells, shape_subtype, cam_zoom, shape_color):
 	var cell_size = _get_grid_cell_size()
 	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
 		return
 	
 	var marker_size = 5.0 * cam_zoom.x
 	var text_offset = 20.0 * cam_zoom.x
-	var marker_color = circle_color
-	var text_color = circle_color
+	var marker_color = shape_color
+	var text_color = shape_color
 	
-	var radius_px = radius_cells * min(cell_size.x, cell_size.y)
+	# Draw single marker at center
+	draw_circle(center, marker_size, marker_color)
 	
-	# Draw markers at 4 cardinal directions (0°, 90°, 180°, 270°)
-	var cardinal_angles = [0, 90, 180, 270]  # East, North, West, South
-	
-	for angle_deg in cardinal_angles:
-		var angle_rad = deg2rad(angle_deg)
-		var direction = Vector2(cos(angle_rad), sin(angle_rad))
-		var point = center + direction * radius_px
-		
-		# Draw marker
-		draw_circle(point, marker_size, marker_color)
-		
-		# Draw text with radius value
-		var text = "R=" + ("%.1f" % radius_cells)
-		var text_offset_dir = direction * text_offset
-		var text_pos = point + text_offset_dir
-		_draw_text_with_outline(text, text_pos, text_color)
+	# Draw text with radius
+	var text = " R=" + ("%.1f" % radius_cells)
+	var text_pos = center + Vector2(0, -text_offset)  # Above center
+	_draw_text_with_outline(text, text_pos, text_color)
 
 # Draw coordinates on path points
 func _draw_coordinates_on_path(points, cam_zoom, path_color):

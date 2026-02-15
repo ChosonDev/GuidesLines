@@ -100,16 +100,24 @@ var delete_mode = false  # Delete mode - click to remove markers
 
 # Marker type system
 const MARKER_TYPE_LINE = "Line"
-const MARKER_TYPE_CIRCLE = "Circle"
+const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
 const MARKER_TYPE_ARROW = "Arrow"
+
+# Shape subtypes
+const SHAPE_CIRCLE = "Circle"
+const SHAPE_SQUARE = "Square"
+const SHAPE_PENTAGON = "Pentagon"
+const SHAPE_HEXAGON = "Hexagon"
+const SHAPE_OCTAGON = "Octagon"
 
 var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 
 # Active marker settings (for new markers)
 var active_angle = 0.0
-var active_line_range = 0.0  # In grid cells
-var active_circle_radius = 1.0  # Circle radius in grid cells
+var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
+var active_shape_subtype = SHAPE_CIRCLE  # Active shape subtype
+var active_shape_angle = 0.0  # Shape rotation angle in degrees
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
@@ -119,11 +127,12 @@ var active_mirror = false
 var type_settings = {
 	"Line": {
 		"angle": 0.0,
-		"range": 0.0,
 		"mirror": false
 	},
-	"Circle": {
-		"radius": 1.0
+	"Shape": {
+		"subtype": "Circle",
+		"radius": 1.0,
+		"angle": 0.0
 	},
 	"Path": {
 		# Path has no persistent settings, it's point-based
@@ -136,8 +145,9 @@ var type_settings = {
 
 # Default values
 const DEFAULT_ANGLE = 0.0
-const DEFAULT_LINE_RANGE = 0.0
-const DEFAULT_CIRCLE_RADIUS = 1.0
+const DEFAULT_SHAPE_RADIUS = 1.0
+const DEFAULT_SHAPE_SUBTYPE = "Circle"
+const DEFAULT_SHAPE_ANGLE = 0.0
 const DEFAULT_ARROW_HEAD_LENGTH = 50.0
 const DEFAULT_ARROW_HEAD_ANGLE = 30.0
 const DEFAULT_COLOR = Color(0, 0.7, 1, 1)
@@ -153,7 +163,7 @@ var overlay = null  # Node2D for drawing
 var type_selector = null  # OptionButton for marker type selection
 var type_specific_container = null  # Container for type-specific settings
 var line_settings_container = null  # Settings for Line type
-var circle_settings_container = null  # Settings for Circle type
+var shape_settings_container = null  # Settings for Shape type
 var path_settings_container = null  # Settings for Path type
 var arrow_settings_container = null  # Settings for Arrow type
 
@@ -252,10 +262,11 @@ func place_marker(pos):
 	# Add type-specific parameters
 	if active_marker_type == MARKER_TYPE_LINE:
 		marker_data["angle"] = active_angle
-		marker_data["line_range"] = active_line_range
 		marker_data["mirror"] = active_mirror
-	elif active_marker_type == MARKER_TYPE_CIRCLE:
-		marker_data["circle_radius"] = active_circle_radius
+	elif active_marker_type == MARKER_TYPE_SHAPE:
+		marker_data["shape_subtype"] = active_shape_subtype
+		marker_data["shape_radius"] = active_shape_radius
+		marker_data["shape_angle"] = active_shape_angle
 	
 	# Execute the action first
 	_do_place_marker(marker_data)
@@ -313,7 +324,7 @@ func _finalize_path_marker(closed):
 		"color": active_color,
 		"coordinates": show_coordinates,
 		"id": next_id,
-		"path_points": path_temp_points.duplicate(),
+		"marker_points": path_temp_points.duplicate(),
 		"path_closed": closed
 	}
 	
@@ -374,7 +385,7 @@ func _finalize_arrow_marker():
 		"color": active_color,
 		"coordinates": show_coordinates,
 		"id": next_id,
-		"path_points": arrow_temp_points.duplicate(),
+		"marker_points": arrow_temp_points.duplicate(),
 		"arrow_head_length": active_arrow_head_length,
 		"arrow_head_angle": active_arrow_head_angle
 	}
@@ -493,15 +504,18 @@ func _do_place_marker(marker_data):
 	# Load type-specific parameters
 	if marker_data["marker_type"] == MARKER_TYPE_LINE:
 		marker.angle = marker_data["angle"]
-		marker.line_range = marker_data["line_range"]
 		marker.mirror = marker_data["mirror"]
-	elif marker_data["marker_type"] == MARKER_TYPE_CIRCLE:
-		marker.circle_radius = marker_data["circle_radius"]
+	elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
+		marker.shape_subtype = marker_data["shape_subtype"]
+		marker.shape_radius = marker_data["shape_radius"]
+		marker.shape_angle = marker_data.get("shape_angle", 0.0)
+		# Generate marker_points for Shape (vertices)
+		marker.marker_points = _generate_shape_vertices(marker.position, marker.shape_radius, marker.shape_subtype, marker.shape_angle)
 	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
-		marker.path_points = marker_data["path_points"].duplicate()
+		marker.marker_points = marker_data["marker_points"].duplicate()
 		marker.path_closed = marker_data["path_closed"]
 	elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
-		marker.path_points = marker_data["path_points"].duplicate()
+		marker.marker_points = marker_data["marker_points"].duplicate()
 		marker.arrow_head_length = marker_data["arrow_head_length"]
 		marker.arrow_head_angle = marker_data["arrow_head_angle"]
 	
@@ -511,20 +525,20 @@ func _do_place_marker(marker_data):
 		overlay.update()
 	if LOGGER:
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
-			LOGGER.debug("Line marker placed at %s (angle: %.1f°, range: %.1f cells, mirror: %s)" % [
+			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
 				str(marker_data["position"]),
 				marker_data["angle"],
-				marker_data["line_range"],
 				str(marker_data["mirror"])
 			])
-		elif marker_data["marker_type"] == MARKER_TYPE_CIRCLE:
-			LOGGER.debug("Circle marker placed at %s (radius: %.1f cells)" % [
+		elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
+			LOGGER.debug("Shape marker placed at %s (subtype: %s, radius: %.1f cells)" % [
 				str(marker_data["position"]),
-				marker_data["circle_radius"]
+				marker_data["shape_subtype"],
+				marker_data["shape_radius"]
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_PATH:
 			LOGGER.debug("Path marker placed with %d points (closed: %s)" % [
-				marker_data["path_points"].size(),
+				marker_data["marker_points"].size(),
 				str(marker_data["path_closed"])
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
@@ -625,58 +639,86 @@ func snap_position_to_grid(position):
 	
 	return position
 
+# Generate vertices for Shape markers based on subtype
+func _generate_shape_vertices(center, radius_cells, shape_subtype, angle_degrees = 0.0):
+	# Get cell size for converting radius to pixels
+	var cell_size = _get_grid_cell_size()
+	if not cell_size:
+		return []
+	
+	var radius_px = radius_cells * min(cell_size.x, cell_size.y)
+	var angle_rad = deg2rad(angle_degrees)  # Convert degrees to radians
+	
+	# Generate vertices based on shape subtype
+	match shape_subtype:
+		"Circle":
+			# For circle, generate points along the circumference (e.g., 64 points)
+			# Note: angle parameter is ignored for Circle
+			var vertices = []
+			var point_count = 64
+			var angle_step = TAU / point_count
+			for i in range(point_count):
+				var angle = angle_step * i
+				var point = center + Vector2(cos(angle), sin(angle)) * radius_px
+				vertices.append(point)
+			return vertices
+		
+		"Square":
+			return _calculate_polygon_vertices(center, radius_px, 4, PI/4 + angle_rad)
+		
+		"Pentagon":
+			return _calculate_polygon_vertices(center, radius_px, 5, -PI/2 + angle_rad)
+		
+		"Hexagon":
+			return _calculate_polygon_vertices(center, radius_px, 6, angle_rad)
+		
+		"Octagon":
+			return _calculate_polygon_vertices(center, radius_px, 8, PI/8 + angle_rad)
+		
+		_:
+			return []
+
+# Calculate polygon vertices for regular n-gon
+func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
+	var vertices = []
+	var angle_step = TAU / sides
+	
+	for i in range(sides):
+		var angle = angle_step * i + rotation_offset
+		var point = center + Vector2(cos(angle), sin(angle)) * radius
+		vertices.append(point)
+	
+	return vertices
+
+# Get grid cell size (accounting for custom_snap mod if active)
+func _get_grid_cell_size():
+	if not cached_world:
+		return null
+	
+	# Check if custom_snap is active and use its snap_interval
+	if cached_snappy_mod and cached_snappy_mod.has("custom_snap_enabled") and cached_snappy_mod.custom_snap_enabled:
+		if cached_snappy_mod.has("snap_interval"):
+			return cached_snappy_mod.snap_interval
+	
+	# Fallback to vanilla grid cell size
+	if not cached_world.Level or not cached_world.Level.TileMap:
+		return null
+	return cached_world.Level.TileMap.CellSize
+
 # Update tool panel UI with current marker count
 func update_ui():
 	if not tool_panel:
 		return
 	
-	# Find and update info label
 	var container = tool_panel.Align.get_child(0)
 	if container:
-		var info_label = container.get_node_or_null("InfoLabel")
-		if info_label:
-			if path_placement_active:
-				info_label.text = "Path mode: %d points placed\nClick to add, RMB to finish" % [path_temp_points.size()]
-			elif arrow_placement_active:
-				info_label.text = "Arrow mode: %d/2 points placed\nClick to place %s point" % [arrow_temp_points.size(), "end" if arrow_temp_points.size() == 1 else "start"]
-			else:
-				info_label.text = "Click to place markers.\nMarkers: " + str(markers.size())
-		
-		# Update path status label if in Path mode
+		# Update cancel button visibility for Path mode
 		if active_marker_type == MARKER_TYPE_PATH:
 			var path_container = type_specific_container.get_node_or_null("PathSettings")
 			if path_container:
-				var status_label = path_container.get_node_or_null("PathStatusLabel")
 				var cancel_btn = path_container.get_node_or_null("PathCancelButton")
-				
-				if status_label:
-					if path_placement_active:
-						status_label.text = "Points: %d (min 2)" % [path_temp_points.size()]
-						status_label.add_color_override("font_color", Color(1.0, 1.0, 0.5, 1))
-					else:
-						status_label.text = "Ready to start"
-						status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
-				
 				if cancel_btn:
 					cancel_btn.visible = path_placement_active
-		
-		# Update arrow status label if in Arrow mode
-		if active_marker_type == MARKER_TYPE_ARROW:
-			var arrow_container = type_specific_container.get_node_or_null("ArrowSettings")
-			if arrow_container:
-				var status_label = arrow_container.get_node_or_null("ArrowStatusLabel")
-				var cancel_btn = arrow_container.get_node_or_null("ArrowCancelButton")
-				
-				if status_label:
-					if arrow_placement_active:
-						status_label.text = "Points: %d/2" % [arrow_temp_points.size()]
-						status_label.add_color_override("font_color", Color(1.0, 1.0, 0.5, 1))
-					else:
-						status_label.text = "Ready to start"
-						status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
-				
-				if cancel_btn:
-					cancel_btn.visible = arrow_placement_active
 
 # Serialize all markers for saving to map file
 func save_markers():
@@ -693,11 +735,8 @@ func load_markers(data):
 		return
 	
 	for marker_data in data:
-		# Convert legacy format to current format if needed
-		var converted_data = _convert_legacy_marker_data(marker_data)
-		
 		var marker = GuideMarkerClass.new()
-		marker.Load(converted_data)
+		marker.Load(marker_data)
 		markers.append(marker)
 		
 		if marker.id >= next_id:
@@ -708,103 +747,6 @@ func load_markers(data):
 	
 	if LOGGER:
 		LOGGER.info("%d markers loaded" % [markers.size()])
-
-# Convert legacy marker format to current format
-func _convert_legacy_marker_data(data):
-	# Check if already in new format (has type-specific parameters)
-	if data.has("marker_type"):
-		if data.marker_type == "Line" and data.has("angle") and data.has("line_range"):
-			return data  # Already new Line format
-		elif data.marker_type == "Circle" and data.has("circle_radius"):
-			return data  # Already new Circle format
-	
-	# Create new format dictionary
-	var new_data = {}
-	
-	# Copy position
-	if data.has("position"):
-		new_data["position"] = data.position
-	
-	# Copy or set marker_type (default to Line for legacy)
-	if data.has("marker_type") and data.marker_type is String:
-		if data.marker_type == "Circle":
-			new_data["marker_type"] = "Circle"
-			# Copy Circle-specific parameters
-			if data.has("circle_radius"):
-				new_data["circle_radius"] = data.circle_radius
-			else:
-				new_data["circle_radius"] = 1.0
-		else:
-			new_data["marker_type"] = "Line"
-	else:
-		new_data["marker_type"] = "Line"
-	
-	# Convert Line-specific parameters (only for Line type)
-	if new_data["marker_type"] == "Line":
-		# Convert old marker_types array or marker_type string to angle
-		if data.has("angle"):
-			new_data["angle"] = data.angle
-		else:
-			new_data["angle"] = _convert_legacy_types_to_angle(data)
-			if LOGGER:
-				LOGGER.debug("Converted legacy marker to angle: %.1f°" % [new_data["angle"]])
-		
-		# Convert range (old format used pixels, but we'll keep the value)
-		if data.has("line_range"):
-			new_data["line_range"] = data.line_range
-		elif data.has("range"):
-			new_data["line_range"] = data.range
-		else:
-			new_data["line_range"] = 0.0
-		
-		# Set mirror (legacy markers had no mirror)
-		if data.has("mirror"):
-			new_data["mirror"] = data.mirror
-		else:
-			new_data["mirror"] = false
-	
-	# Copy color (common for all types)
-	if data.has("color"):
-		new_data["color"] = data.color
-	else:
-		new_data["color"] = "#00b3ff"  # Default blue
-	
-	# Copy id
-	if data.has("id"):
-		new_data["id"] = data.id
-	
-	# Copy show_coordinates
-	if data.has("show_coordinates"):
-		new_data["show_coordinates"] = data.show_coordinates
-	else:
-		new_data["show_coordinates"] = false
-	
-	return new_data
-
-# Convert legacy marker_types array or marker_type string to angle
-func _convert_legacy_types_to_angle(data):
-	# Check for old marker_types array (v1.0.10)
-	if data.has("marker_types"):
-		var types = data.marker_types
-		if types.has("vertical"):
-			return 90.0
-		elif types.has("horizontal"):
-			return 0.0
-		elif types.has("diagonal_left"):
-			return 135.0
-		elif types.has("diagonal_right"):
-			return 45.0
-	
-	# Check for even older marker_type string (v1.0.0)
-	if data.has("marker_type") and data.marker_type is String:
-		var old_type = data.marker_type
-		match old_type:
-			"both", "vertical":
-				return 90.0
-			"horizontal":
-				return 0.0
-	
-	return 0.0  # Default horizontal
 
 # Create the UI panel for the tool with all controls
 # Includes marker type selector and type-specific settings
@@ -822,15 +764,6 @@ func create_ui_panel():
 
 	container.add_child(_create_spacer(10))
 	
-	# Info label
-	var info = Label.new()
-	info.text = "Click to place markers.\nMarkers: 0"
-	info.autowrap = true
-	info.name = "InfoLabel"
-	container.add_child(info)
-	
-	container.add_child(_create_spacer(10))
-	
 	# === MARKER TYPE SELECTOR ===
 	var type_label = Label.new()
 	type_label.text = "Marker Type:"
@@ -839,8 +772,8 @@ func create_ui_panel():
 	type_selector = OptionButton.new()
 	type_selector.add_item("Line")
 	type_selector.set_item_metadata(0, MARKER_TYPE_LINE)
-	type_selector.add_item("Circle")
-	type_selector.set_item_metadata(1, MARKER_TYPE_CIRCLE)
+	type_selector.add_item("Shape")
+	type_selector.set_item_metadata(1, MARKER_TYPE_SHAPE)
 	type_selector.add_item("Path")
 	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
 	type_selector.add_item("Arrow")
@@ -861,11 +794,11 @@ func create_ui_panel():
 	line_settings_container.name = "LineSettings"
 	type_specific_container.add_child(line_settings_container)
 	
-	# Create Circle settings UI
-	circle_settings_container = _create_circle_settings_ui()
-	circle_settings_container.name = "CircleSettings"
-	circle_settings_container.visible = false
-	type_specific_container.add_child(circle_settings_container)
+	# Create Shape settings UI
+	shape_settings_container = _create_shape_settings_ui()
+	shape_settings_container.name = "ShapeSettings"
+	shape_settings_container.visible = false
+	type_specific_container.add_child(shape_settings_container)
 	
 	# Create Path settings UI
 	path_settings_container = _create_path_settings_ui()
@@ -976,14 +909,6 @@ func _on_angle_changed(value):
 	if LOGGER:
 		LOGGER.debug("Angle changed to: %.1f°" % [value])
 
-func _on_range_changed(value):
-	active_line_range = value
-	# Update preview
-	if overlay:
-		overlay.update()
-	if LOGGER:
-		LOGGER.debug("Range changed to: %.1f cells" % [value])
-
 func _on_color_changed(new_color):
 	active_color = new_color
 	# Update preview
@@ -1004,24 +929,38 @@ func _on_reset_pressed():
 	# Reset type-specific settings
 	if active_marker_type == MARKER_TYPE_LINE:
 		active_angle = DEFAULT_ANGLE
-		active_line_range = DEFAULT_LINE_RANGE
 		active_mirror = DEFAULT_MIRROR
 		
 		type_settings[MARKER_TYPE_LINE]["angle"] = DEFAULT_ANGLE
-		type_settings[MARKER_TYPE_LINE]["range"] = DEFAULT_LINE_RANGE
 		type_settings[MARKER_TYPE_LINE]["mirror"] = DEFAULT_MIRROR
 		
 		_update_angle_spinbox()
-		_update_range_spinbox()
 		_update_mirror_checkbox()
 	
-	# Reset Circle type settings
-	elif active_marker_type == MARKER_TYPE_CIRCLE:
-		active_circle_radius = DEFAULT_CIRCLE_RADIUS
+	# Reset Shape type settings
+	elif active_marker_type == MARKER_TYPE_SHAPE:
+		active_shape_radius = DEFAULT_SHAPE_RADIUS
+		active_shape_subtype = DEFAULT_SHAPE_SUBTYPE
+		active_shape_angle = DEFAULT_SHAPE_ANGLE
 		
-		type_settings[MARKER_TYPE_CIRCLE]["radius"] = DEFAULT_CIRCLE_RADIUS
+		type_settings[MARKER_TYPE_SHAPE]["radius"] = DEFAULT_SHAPE_RADIUS
+		type_settings[MARKER_TYPE_SHAPE]["subtype"] = DEFAULT_SHAPE_SUBTYPE
+		type_settings[MARKER_TYPE_SHAPE]["angle"] = DEFAULT_SHAPE_ANGLE
 		
-		_update_circle_radius_spinbox()
+		_update_shape_radius_spinbox()
+		_update_shape_subtype_selector()
+		_update_shape_angle_spinbox()
+	
+	# Reset Arrow type settings
+	elif active_marker_type == MARKER_TYPE_ARROW:
+		active_arrow_head_length = DEFAULT_ARROW_HEAD_LENGTH
+		active_arrow_head_angle = DEFAULT_ARROW_HEAD_ANGLE
+		
+		type_settings[MARKER_TYPE_ARROW]["head_length"] = DEFAULT_ARROW_HEAD_LENGTH
+		type_settings[MARKER_TYPE_ARROW]["head_angle"] = DEFAULT_ARROW_HEAD_ANGLE
+		
+		_update_arrow_head_length_spinbox()
+		_update_arrow_head_angle_spinbox()
 	
 	# Reset common settings (always)
 	active_color = DEFAULT_COLOR
@@ -1053,15 +992,6 @@ func _update_angle_spinbox():
 		if LOGGER:
 			LOGGER.debug("_update_angle_spinbox: container is null")
 
-func _update_range_spinbox():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var spinbox = container.find_node("RangeSpinBox", true, false)
-		if spinbox:
-			spinbox.value = active_line_range
-
 func _update_color_picker():
 	if not tool_panel:
 		return
@@ -1080,30 +1010,82 @@ func _update_mirror_checkbox():
 		if checkbox:
 			checkbox.pressed = active_mirror
 
-# UI Callbacks for Circle settings
-func _on_circle_radius_changed(value):
+# UI Callbacks for Shape settings
+func _on_shape_subtype_changed(subtype_index):
+	if not type_selector:
+		return
+	
+	var subtype_selector = shape_settings_container.find_node("ShapeSubtypeSelector", true, false)
+	if subtype_selector:
+		active_shape_subtype = subtype_selector.get_item_metadata(subtype_index)
+		type_settings[MARKER_TYPE_SHAPE]["subtype"] = active_shape_subtype
+		
+		# Enable/disable angle spinbox based on subtype
+		var angle_spinbox = shape_settings_container.find_node("ShapeAngleSpinBox", true, false)
+		if angle_spinbox:
+			angle_spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
+		
+		if overlay:
+			overlay.update()
+		
+		if LOGGER:
+			LOGGER.info("Shape subtype changed to: %s" % [active_shape_subtype])
+
+func _on_shape_radius_changed(value):
 	# Ensure minimum radius of 0.1
 	if value < 0.1:
 		value = 0.1
-	active_circle_radius = value
+	active_shape_radius = value
 	
 	# Update the spinbox if it was set below minimum
-	_update_circle_radius_spinbox()
+	_update_shape_radius_spinbox()
 	
 	# Update preview
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Circle radius changed to: %.1f cells" % [value])
+		LOGGER.debug("Shape radius changed to: %.1f cells" % [value])
 
-func _update_circle_radius_spinbox():
+func _on_shape_angle_changed(value):
+	active_shape_angle = value
+	
+	# Update preview
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Shape angle changed to: %.1f°" % [value])
+
+func _update_shape_radius_spinbox():
 	if not tool_panel:
 		return
 	var container = tool_panel.Align.get_child(0)
 	if container:
-		var spinbox = container.find_node("CircleRadiusSpinBox", true, false)
+		var spinbox = container.find_node("ShapeRadiusSpinBox", true, false)
 		if spinbox:
-			spinbox.value = active_circle_radius
+			spinbox.value = active_shape_radius
+
+func _update_shape_subtype_selector():
+	if not tool_panel:
+		return
+	var container = tool_panel.Align.get_child(0)
+	if container:
+		var selector = container.find_node("ShapeSubtypeSelector", true, false)
+		if selector:
+			for i in range(selector.get_item_count()):
+				if selector.get_item_metadata(i) == active_shape_subtype:
+					selector.selected = i
+					break
+
+func _update_shape_angle_spinbox():
+	if not tool_panel:
+		return
+	var container = tool_panel.Align.get_child(0)
+	if container:
+		var spinbox = container.find_node("ShapeAngleSpinBox", true, false)
+		if spinbox:
+			spinbox.value = active_shape_angle
+			# Update editable state based on subtype
+			spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
 
 # UI Callbacks for Arrow settings
 func _on_arrow_head_length_changed(value):
@@ -1199,31 +1181,6 @@ func _create_line_settings_ui():
 	angle_hbox.add_child(angle_spin)
 	container.add_child(angle_hbox)
 	
-	# Range SpinBox
-	var range_hbox = HBoxContainer.new()
-	var range_label = Label.new()
-	range_label.text = "Range:"
-	range_label.rect_min_size = Vector2(80, 0)
-	range_hbox.add_child(range_label)
-	
-	var range_spin = SpinBox.new()
-	range_spin.min_value = 0
-	range_spin.max_value = 100
-	range_spin.step = 1
-	range_spin.value = active_line_range
-	range_spin.name = "RangeSpinBox"
-	range_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	range_spin.connect("value_changed", self, "_on_range_changed")
-	range_spin.allow_greater = true
-	range_spin.allow_lesser = false
-	range_hbox.add_child(range_spin)
-	container.add_child(range_hbox)
-	
-	var range_hint = Label.new()
-	range_hint.text = "  (grid cells, 0 = infinite)"
-	range_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(range_hint)
-	
 	# Mirror CheckBox
 	var mirror_check = CheckButton.new()
 	mirror_check.text = "Mirror"
@@ -1234,15 +1191,36 @@ func _create_line_settings_ui():
 	
 	return container
 
-# Create UI for Circle marker type
-func _create_circle_settings_ui():
+# Create UI for Shape marker type
+func _create_shape_settings_ui():
 	var container = VBoxContainer.new()
 	
-	var info_label = Label.new()
-	info_label.text = "Circle guide around marker"
-	info_label.align = Label.ALIGN_CENTER
-	info_label.add_color_override("font_color", Color(0.8, 0.8, 0.8, 1))
-	container.add_child(info_label)
+	# Shape Subtype Selector
+	var subtype_label = Label.new()
+	subtype_label.text = "Shape Type:"
+	container.add_child(subtype_label)
+	
+	var subtype_option = OptionButton.new()
+	subtype_option.add_item("Circle")
+	subtype_option.set_item_metadata(0, SHAPE_CIRCLE)
+	subtype_option.add_item("Square")
+	subtype_option.set_item_metadata(1, SHAPE_SQUARE)
+	subtype_option.add_item("Pentagon (5-sided)")
+	subtype_option.set_item_metadata(2, SHAPE_PENTAGON)
+	subtype_option.add_item("Hexagon (6-sided)")
+	subtype_option.set_item_metadata(3, SHAPE_HEXAGON)
+	subtype_option.add_item("Octagon (8-sided)")
+	subtype_option.set_item_metadata(4, SHAPE_OCTAGON)
+	
+	# Set current selection
+	for i in range(subtype_option.get_item_count()):
+		if subtype_option.get_item_metadata(i) == active_shape_subtype:
+			subtype_option.selected = i
+			break
+	
+	subtype_option.name = "ShapeSubtypeSelector"
+	subtype_option.connect("item_selected", self, "_on_shape_subtype_changed")
+	container.add_child(subtype_option)
 	
 	container.add_child(_create_spacer(10))
 	
@@ -1257,51 +1235,47 @@ func _create_circle_settings_ui():
 	radius_spin.min_value = 0.1  # Minimum 0.1 cell
 	radius_spin.max_value = 100
 	radius_spin.step = 0.1
-	radius_spin.value = active_circle_radius
-	radius_spin.name = "CircleRadiusSpinBox"
+	radius_spin.value = active_shape_radius
+	radius_spin.name = "ShapeRadiusSpinBox"
 	radius_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	radius_spin.connect("value_changed", self, "_on_circle_radius_changed")
+	radius_spin.connect("value_changed", self, "_on_shape_radius_changed")
 	radius_spin.allow_greater = true
 	radius_spin.allow_lesser = false
 	radius_hbox.add_child(radius_spin)
 	container.add_child(radius_hbox)
 	
 	var radius_hint = Label.new()
-	radius_hint.text = "  (grid cells, min = 0.1)"
+	radius_hint.text = "  (grid cells, circumradius)"
 	radius_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
 	container.add_child(radius_hint)
+	
+	container.add_child(_create_spacer(5))
+	
+	# Angle SpinBox (disabled for Circle)
+	var angle_hbox = HBoxContainer.new()
+	var angle_label = Label.new()
+	angle_label.text = "Angle (°):"
+	angle_label.rect_min_size = Vector2(80, 0)
+	angle_hbox.add_child(angle_label)
+	
+	var angle_spin = SpinBox.new()
+	angle_spin.min_value = 0
+	angle_spin.max_value = 360
+	angle_spin.step = 1
+	angle_spin.value = active_shape_angle
+	angle_spin.name = "ShapeAngleSpinBox"
+	angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	angle_spin.connect("value_changed", self, "_on_shape_angle_changed")
+	# Disable for Circle subtype
+	angle_spin.editable = (active_shape_subtype != SHAPE_CIRCLE)
+	angle_hbox.add_child(angle_spin)
+	container.add_child(angle_hbox)
 	
 	return container
 
 # Create UI for Path marker type
 func _create_path_settings_ui():
 	var container = VBoxContainer.new()
-	
-	var info_label = Label.new()
-	info_label.text = "Multi-point path guide"
-	info_label.align = Label.ALIGN_CENTER
-	info_label.add_color_override("font_color", Color(0.8, 0.8, 0.8, 1))
-	container.add_child(info_label)
-	
-	container.add_child(_create_spacer(10))
-	
-	var instructions = Label.new()
-	instructions.text = "Instructions:\n• Click to add points\n• Click near first point to close\n• Right-click to finish open path\n• ESC to cancel"
-	instructions.autowrap = true
-	instructions.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(instructions)
-	
-	container.add_child(_create_spacer(10))
-	
-	# Status label (shows current point count)
-	var status_label = Label.new()
-	status_label.name = "PathStatusLabel"
-	status_label.text = "Ready to start"
-	status_label.align = Label.ALIGN_CENTER
-	status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
-	container.add_child(status_label)
-	
-	container.add_child(_create_spacer(10))
 	
 	# Cancel button (only visible during placement)
 	var cancel_btn = Button.new()
@@ -1316,22 +1290,6 @@ func _create_path_settings_ui():
 # Create UI for Arrow marker type
 func _create_arrow_settings_ui():
 	var container = VBoxContainer.new()
-	
-	var info_label = Label.new()
-	info_label.text = "Two-point arrow guide"
-	info_label.align = Label.ALIGN_CENTER
-	info_label.add_color_override("font_color", Color(0.8, 0.8, 0.8, 1))
-	container.add_child(info_label)
-	
-	container.add_child(_create_spacer(10))
-	
-	var instructions = Label.new()
-	instructions.text = "Instructions:\n• Click to set arrow start\n• Click again to set arrow end\n• Arrow auto-completes after 2 points\n• ESC to cancel"
-	instructions.autowrap = true
-	instructions.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(instructions)
-	
-	container.add_child(_create_spacer(10))
 	
 	# Arrow head length SpinBox
 	var head_length_hbox = HBoxContainer.new()
@@ -1353,11 +1311,6 @@ func _create_arrow_settings_ui():
 	head_length_hbox.add_child(head_length_spin)
 	container.add_child(head_length_hbox)
 	
-	var head_length_hint = Label.new()
-	head_length_hint.text = "  (pixels)"
-	head_length_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(head_length_hint)
-	
 	container.add_child(_create_spacer(5))
 	
 	# Arrow head angle SpinBox
@@ -1377,31 +1330,6 @@ func _create_arrow_settings_ui():
 	head_angle_spin.connect("value_changed", self, "_on_arrow_head_angle_changed")
 	head_angle_hbox.add_child(head_angle_spin)
 	container.add_child(head_angle_hbox)
-	
-	var head_angle_hint = Label.new()
-	head_angle_hint.text = "  (degrees)"
-	head_angle_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(head_angle_hint)
-	
-	container.add_child(_create_spacer(10))
-	
-	# Status label (shows current point count)
-	var status_label = Label.new()
-	status_label.name = "ArrowStatusLabel"
-	status_label.text = "Ready to start"
-	status_label.align = Label.ALIGN_CENTER
-	status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
-	container.add_child(status_label)
-	
-	container.add_child(_create_spacer(10))
-	
-	# Cancel button (only visible during placement)
-	var cancel_btn = Button.new()
-	cancel_btn.text = "Cancel Arrow"
-	cancel_btn.name = "ArrowCancelButton"
-	cancel_btn.connect("pressed", self, "_cancel_arrow_placement")
-	cancel_btn.visible = false
-	container.add_child(cancel_btn)
 	
 	return container
 
@@ -1486,9 +1414,9 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_LINE:
 			if line_settings_container:
 				line_settings_container.visible = true
-		MARKER_TYPE_CIRCLE:
-			if circle_settings_container:
-				circle_settings_container.visible = true
+		MARKER_TYPE_SHAPE:
+			if shape_settings_container:
+				shape_settings_container.visible = true
 		MARKER_TYPE_PATH:
 			if path_settings_container:
 				path_settings_container.visible = true
@@ -1506,20 +1434,22 @@ func _load_type_settings(marker_type):
 	# Load Line type settings
 	if marker_type == MARKER_TYPE_LINE:
 		active_angle = settings["angle"]
-		active_line_range = settings["range"]
 		active_mirror = settings["mirror"]
 		
 		# Update UI
 		_update_angle_spinbox()
-		_update_range_spinbox()
 		_update_mirror_checkbox()
 	
-	# Load Circle type settings
-	elif marker_type == MARKER_TYPE_CIRCLE:
-		active_circle_radius = settings["radius"]
+	# Load Shape type settings
+	elif marker_type == MARKER_TYPE_SHAPE:
+		active_shape_subtype = settings["subtype"]
+		active_shape_radius = settings["radius"]
+		active_shape_angle = settings.get("angle", 0.0)
 		
 		# Update UI
-		_update_circle_radius_spinbox()
+		_update_shape_subtype_selector()
+		_update_shape_radius_spinbox()
+		_update_shape_angle_spinbox()
 	
 	# Load Arrow type settings
 	elif marker_type == MARKER_TYPE_ARROW:
@@ -1538,12 +1468,13 @@ func _save_current_type_settings():
 	# Save Line type settings
 	if active_marker_type == MARKER_TYPE_LINE:
 		type_settings[MARKER_TYPE_LINE]["angle"] = active_angle
-		type_settings[MARKER_TYPE_LINE]["range"] = active_line_range
 		type_settings[MARKER_TYPE_LINE]["mirror"] = active_mirror
 	
-	# Save Circle type settings
-	elif active_marker_type == MARKER_TYPE_CIRCLE:
-		type_settings[MARKER_TYPE_CIRCLE]["radius"] = active_circle_radius
+	# Save Shape type settings
+	elif active_marker_type == MARKER_TYPE_SHAPE:
+		type_settings[MARKER_TYPE_SHAPE]["subtype"] = active_shape_subtype
+		type_settings[MARKER_TYPE_SHAPE]["radius"] = active_shape_radius
+		type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
 	
 	# Save Arrow type settings
 	elif active_marker_type == MARKER_TYPE_ARROW:
@@ -1595,42 +1526,42 @@ func adjust_angle_with_wheel(direction):
 	if LOGGER:
 		LOGGER.info("Angle adjusted via mouse wheel: %.1f°" % [active_angle])
 
-# Adjust circle radius using mouse wheel (only for Circle type)
+# Adjust shape radius using mouse wheel (only for Shape type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
-func adjust_circle_radius_with_wheel(direction):
+func adjust_shape_radius_with_wheel(direction):
 	if LOGGER:
-		LOGGER.debug("adjust_circle_radius_with_wheel called: direction=%d, current_type=%s, current_radius=%.1f" % [direction, active_marker_type, active_circle_radius])
+		LOGGER.debug("adjust_shape_radius_with_wheel called: direction=%d, current_type=%s, current_radius=%.1f" % [direction, active_marker_type, active_shape_radius])
 	
-	# Only works for Circle type
-	if active_marker_type != MARKER_TYPE_CIRCLE:
+	# Only works for Shape type
+	if active_marker_type != MARKER_TYPE_SHAPE:
 		if LOGGER:
-			LOGGER.debug("Wheel adjustment ignored - not Circle type")
+			LOGGER.debug("Wheel adjustment ignored - not Shape type")
 		return
 	
 	# Radius step: 0.1 cells per wheel tick
 	var radius_step = 0.1
 	
-	var new_radius = active_circle_radius + (direction * radius_step)
+	var new_radius = active_shape_radius + (direction * radius_step)
 	
 	# Ensure minimum of 0.1
 	if new_radius < 0.1:
 		new_radius = 0.1
 	
 	if LOGGER:
-		LOGGER.debug("Radius changing: %.1f cells -> %.1f cells" % [active_circle_radius, new_radius])
+		LOGGER.debug("Radius changing: %.1f cells -> %.1f cells" % [active_shape_radius, new_radius])
 	
-	active_circle_radius = new_radius
+	active_shape_radius = new_radius
 	
 	# Save to type settings
-	type_settings[MARKER_TYPE_CIRCLE]["radius"] = active_circle_radius
+	type_settings[MARKER_TYPE_SHAPE]["radius"] = active_shape_radius
 	
 	# Update UI
-	_update_circle_radius_spinbox()
+	_update_shape_radius_spinbox()
 	
 	# Update preview
 	if overlay:
 		overlay.update()
 	
 	if LOGGER:
-		LOGGER.info("Circle radius adjusted via mouse wheel: %.1f cells" % [active_circle_radius])
+		LOGGER.info("Shape radius adjusted via mouse wheel: %.1f cells" % [active_shape_radius])
 
