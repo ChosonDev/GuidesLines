@@ -8,15 +8,33 @@ func _ready():
 	set_process_input(true)
 	set_process(true)
 
-# Continuously request redraw to keep markers visible
+# Continuously update mouse position for path preview
 func _process(_delta):
 	# Always update to keep markers visible
 	update()
+	
+	# Track mouse position for path preview
+	if tool and tool.path_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+		tool.path_preview_point = tool.cached_worldui.MousePosition
 
 # Handle mouse input for placing markers
 func _input(event):
 	if not tool or not tool.is_enabled:
 		return
+	
+	# Handle RIGHT-CLICK for Path finalization
+	if event is InputEventMouseButton and event.button_index == BUTTON_RIGHT:
+		if tool.path_placement_active and event.pressed:
+			tool._finalize_path_marker(false)  # Finish as open path
+			get_tree().set_input_as_handled()
+			return
+	
+	# Handle ESC key for Path cancellation
+	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
+		if tool.path_placement_active:
+			tool._cancel_path_placement()
+			get_tree().set_input_as_handled()
+			return
 	
 	# Handle mouse wheel for parameter adjustment
 	if event is InputEventMouseButton:
@@ -107,8 +125,12 @@ func _draw():
 	
 	# Draw preview marker at cursor (only when tool is active and NOT in delete mode)
 	if tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
-		var preview_pos = tool.cached_worldui.MousePosition
-		_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
+		# Special preview for Path type
+		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
+			_draw_path_preview(world_left, world_right, world_top, world_bottom)
+		else:
+			var preview_pos = tool.cached_worldui.MousePosition
+			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
 
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):
@@ -156,6 +178,26 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 				LINE_WIDTH,
 				true  # antialiased
 			)
+	
+	elif marker.marker_type == "Path":
+		# Draw path lines
+		if marker.path_points.size() >= 2:
+			for i in range(marker.path_points.size() - 1):
+				draw_line(
+					marker.path_points[i],
+					marker.path_points[i + 1],
+					marker.color,
+					LINE_WIDTH
+				)
+			
+			# If path is closed, connect last to first
+			if marker.path_closed and marker.path_points.size() >= 3:
+				draw_line(
+					marker.path_points[marker.path_points.size() - 1],
+					marker.path_points[0],
+					marker.color,
+					LINE_WIDTH
+				)
 	
 	# Draw marker circle on top
 	draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
@@ -216,6 +258,61 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
 	draw_arc(pos, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
+
+# Draw preview for Path type (temp points + line to cursor)
+func _draw_path_preview(world_left, world_right, world_top, world_bottom):
+	if not tool.path_placement_active or tool.path_temp_points.size() == 0:
+		return
+	
+	var MARKER_SIZE = 40.0
+	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
+	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
+	var LINE_WIDTH = 8.0
+	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
+	
+	# Draw all placed points
+	for i in range(tool.path_temp_points.size()):
+		var point = tool.path_temp_points[i]
+		
+		# First point is slightly larger and different color
+		if i == 0:
+			draw_circle(point, MARKER_SIZE / 1.5, Color(0, 1, 0, 0.6))  # Green first point
+		else:
+			draw_circle(point, MARKER_SIZE / 2.0, MARKER_COLOR)
+		
+		# Draw outline
+		draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
+	
+	# Draw lines between placed points
+	if tool.path_temp_points.size() >= 2:
+		for i in range(tool.path_temp_points.size() - 1):
+			draw_line(
+				tool.path_temp_points[i],
+				tool.path_temp_points[i + 1],
+				LINE_COLOR,
+				LINE_WIDTH
+			)
+	
+	# Draw preview line from last point to cursor
+	if tool.path_preview_point != null and tool.path_temp_points.size() > 0:
+		var last_point = tool.path_temp_points[tool.path_temp_points.size() - 1]
+		draw_line(
+			last_point,
+			tool.path_preview_point,
+			PREVIEW_LINE_COLOR,
+			LINE_WIDTH * 0.7
+		)
+		
+		# Draw cursor preview circle
+		draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
+	
+	# Draw "close path" indicator if near first point
+	if tool.path_temp_points.size() >= 3 and tool.path_preview_point != null:
+		var first_point = tool.path_temp_points[0]
+		if tool.path_preview_point.distance_to(first_point) < 30.0:
+			# Draw pulsing circle around first point
+			var pulse = sin(OS.get_ticks_msec() * 0.005) * 0.5 + 0.5
+			draw_arc(first_point, MARKER_SIZE, 0, TAU, 32, Color(0, 1, 0, 0.5 + pulse * 0.3), 4)
 
 # Calculate line endpoints based on angle, range, and viewport bounds
 func _calculate_line_endpoints(origin, angle_deg, range_cells, world_left, world_right, world_top, world_bottom):
@@ -318,6 +415,14 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 		_draw_coordinates_on_circle(
 			marker_pos,
 			marker.circle_radius,
+			cam_zoom,
+			marker.color
+		)
+	
+	elif marker.marker_type == "Path":
+		# Draw coordinates at each path point
+		_draw_coordinates_on_path(
+			marker.path_points,
 			cam_zoom,
 			marker.color
 		)
@@ -511,4 +616,41 @@ func _draw_coordinates_on_circle(center, radius_cells, cam_zoom, circle_color):
 		var text = "R=" + ("%.1f" % radius_cells)
 		var text_offset_dir = direction * text_offset
 		var text_pos = point + text_offset_dir
+		_draw_text_with_outline(text, text_pos, text_color)
+
+# Draw coordinates on path points
+func _draw_coordinates_on_path(points, cam_zoom, path_color):
+	if points.size() < 2:
+		return
+	
+	var marker_size = 5.0 * cam_zoom.x
+	var text_offset = 20.0 * cam_zoom.x
+	var marker_color = path_color
+	var text_color = path_color
+	
+	# Get cell size for distance calculation
+	var cell_size = _get_grid_cell_size()
+	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
+		return
+	
+	# Draw marker and distance at each point
+	var total_distance = 0.0
+	
+	for i in range(points.size()):
+		var point = points[i]
+		
+		# Draw marker
+		draw_circle(point, marker_size, marker_color)
+		
+		# Calculate distance from start (in grid cells)
+		if i > 0:
+			var prev_point = points[i - 1]
+			var segment_length = point.distance_to(prev_point)
+			
+			var cell_dist = segment_length / min(cell_size.x, cell_size.y)
+			total_distance += cell_dist
+		
+		# Draw text with total distance
+		var text = str(int(total_distance))
+		var text_pos = point + Vector2(text_offset, -text_offset)
 		_draw_text_with_outline(text, text_pos, text_color)

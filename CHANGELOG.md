@@ -7,62 +7,96 @@ All notable changes to the Guides Lines mod will be documented in this file.
 ### Changed - Major Refactoring
 - **Complete Marker System Redesign**: Replaced fixed guide line types with flexible custom marker system
   - Removed pre-defined marker types (vertical, horizontal, diagonal left, diagonal right)
-  - Introduced marker type system: Line and Circle types (with extensibility for future types)
+  - Introduced marker type system: Line, Circle, and Path types (with extensibility for future types)
   - Line markers now support custom angles (0-360°) instead of fixed orientations
   - Added line range control (infinite or finite length in grid cells)
   - Added mirror option for Line markers (creates second line at 180° offset)
   - Added Circle markers with customizable radius in grid cells
+  - **NEW: Path markers** with multi-point placement for complex guide paths
+    - Draw paths with any number of points (minimum 2)
+    - Click to add points sequentially
+    - Close path by clicking near first point (creates loop, requires 3+ points)
+    - Finish open path with right-click
+    - Cancel placement with ESC key
+    - Real-time preview shows points, lines, and closing indicator
+    - Supports grid snapping for each point
   - Added per-marker color customization (default blue, but any color supported)
-  - Each marker type has independent settings (angle/range/mirror for Lines; radius for Circles)
+  - Each marker type has independent settings (angle/range/mirror for Lines; radius for Circles; multi-point for Paths)
 
 - **UI Completely Redesigned**:
   - Replaced individual line type checkboxes with unified marker type selector
   - Type-specific controls appear dynamically based on selected marker type
   - **Line Controls**: Angle spinbox (0-360°), Range spinbox (0+ cells, 0=infinite), Mirror checkbox
   - **Circle Controls**: Radius spinbox (0.1+ cells)
+  - **Path Controls**: Interactive multi-point placement mode with instructions and status display
   - Added color picker button for customizing marker colors
   - Type-specific settings are remembered when switching between types
   - Mouse wheel support for quick parameter adjustment:
     - Lines: Scroll to adjust angle (5° increments, wraps around 360°)
     - Circles: Scroll to adjust radius (0.5 cell increments, minimum 0.5)
-  - Updated preview system to show custom angles, ranges, and circles in real-time
+  - Updated preview system to show custom angles, ranges, circles, and path placement in real-time
+  - Path preview features:
+    - First point shown in green (larger)
+    - Intermediate points shown in red
+    - White dashed line to cursor position
+    - Pulsing green circle around first point when hovering to close path
+    - Cancel button visible during placement
 
 ### Technical Changes
 - **GuideMarker.gd**:
-  - Replaced `marker_types` array with single `marker_type` field ("Line" or "Circle")
+  - Replaced `marker_types` array with single `marker_type` field ("Line", "Circle", or "Path")
   - Added properties: `angle`, `line_range`, `circle_radius`, `color`, `mirror`
+  - Added Path properties: `path_points` (Array of Vector2), `path_closed` (bool)
   - Removed old methods: `has_type()`, `add_type()`, `remove_type()`
-  - Updated `Save()` and `Load()` methods for new data format
+  - Updated `Save()` and `Load()` methods for new data format including Path serialization
   - Removed backward compatibility with v1.0.9 and earlier save formats
   - Changed default LINE_COLOR constant to DEFAULT_LINE_COLOR
 
 - **GuidesLinesTool.gd** (~800 lines added/modified):
   - Replaced `active_marker_types` array with `active_marker_type` single value
   - Added active settings variables: `active_angle`, `active_line_range`, `active_circle_radius`, `active_color`, `active_mirror`
+  - Added Path state variables: `path_placement_active`, `path_temp_points`, `path_preview_point`
   - Added `type_settings` dictionary to store per-type settings independently
-  - Added constants: `MARKER_TYPE_LINE`, `MARKER_TYPE_CIRCLE`, default value constants
-  - Added UI reference variables: `type_selector`, `type_specific_container`, type-specific containers
+  - Added constants: `MARKER_TYPE_LINE`, `MARKER_TYPE_CIRCLE`, `MARKER_TYPE_PATH`, default value constants
+  - Added UI reference variables: `type_selector`, `type_specific_container`, type-specific containers including `path_settings_container`
   - Completely rewrote `_build_tool_panel()` to support new UI layout
   - Removed `toggle_marker_type()` function (no longer needed)
-  - Updated `place_marker()` to use new marker data structure
-  - Updated `_do_place_marker()` to create markers with new format
+  - Updated `place_marker()` to handle Path type with multi-point logic
+  - Added Path-specific methods:
+    - `_handle_path_placement()` - handles sequential point placement
+    - `_finalize_path_marker()` - creates Path marker from collected points
+    - `_cancel_path_placement()` - resets Path placement state
+  - Updated `_do_place_marker()` to create markers with new format including Path
   - Added spinner/color change callbacks for all new UI controls
   - Added methods: `adjust_angle_with_wheel()`, `adjust_circle_radius_with_wheel()`
   - Updated `update_ui_checkboxes_state()` to handle new UI elements
+  - Updated `set_snap_to_grid()` to cancel Path placement when snap is disabled
+  - Updated `_switch_type_ui()` to cancel Path placement when switching away from Path type
 
  - **MarkerOverlay.gd** (~640 lines restructured):
   - Added mouse wheel input handling in `_input()`:
     - Wheel up/down adjusts angle for Line type (5° increments)
     - Wheel up/down adjusts radius for Circle type (0.5 cell increments)
     - Ignores wheel when CTRL is held (preserves zoom functionality)
-  - Completely rewrote `_draw()` to support custom marker types
-  - Added `_draw_custom_marker()` - unified drawing for any marker type
+  - Added input handling for Path type:
+    - Right-click (RMB) finalizes open path
+    - ESC key cancels Path placement
+  - Updated `_process()` to track mouse position for Path preview
+  - Completely rewrote `_draw()` to support custom marker types including Path preview
+  - Added `_draw_custom_marker()` - unified drawing for any marker type (Line, Circle, Path)
   - Added `_draw_custom_marker_preview()` - preview drawing at cursor
+  - Added `_draw_path_preview()` - interactive path placement preview with:
+    - Visual differentiation for first point (green, larger)
+    - Intermediate points (red, semi-transparent)
+    - Preview line from last point to cursor (white, dashed style)
+    - Pulsing indicator when hovering near first point to close path
   - Added `_calculate_line_endpoints()` - computes line endpoints for any angle/range
   - Removed old separate drawing code for vertical/horizontal/diagonal lines
   - Line rendering now supports arbitrary angles and finite ranges
   - Circle rendering with proper coordinate display
+  - Path rendering with lines connecting all points (closed or open)
   - Preview now shows exact appearance before placement
+  - Added `_draw_coordinates_on_path()` - displays cumulative distance at each path point
 
 - **GuidesLines.gd**:
   - Removed unused callback: `_on_marker_type_toggled()`

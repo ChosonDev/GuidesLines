@@ -8,7 +8,7 @@ Advanced guide system with fully customizable markers for precise map alignment 
 
 ## Overview
 
-GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits) or **Circle markers** (any radius). Customize colors, mirror lines, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
+GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits), **Circle markers** (any radius), or **Path markers** (multi-point custom paths). Customize colors, mirror lines, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
 
 All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
 
@@ -22,6 +22,11 @@ The marker system has been completely redesigned for maximum flexibility:
 - **New System** (current WIP): Flexible marker types with customizable parameters:
   - **Line Markers**: Any angle (0-360°), optional range limit, mirror mode, custom color
   - **Circle Markers**: Any radius, custom color
+  - **Path Markers**: Multi-point custom paths with sequential placement (NEW!)
+    - Draw complex paths with any number of points
+    - Click to add points, right-click to finish, ESC to cancel
+    - Close path by clicking near first point (creates loop)
+    - Real-time preview with visual feedback
   - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Circles) in real-time
   - **Color Customization**: Each marker can have its own color
   - **More Types Coming**: Architecture supports adding new marker types in future
@@ -44,7 +49,7 @@ The marker system has been completely redesigned for maximum flexibility:
 
 ### Flexible Custom Markers
 - **Custom Tool**: Dedicated "Guide Markers" tool in the Design category
-- **Marker Types**: Choose between Line or Circle markers (more types possible in future)
+- **Marker Types**: Choose between Line, Circle, or Path markers (more types possible in future)
 - **Line Markers**:
   - Any angle from 0° to 360° (adjustable via spinbox or mouse wheel)
   - Optional range limit (infinite by default, or specify length in grid cells)
@@ -53,13 +58,26 @@ The marker system has been completely redesigned for maximum flexibility:
 - **Circle Markers**:
   - Any radius in grid cells (adjustable via spinbox or mouse wheel)
   - Customizable color
+- **Path Markers** (NEW):
+  - Multi-point custom paths with interactive placement
+  - Click to add points sequentially (minimum 2 points)
+  - Right-click to finish as open path
+  - Click near first point to close path (creates loop, requires 3+ points)
+  - ESC to cancel placement
+  - Real-time preview with visual feedback:
+    - First point: green, larger
+    - Intermediate points: red, semi-transparent
+    - Preview line to cursor: white, dashed
+    - Pulsing indicator when hovering to close
+  - Grid snapping support for each point
+  - Customizable color
 - **Real-Time Preview**: See exact marker appearance before placing
 - **Mouse Wheel Adjustment**: Scroll to change angle (Lines) or radius (Circles) while hovering
 - **Grid Snapping**: Optional snap-to-grid placement (works with custom_snap mod if installed)
 - **Persistent**: Markers are saved with your map
 - **Delete Mode**: Right-click to delete individual markers, or use "Delete All Markers" button
 - **Undo/Redo Support**: Full integration with Dungeondraft's history system (Ctrl+Z/Ctrl+Y)
-  - Undo/redo marker placement
+  - Undo/redo marker placement (including complete paths)
   - Undo/redo marker deletion
   - Undo/redo "Delete All Markers" operations
   - History limit: 100 operations per type (prevents memory overflow)
@@ -111,6 +129,7 @@ All overlay options are integrated into the Guide Markers tool panel:
 2. **Choose Marker Type** from the dropdown:
    - **Line**: Creates a guide line at specified angle
    - **Circle**: Creates a circle guide at specified radius
+   - **Path**: Creates a multi-point custom path guide
 3. **Configure Marker Settings**:
    
    **For Line Markers:**
@@ -128,6 +147,12 @@ All overlay options are integrated into the Guide Markers tool panel:
    - **Radius**: Set circle radius in grid cells
      - Or scroll mouse wheel while hovering to adjust in 0.5 cell increments
    - **Color**: Click color button to choose custom color (default: blue)
+   
+   **For Path Markers:**
+   - **Interactive Placement Mode**: Path markers use a special multi-step placement process
+   - Instructions are displayed in the tool panel
+   - No pre-configuration needed - all setup happens during placement
+   - **Color**: Choose color before starting path placement
 3. **(Optional)** Enable "Show Coordinates" to display grid position markers and numbers
    - This automatically enables "Snap to Grid" for accurate positioning
    - Coordinates show distance from marker center in grid cells
@@ -136,12 +161,52 @@ All overlay options are integrated into the Guide Markers tool panel:
 5. Guide lines will appear instantly through the marker position
 6. **Tip**: Enable "Snap to Grid" for precise grid-aligned placement
 
+### Placing Path Markers (Multi-Point Placement)
+
+Path markers use a special interactive placement mode:
+
+1. **Select Path Type** from the marker type dropdown
+2. **Read Instructions** in the tool panel (they appear when Path is selected)
+3. **Start Placement**: Click on the map to place the first point (shown in green)
+4. **Add Points**: Continue clicking to add more points sequentially
+   - Each point will be connected to the previous one with a line
+   - Preview shows: green first point, red intermediate points, white line to cursor
+   - Status label shows current point count
+5. **Finish the Path** (two options):
+   
+   **Option A - Close Path (Create Loop):**
+   - Click near the first point (within 30 pixels)
+   - A pulsing green circle will appear when you're close enough
+   - Requires minimum 3 points
+   - Creates a closed path with line connecting last point to first
+   
+   **Option B - Open Path:**
+   - Right-click anywhere to finish
+   - Requires minimum 2 points
+   - Creates an open path (no closing line)
+
+6. **Cancel Placement**: Press ESC key at any time to cancel and start over
+   - Or click the "Cancel Path" button in the tool panel
+
+**Path Placement Tips:**
+- Each point automatically snaps to grid (if "Snap to Grid" is enabled)
+- The preview line helps visualize where the next segment will go
+- You can place as many points as needed (no maximum limit)
+- Coordinates display (if enabled) shows cumulative distance from path start
+- Undo/Redo works on complete paths (entire path is one marker)
+
 ### Preview Mode
 
 Before placing a marker, you'll see a semi-transparent red preview showing:
 - Where the marker will be placed
 - Which guide lines will be drawn
 - How they'll look at that position
+
+**For Path Markers**, the preview is interactive:
+- First point: Green, larger
+- Intermediate points: Red, semi-transparent
+- Active preview line: White, from last point to cursor
+- Close indicator: Pulsing green circle when hovering near first point
 
 This helps ensure perfect placement before committing.
 

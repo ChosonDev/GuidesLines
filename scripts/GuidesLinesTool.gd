@@ -101,6 +101,7 @@ var delete_mode = false  # Delete mode - click to remove markers
 # Marker type system
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_CIRCLE = "Circle"
+const MARKER_TYPE_PATH = "Path"
 
 var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 
@@ -120,6 +121,9 @@ var type_settings = {
 	},
 	"Circle": {
 		"radius": 1.0
+	},
+	"Path": {
+		# Path has no persistent settings, it's point-based
 	}
 }
 
@@ -141,6 +145,12 @@ var type_selector = null  # OptionButton for marker type selection
 var type_specific_container = null  # Container for type-specific settings
 var line_settings_container = null  # Settings for Line type
 var circle_settings_container = null  # Settings for Circle type
+var path_settings_container = null  # Settings for Path type
+
+# Path placement state
+var path_placement_active = false  # Whether we're in path placement mode
+var path_temp_points = []  # Temporary storage for points being placed
+var path_preview_point = null  # Current mouse position for line preview
 
 # Initialize tool with reference to parent mod
 func _init(mod):
@@ -203,6 +213,11 @@ func _create_overlay():
 # Place a new marker at the specified position
 # Applies grid snapping and active custom line settings
 func place_marker(pos):
+	# Special handling for Path type
+	if active_marker_type == MARKER_TYPE_PATH:
+		_handle_path_placement(pos)
+		return
+	
 	# Apply grid snapping if enabled
 	var snapped_pos = snap_position_to_grid(pos)
 	
@@ -235,6 +250,75 @@ func place_marker(pos):
 	else:
 		if LOGGER:
 			LOGGER.info("HistoryApi not available, marker placed without history")
+
+# Handle path marker placement (multi-point)
+func _handle_path_placement(pos):
+	var snapped_pos = snap_position_to_grid(pos)
+	
+	# First point - start path placement
+	if not path_placement_active:
+		path_placement_active = true
+		path_temp_points = [snapped_pos]
+		if LOGGER:
+			LOGGER.info("Path placement started at %s" % [str(snapped_pos)])
+		update_ui()
+		return
+	
+	# Check if clicking near first point (close path)
+	var first_point = path_temp_points[0]
+	if snapped_pos.distance_to(first_point) < 30.0 and path_temp_points.size() >= 3:
+		# Close path and create marker
+		var point_count = path_temp_points.size()
+		_finalize_path_marker(true)
+		if LOGGER:
+			LOGGER.info("Path closed with %d points" % [point_count])
+		return
+	
+	# Add new point to path
+	path_temp_points.append(snapped_pos)
+	if LOGGER:
+		LOGGER.debug("Path point added: %s (total: %d)" % [str(snapped_pos), path_temp_points.size()])
+	update_ui()
+
+# Finalize path marker (called on RMB or close)
+func _finalize_path_marker(closed):
+	if not path_placement_active or path_temp_points.size() < 2:
+		_cancel_path_placement()
+		return
+	
+	# Create marker data
+	var marker_data = {
+		"position": path_temp_points[0],  # First point is marker position
+		"marker_type": MARKER_TYPE_PATH,
+		"color": active_color,
+		"coordinates": show_coordinates,
+		"id": next_id,
+		"path_points": path_temp_points.duplicate(),
+		"path_closed": closed
+	}
+	
+	# Execute the action first
+	_do_place_marker(marker_data)
+	next_id += 1
+	
+	# Add to history
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		if LOGGER:
+			LOGGER.debug("Adding path marker to history (id: %d)" % [marker_data["id"]])
+		var record = PlaceMarkerRecord.new(self, marker_data)
+		parent_mod.Global.API.HistoryApi.record(record, 100)
+	
+	# Reset path state
+	_cancel_path_placement()
+
+# Cancel path placement (ESC or new type selected)
+func _cancel_path_placement():
+	path_placement_active = false
+	path_temp_points = []
+	path_preview_point = null
+	update_ui()
+	if overlay:
+		overlay.update()
 
 # Delete all markers from the map
 func delete_all_markers():
@@ -331,6 +415,9 @@ func _do_place_marker(marker_data):
 		marker.mirror = marker_data["mirror"]
 	elif marker_data["marker_type"] == MARKER_TYPE_CIRCLE:
 		marker.circle_radius = marker_data["circle_radius"]
+	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
+		marker.path_points = marker_data["path_points"].duplicate()
+		marker.path_closed = marker_data["path_closed"]
 	
 	markers.append(marker)
 	update_ui()
@@ -348,6 +435,11 @@ func _do_place_marker(marker_data):
 			LOGGER.debug("Circle marker placed at %s (radius: %.1f cells)" % [
 				str(marker_data["position"]),
 				marker_data["circle_radius"]
+			])
+		elif marker_data["marker_type"] == MARKER_TYPE_PATH:
+			LOGGER.debug("Path marker placed with %d points (closed: %s)" % [
+				marker_data["path_points"].size(),
+				str(marker_data["path_closed"])
 			])
 
 func _undo_place_marker(marker_id):
@@ -367,6 +459,9 @@ func set_snap_to_grid(enabled):
 	# Can't disable snap when coordinates are enabled
 	if show_coordinates and not enabled:
 		return
+	# Cancel path if disabling snap during path placement
+	if not enabled and path_placement_active:
+		_cancel_path_placement()
 	snap_to_grid = enabled
 	update_snap_checkbox_state()
 
@@ -446,7 +541,28 @@ func update_ui():
 	if container:
 		var info_label = container.get_node_or_null("InfoLabel")
 		if info_label:
-			info_label.text = "Click to place markers.\nMarkers: " + str(markers.size())
+			if path_placement_active:
+				info_label.text = "Path mode: %d points placed\nClick to add, RMB to finish" % [path_temp_points.size()]
+			else:
+				info_label.text = "Click to place markers.\nMarkers: " + str(markers.size())
+		
+		# Update path status label if in Path mode
+		if active_marker_type == MARKER_TYPE_PATH:
+			var path_container = type_specific_container.get_node_or_null("PathSettings")
+			if path_container:
+				var status_label = path_container.get_node_or_null("PathStatusLabel")
+				var cancel_btn = path_container.get_node_or_null("PathCancelButton")
+				
+				if status_label:
+					if path_placement_active:
+						status_label.text = "Points: %d (min 2)" % [path_temp_points.size()]
+						status_label.add_color_override("font_color", Color(1.0, 1.0, 0.5, 1))
+					else:
+						status_label.text = "Ready to start"
+						status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
+				
+				if cancel_btn:
+					cancel_btn.visible = path_placement_active
 
 # Serialize all markers for saving to map file
 func save_markers():
@@ -611,6 +727,8 @@ func create_ui_panel():
 	type_selector.set_item_metadata(0, MARKER_TYPE_LINE)
 	type_selector.add_item("Circle")
 	type_selector.set_item_metadata(1, MARKER_TYPE_CIRCLE)
+	type_selector.add_item("Path")
+	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
 	type_selector.selected = 0
 	type_selector.name = "TypeSelector"
 	type_selector.connect("item_selected", self, "_on_marker_type_changed")
@@ -632,6 +750,12 @@ func create_ui_panel():
 	circle_settings_container.name = "CircleSettings"
 	circle_settings_container.visible = false
 	type_specific_container.add_child(circle_settings_container)
+	
+	# Create Path settings UI
+	path_settings_container = _create_path_settings_ui()
+	path_settings_container.name = "PathSettings"
+	path_settings_container.visible = false
+	type_specific_container.add_child(path_settings_container)
 	
 	container.add_child(type_specific_container)
 	
@@ -984,6 +1108,46 @@ func _create_circle_settings_ui():
 	
 	return container
 
+# Create UI for Path marker type
+func _create_path_settings_ui():
+	var container = VBoxContainer.new()
+	
+	var info_label = Label.new()
+	info_label.text = "Multi-point path guide"
+	info_label.align = Label.ALIGN_CENTER
+	info_label.add_color_override("font_color", Color(0.8, 0.8, 0.8, 1))
+	container.add_child(info_label)
+	
+	container.add_child(_create_spacer(10))
+	
+	var instructions = Label.new()
+	instructions.text = "Instructions:\n• Click to add points\n• Click near first point to close\n• Right-click to finish open path\n• ESC to cancel"
+	instructions.autowrap = true
+	instructions.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(instructions)
+	
+	container.add_child(_create_spacer(10))
+	
+	# Status label (shows current point count)
+	var status_label = Label.new()
+	status_label.name = "PathStatusLabel"
+	status_label.text = "Ready to start"
+	status_label.align = Label.ALIGN_CENTER
+	status_label.add_color_override("font_color", Color(0.5, 1.0, 0.5, 1))
+	container.add_child(status_label)
+	
+	container.add_child(_create_spacer(10))
+	
+	# Cancel button (only visible during placement)
+	var cancel_btn = Button.new()
+	cancel_btn.text = "Cancel Path"
+	cancel_btn.name = "PathCancelButton"
+	cancel_btn.connect("pressed", self, "_cancel_path_placement")
+	cancel_btn.visible = false
+	container.add_child(cancel_btn)
+	
+	return container
+
 # Create common settings UI (Color, Reset)
 func _create_common_settings_ui():
 	var container = VBoxContainer.new()
@@ -1048,6 +1212,10 @@ func _on_marker_type_changed(type_index):
 
 # Switch visible type-specific UI container
 func _switch_type_ui(marker_type):
+	# Cancel path placement if switching away from Path
+	if active_marker_type == MARKER_TYPE_PATH and marker_type != MARKER_TYPE_PATH:
+		_cancel_path_placement()
+	
 	# Hide all type-specific containers
 	for child in type_specific_container.get_children():
 		child.visible = false
@@ -1060,6 +1228,9 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_CIRCLE:
 			if circle_settings_container:
 				circle_settings_container.visible = true
+		MARKER_TYPE_PATH:
+			if path_settings_container:
+				path_settings_container.visible = true
 
 # Load settings for specific marker type
 func _load_type_settings(marker_type):
