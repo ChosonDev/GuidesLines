@@ -2,6 +2,85 @@
 
 All notable changes to the Guides Lines mod will be documented in this file.
 
+## [Unreleased] - Work in Progress
+
+### Changed - Major Refactoring
+- **Complete Marker System Redesign**: Replaced fixed guide line types with flexible custom marker system
+  - Removed pre-defined marker types (vertical, horizontal, diagonal left, diagonal right)
+  - Introduced marker type system: Line and Circle types (with extensibility for future types)
+  - Line markers now support custom angles (0-360°) instead of fixed orientations
+  - Added line range control (infinite or finite length in grid cells)
+  - Added mirror option for Line markers (creates second line at 180° offset)
+  - Added Circle markers with customizable radius in grid cells
+  - Added per-marker color customization (default blue, but any color supported)
+  - Each marker type has independent settings (angle/range/mirror for Lines; radius for Circles)
+
+- **UI Completely Redesigned**:
+  - Replaced individual line type checkboxes with unified marker type selector
+  - Type-specific controls appear dynamically based on selected marker type
+  - **Line Controls**: Angle spinbox (0-360°), Range spinbox (0+ cells, 0=infinite), Mirror checkbox
+  - **Circle Controls**: Radius spinbox (0.1+ cells)
+  - Added color picker button for customizing marker colors
+  - Type-specific settings are remembered when switching between types
+  - Mouse wheel support for quick parameter adjustment:
+    - Lines: Scroll to adjust angle (5° increments, wraps around 360°)
+    - Circles: Scroll to adjust radius (0.5 cell increments, minimum 0.5)
+  - Updated preview system to show custom angles, ranges, and circles in real-time
+
+### Technical Changes
+- **GuideMarker.gd**:
+  - Replaced `marker_types` array with single `marker_type` field ("Line" or "Circle")
+  - Added properties: `angle`, `line_range`, `circle_radius`, `color`, `mirror`
+  - Removed old methods: `has_type()`, `add_type()`, `remove_type()`
+  - Updated `Save()` and `Load()` methods for new data format
+  - Removed backward compatibility with v1.0.9 and earlier save formats
+  - Changed default LINE_COLOR constant to DEFAULT_LINE_COLOR
+
+- **GuidesLinesTool.gd** (~800 lines added/modified):
+  - Replaced `active_marker_types` array with `active_marker_type` single value
+  - Added active settings variables: `active_angle`, `active_line_range`, `active_circle_radius`, `active_color`, `active_mirror`
+  - Added `type_settings` dictionary to store per-type settings independently
+  - Added constants: `MARKER_TYPE_LINE`, `MARKER_TYPE_CIRCLE`, default value constants
+  - Added UI reference variables: `type_selector`, `type_specific_container`, type-specific containers
+  - Completely rewrote `_build_tool_panel()` to support new UI layout
+  - Removed `toggle_marker_type()` function (no longer needed)
+  - Updated `place_marker()` to use new marker data structure
+  - Updated `_do_place_marker()` to create markers with new format
+  - Added spinner/color change callbacks for all new UI controls
+  - Added methods: `adjust_angle_with_wheel()`, `adjust_circle_radius_with_wheel()`
+  - Updated `update_ui_checkboxes_state()` to handle new UI elements
+
+ - **MarkerOverlay.gd** (~640 lines restructured):
+  - Added mouse wheel input handling in `_input()`:
+    - Wheel up/down adjusts angle for Line type (5° increments)
+    - Wheel up/down adjusts radius for Circle type (0.5 cell increments)
+    - Ignores wheel when CTRL is held (preserves zoom functionality)
+  - Completely rewrote `_draw()` to support custom marker types
+  - Added `_draw_custom_marker()` - unified drawing for any marker type
+  - Added `_draw_custom_marker_preview()` - preview drawing at cursor
+  - Added `_calculate_line_endpoints()` - computes line endpoints for any angle/range
+  - Removed old separate drawing code for vertical/horizontal/diagonal lines
+  - Line rendering now supports arbitrary angles and finite ranges
+  - Circle rendering with proper coordinate display
+  - Preview now shows exact appearance before placement
+
+- **GuidesLines.gd**:
+  - Removed unused callback: `_on_marker_type_toggled()`
+  - Minor code cleanup
+
+### Breaking Changes
+- **Save Format**: Maps saved with this version cannot be loaded in v1.0.10 or earlier
+  - Old maps with vertical/horizontal/diagonal markers will NOT load correctly
+  - Removed backward compatibility code
+  - New format uses `marker_type`, `angle`, `line_range`, `circle_radius`, `color`, `mirror` fields
+- **API Changes**: Anyone extending GuideMarker class will need to update to new structure
+
+### Notes
+- This is a work-in-progress intermediate commit
+- Version number unchanged (still 1.0.10) pending completion
+- Extensive testing needed before release
+- Future consideration: Add backward compatibility loader if needed
+
 ## [1.0.10] - 2026-02-04
 
 ### Added

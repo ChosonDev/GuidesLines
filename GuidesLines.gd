@@ -89,6 +89,7 @@ func start():
 		# Initialize Logger after registration (use self.Global.API)
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
+			
 			LOGGER.info("Mod starting - version 1.0.10")
 			LOGGER.debug("Registered with _Lib successfully")
 			
@@ -246,10 +247,6 @@ func _update_proximity_and_permanent_guides(_delta):
 # ============================================================================
 # TOOL UI CALLBACKS
 # ============================================================================
-
-func _on_marker_type_toggled(enabled, marker_type, tool_instance):
-	if tool_instance:
-		tool_instance.toggle_marker_type(marker_type, enabled)
 
 func _on_delete_all_markers(tool_instance):
 	if tool_instance:

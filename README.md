@@ -1,16 +1,32 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 1.0.10  
+**Version:** 1.0.10 (WIP)  
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
-Advanced guide lines system with placeable markers for precise map alignment and composition.
+Advanced guide system with fully customizable markers for precise map alignment and composition.
 
 ## Overview
 
-GuidesLines provides a flexible system for adding guide lines to your Dungeondraft maps. Place markers anywhere on your map to create visual alignment guides with support for vertical, horizontal, and diagonal lines. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
+GuidesLines provides a powerful, flexible system for adding guide lines and shapes to your Dungeondraft maps. Place markers anywhere on your map to create custom visual alignment guides. Choose between **Line markers** (at any angle, with optional range limits) or **Circle markers** (any radius). Customize colors, mirror lines, and more. Perfect for ensuring symmetry, alignment, and precise composition in your map designs.
 
 All settings are conveniently located in the Guide Markers tool panel - no need to navigate to separate menus or settings windows.
+
+### Recent Changes (Work in Progress)
+
+**⚠️ Major Refactoring in Progress**
+
+The marker system has been completely redesigned for maximum flexibility:
+
+- **Old System** (v1.0.10 and earlier): Fixed guide types (vertical, horizontal, diagonal left, diagonal right) with checkboxes
+- **New System** (current WIP): Flexible marker types with customizable parameters:
+  - **Line Markers**: Any angle (0-360°), optional range limit, mirror mode, custom color
+  - **Circle Markers**: Any radius, custom color
+  - **Mouse Wheel Control**: Scroll to adjust angle (Lines) or radius (Circles) in real-time
+  - **Color Customization**: Each marker can have its own color
+  - **More Types Coming**: Architecture supports adding new marker types in future
+
+> **Breaking Change**: Maps saved with the new system will NOT be compatible with v1.0.10 or earlier versions. Backup your maps before upgrading!
 
 ### What's New
 
@@ -26,10 +42,19 @@ All settings are conveniently located in the Guide Markers tool panel - no need 
 
 ## Features
 
-### Placeable Guide Markers
+### Flexible Custom Markers
 - **Custom Tool**: Dedicated "Guide Markers" tool in the Design category
-- **Multi-Type Guides**: Each marker can display multiple guide line types simultaneously
-- **Real-Time Preview**: See guide lines before placing markers
+- **Marker Types**: Choose between Line or Circle markers (more types possible in future)
+- **Line Markers**:
+  - Any angle from 0° to 360° (adjustable via spinbox or mouse wheel)
+  - Optional range limit (infinite by default, or specify length in grid cells)
+  - Mirror mode (creates second line at 180° offset)
+  - Customizable color
+- **Circle Markers**:
+  - Any radius in grid cells (adjustable via spinbox or mouse wheel)
+  - Customizable color
+- **Real-Time Preview**: See exact marker appearance before placing
+- **Mouse Wheel Adjustment**: Scroll to change angle (Lines) or radius (Circles) while hovering
 - **Grid Snapping**: Optional snap-to-grid placement (works with custom_snap mod if installed)
 - **Persistent**: Markers are saved with your map
 - **Delete Mode**: Right-click to delete individual markers, or use "Delete All Markers" button
@@ -38,16 +63,6 @@ All settings are conveniently located in the Guide Markers tool panel - no need 
   - Undo/redo marker deletion
   - Undo/redo "Delete All Markers" operations
   - History limit: 100 operations per type (prevents memory overflow)
-
-### Guide Line Types
-Select any combination of guide line types for each marker:
-
-- **Vertical**: Vertical line through marker position
-- **Horizontal**: Horizontal line through marker position  
-- **Diagonal Left (135°)**: Diagonal line from top-left to bottom-right
-- **Diagonal Right (45°)**: Diagonal line from top-right to bottom-left
-
-Each marker shows bright blue guide lines (fully opaque for visibility) that extend across the entire viewport.
 
 ### Overlay Options
 
@@ -93,11 +108,26 @@ All overlay options are integrated into the Guide Markers tool panel:
 ### Placing Markers
 
 1. Select the **"Guide Markers"** tool from the Design category
-2. Choose which guide line types you want (check the boxes):
-   - Vertical Lines
-   - Horizontal Lines
-   - Diagonal Left (135°)
-   - Diagonal Right (45°)
+2. **Choose Marker Type** from the dropdown:
+   - **Line**: Creates a guide line at specified angle
+   - **Circle**: Creates a circle guide at specified radius
+3. **Configure Marker Settings**:
+   
+   **For Line Markers:**
+   - **Angle**: Set the line angle in degrees (0-360°)
+     - 0° = Horizontal right
+     - 90° = Vertical down
+     - 180° = Horizontal left
+     - 270° = Vertical up
+     - Or scroll mouse wheel while hovering to adjust in 5° increments
+   - **Range**: Set line length in grid cells (0 = infinite, perfect for full-map guides)
+   - **Mirror**: Check to create a second line at 180° offset (great for symmetry)
+   - **Color**: Click color button to choose custom color (default: blue)
+   
+   **For Circle Markers:**
+   - **Radius**: Set circle radius in grid cells
+     - Or scroll mouse wheel while hovering to adjust in 0.5 cell increments
+   - **Color**: Click color button to choose custom color (default: blue)
 3. **(Optional)** Enable "Show Coordinates" to display grid position markers and numbers
    - This automatically enables "Snap to Grid" for accurate positioning
    - Coordinates show distance from marker center in grid cells
@@ -191,6 +221,21 @@ GuidesLines_v7/
 ```
 
 ## Technical Details
+
+### Current Development Status
+
+This is a **work-in-progress version** with major architectural changes:
+
+- ✅ Core marker system redesigned (Line and Circle types)
+- ✅ UI rebuilt with type selector and dynamic controls
+- ✅ Mouse wheel parameter adjustment implemented
+- ✅ Color picker integration complete
+- ✅ Line angle/range/mirror functionality working
+- ✅ Circle radius functionality working
+- ✅ Save/Load updated for new format
+- ⚠️ Backward compatibility removed (old maps won't load)
+- ⚠️ Coordinate display needs testing with new system
+- ⚠️ Extensive testing needed before release
 
 ### Architecture
 
