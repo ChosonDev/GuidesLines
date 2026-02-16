@@ -5,6 +5,16 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-02-16
+
+### 🚀 Optimized & Fixed
+
+**Performance & Memory**:
+- **Critical Memory Leak Fix**: Fixed memory leak in `PermanentOverlay` and `MarkerOverlay` where font resources were re-created every frame. Fonts are now cached once.
+- **Instant Marker Access**: Implemented `Dictionary` lookup for markers (O(1) access), significantly speeding up Undo/Redo operations and deletions for large numbers of markers.
+- **Cached Geometry**: `CrossOverlay` now pre-calculates and caches map dimensions and guide line coordinates instead of recalculating them every draw call.
+- **Engine-Native Culling**: Removed redundant manual camera culling code in `CrossOverlay`. Now relies on Godot's efficient built-in viewport culling, simplifying rendering logic.
+
 ## [2.0.1] - 2026-02-16
 
 ### 🐛 Fixed

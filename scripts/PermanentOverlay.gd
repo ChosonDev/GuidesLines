@@ -19,9 +19,16 @@ var _last_show_coords = false
 const MAX_COORD_MARKERS = 100  # Maximum coordinate markers for vanilla grid
 const MAX_ITERATIONS = 1000  # Maximum iterations for custom_snap grid
 
+var _cached_font = null # Optim: Cache font resource
+
 func _ready():
 	set_z_index(99)
 	set_process(true)  # Enable _process for camera change detection
+	
+	# Optim: Get font once, effectively resolving memory leak
+	var temp_control = Control.new()
+	_cached_font = temp_control.get_font("font")
+	temp_control.free()
 
 # Check for camera changes and trigger redraw only when needed
 func _process(_delta):
@@ -114,7 +121,8 @@ func _draw_grid_coordinates(map_cx, map_cy, world_left, world_right, world_top, 
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
-	var font = Control.new().get_font("font")
+	# Optim: Use cached font instead of creating new Control every call
+	var font = _cached_font 
 	var scale = 4.0  # Quadruple the text size
 	
 	# Draw outline (black)

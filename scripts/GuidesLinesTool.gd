@@ -155,6 +155,7 @@ const DEFAULT_MIRROR = false
 
 # Markers storage
 var markers = []  # Array of GuideMarker instances
+var markers_lookup = {} # Dictionary { id: GuideMarker } for O(1) access
 var next_id = 0
 
 # UI References
@@ -434,6 +435,7 @@ func delete_all_markers():
 
 func _do_delete_all():
 	markers = []
+	markers_lookup = {} # Clear lookup
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -445,6 +447,7 @@ func _undo_delete_all(saved_markers):
 		var marker = GuideMarkerClass.new()
 		marker.Load(marker_data)
 		markers.append(marker)
+		markers_lookup[marker.id] = marker # Add to lookup
 		if marker.id >= next_id:
 			next_id = marker.id + 1
 	update_ui()
@@ -474,6 +477,8 @@ func delete_marker_at_position(pos, threshold = 20.0):
 
 func _do_delete_marker(index):
 	if index < markers.size():
+		var marker = markers[index]
+		markers_lookup.erase(marker.id) # Remove from lookup
 		markers.remove(index)
 		update_ui()
 		if overlay:
@@ -485,6 +490,7 @@ func _undo_delete_marker(marker_data, index):
 	var marker = GuideMarkerClass.new()
 	marker.Load(marker_data)
 	markers.insert(index, marker)
+	markers_lookup[marker.id] = marker # Add to lookup
 	if marker.id >= next_id:
 		next_id = marker.id + 1
 	update_ui()
@@ -521,6 +527,7 @@ func _do_place_marker(marker_data):
 		marker.arrow_head_angle = marker_data["arrow_head_angle"]
 	
 	markers.append(marker)
+	markers_lookup[marker.id] = marker # Add to lookup
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -549,16 +556,20 @@ func _do_place_marker(marker_data):
 			])
 
 func _undo_place_marker(marker_id):
-	# Find and remove marker by id
-	for i in range(markers.size() - 1, -1, -1):
-		if markers[i].id == marker_id:
-			markers.remove(i)
-			update_ui()
-			if overlay:
-				overlay.update()
-			if LOGGER:
-				LOGGER.debug("Marker placement undone (id: %d)" % [marker_id])
-			break
+	# Optimized removal using Dictionary lookup
+	if markers_lookup.has(marker_id):
+		var marker = markers_lookup[marker_id]
+		markers.erase(marker) # Godot optimizes erase by value, but still O(n) for array search internally
+		markers_lookup.erase(marker_id) # O(1)
+		
+		update_ui()
+		if overlay:
+			overlay.update()
+		if LOGGER:
+			LOGGER.debug("Marker placement undone (id: %d)" % [marker_id])
+	else:
+		if LOGGER:
+			LOGGER.warn("Attempted to undo placement of non-existent marker id: %d" % [marker_id])
 
 # Enable/disable grid snapping for marker placement
 func set_snap_to_grid(enabled):
@@ -739,6 +750,7 @@ func load_markers(data):
 		var marker = GuideMarkerClass.new()
 		marker.Load(marker_data)
 		markers.append(marker)
+		markers_lookup[marker.id] = marker # Add to lookup
 		
 		if marker.id >= next_id:
 			next_id = marker.id + 1

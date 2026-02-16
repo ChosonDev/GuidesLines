@@ -65,9 +65,16 @@ func _get_adaptive_marker_size(base_size, cam_zoom):
 	else:
 		return base_size
 
+var _cached_font = null # Optim: Cache font resource
+
 func _ready():
 	set_process_input(true)
 	set_process(true)
+	
+	# Optim: Get font once
+	var temp_control = Control.new()
+	_cached_font = temp_control.get_font("font")
+	temp_control.free()
 
 # Continuously update mouse position for path preview
 func _process(_delta):
@@ -896,7 +903,8 @@ func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_rig
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
-	var font = Control.new().get_font("font")
+	# Optim: Use cached font instead of creating new Control every call
+	var font = _cached_font 
 	var scale = 4.0  # Quadruple the text size
 	
 	# Draw outline (black)
