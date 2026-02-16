@@ -18,10 +18,10 @@ var mirror = false  # Mirror line at 180 degrees [Line only]
 var id = -1  # Unique identifier
 var show_coordinates = false  # Show grid coordinates on marker lines/shapes/paths/arrows
 
-const MARKER_SIZE = 40.0  # Doubled size
+const MARKER_SIZE = 10.0  # Doubled size
 const MARKER_COLOR = Color(1, 0, 0, 1)  # Red
 const DEFAULT_LINE_COLOR = Color(0, 0.7, 1, 1)  # Blue (fully opaque)
-const LINE_WIDTH = 10.0  # Thicker lines
+const LINE_WIDTH = 5.0  # Thicker lines
 
 # Initialize marker with position and type-specific parameters
 func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):

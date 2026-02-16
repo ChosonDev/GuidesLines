@@ -7,8 +7,32 @@ var parent_mod = null
 var cached_world = null
 var cached_camera = null
 
+# Performance optimization: only redraw when camera or state changes
+var _last_camera_pos = Vector2.ZERO
+var _last_camera_zoom = Vector2.ONE
+var _last_cross_show_v = false
+var _last_cross_show_h = false
+
 func _ready():
 	set_z_index(100)
+	set_process(true)  # Enable _process for camera change detection
+
+# Check for camera changes and trigger redraw only when needed
+func _process(_delta):
+	if cached_camera and parent_mod:
+		var cam_pos = cached_camera.get_camera_position()
+		var cam_zoom = cached_camera.zoom
+		var cross_v = parent_mod.cross_show_v
+		var cross_h = parent_mod.cross_show_h
+		
+		# Only redraw if something changed
+		if cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom or \
+		   cross_v != _last_cross_show_v or cross_h != _last_cross_show_h:
+			_last_camera_pos = cam_pos
+			_last_camera_zoom = cam_zoom
+			_last_cross_show_v = cross_v
+			_last_cross_show_h = cross_h
+			update()
 
 # Draw proximity-based cross guides
 # Shows red lines when cursor is near map center

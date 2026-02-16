@@ -196,22 +196,24 @@ func Disable():
 	if LOGGER:
 		LOGGER.info("Guide Markers tool DISABLED")
 
-var update_count = 0
-var last_log_update = 0
+var last_log_time = 0.0  # Use time instead of frame counter
+var first_update_logged = false
+const LOG_INTERVAL = 5.0  # Log every 5 seconds
 
 # Main update loop - manages overlay and drawing
-func Update(_delta):
-	update_count += 1
-	
+func Update(delta):
 	# Debug: Check LOGGER status on first update
-	if update_count == 1:
+	if not first_update_logged:
+		first_update_logged = true
 		if LOGGER:
 			LOGGER.info("GuidesLinesTool.Update() first call - LOGGER is available")
 	
-	# Log status every 300 frames (5 seconds at 60fps)
-	if LOGGER and is_enabled and update_count - last_log_update > 300:
-		last_log_update = update_count
-		LOGGER.debug("Tool active: overlay=%s, markers=%d" % [str(overlay != null), markers.size()])
+	# Log status every 5 seconds
+	if LOGGER and is_enabled:
+		last_log_time += delta
+		if last_log_time >= LOG_INTERVAL:
+			last_log_time = 0.0
+			LOGGER.debug("Tool active: overlay=%s, markers=%d" % [str(overlay != null), markers.size()])
 	
 	if not is_enabled:
 		return
@@ -220,9 +222,8 @@ func Update(_delta):
 	if not overlay and cached_worldui:
 		_create_overlay()
 	
-	# Update overlay to redraw
-	if overlay:
-		overlay.update()
+	# Overlay manages its own update based on changes
+	# No need to force update every frame
 
 # Create overlay node for drawing markers and guide lines
 func _create_overlay():

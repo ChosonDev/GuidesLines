@@ -4,6 +4,19 @@ extends Node2D
 
 var tool = null
 
+# Performance optimization: track when redraw is needed
+var _last_camera_pos = Vector2.ZERO
+var _last_camera_zoom = Vector2.ONE
+var _last_marker_count = 0
+var _last_path_active = false
+var _last_arrow_active = false
+var _last_mouse_pos = Vector2.ZERO  # Track mouse position for preview updates
+var _mouse_in_ui = false  # Track if cursor is in UI area
+
+# Preview marker constants (matching GuideMarker constants)
+const PREVIEW_MARKER_SIZE = 10.0  # Base size before zoom adaptation
+const PREVIEW_LINE_WIDTH = 5.0    # Base width before zoom adaptation
+
 # Calculate polygon vertices for regular n-gon inscribed in circle
 # center: center point, radius: circumradius, sides: number of sides
 # rotation_offset: rotation in radians (default 0, for "point up" orientation)
@@ -25,22 +38,103 @@ func _draw_polygon_outline(vertices, color, line_width):
 		var end = vertices[(i + 1) % vertices.size()]
 		draw_line(start, end, color, line_width)
 
+# Calculate adaptive line width based on camera zoom
+# Returns adjusted line width that's visible at all zoom levels
+func _get_adaptive_line_width(base_width, cam_zoom):
+	# At 100% zoom (cam_zoom.x = 1.0), use base width
+	# At 50% zoom (cam_zoom.x = 2.0), double the width
+	# At 25% zoom (cam_zoom.x = 4.0), quadruple the width
+	var zoom_factor = cam_zoom.x
+	
+	# Apply scaling for small zoom levels (zoomed out)
+	if zoom_factor > 1.0:
+		# Linear scaling: width increases proportionally to zoom
+		return base_width * zoom_factor
+	else:
+		# Normal width when zoomed in
+		return base_width
+
+# Calculate adaptive marker size based on camera zoom
+# Returns adjusted marker size that's visible at all zoom levels
+func _get_adaptive_marker_size(base_size, cam_zoom):
+	# Same logic as line width
+	var zoom_factor = cam_zoom.x
+	
+	if zoom_factor > 1.0:
+		return base_size * zoom_factor
+	else:
+		return base_size
+
 func _ready():
 	set_process_input(true)
 	set_process(true)
 
 # Continuously update mouse position for path preview
 func _process(_delta):
-	# Always update to keep markers visible
-	update()
+	var needs_update = false
 	
 	# Track mouse position for path preview
 	if tool and tool.path_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		tool.path_preview_point = tool.cached_worldui.MousePosition
+		needs_update = true  # Always update during path placement
 	
 	# Track mouse position for arrow preview
 	if tool and tool.arrow_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		tool.arrow_preview_point = tool.cached_worldui.MousePosition
+		needs_update = true  # Always update during arrow placement
+	
+	# Track mouse position for preview marker (when tool is enabled and not in delete mode)
+	if tool and tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+		var current_mouse_pos = tool.cached_worldui.MousePosition
+		var viewport_mouse_pos = get_viewport().get_mouse_position()
+		
+		# Check if mouse is over UI (x < 450 means over left panel)
+		var new_mouse_in_ui = viewport_mouse_pos.x < 450
+		
+		# If mouse moved between UI and world, or position changed in world
+		if new_mouse_in_ui != _mouse_in_ui:
+			# Mouse crossed UI boundary - force update
+			_mouse_in_ui = new_mouse_in_ui
+			needs_update = true
+		elif not _mouse_in_ui:
+			# Mouse in world - check if position changed
+			if current_mouse_pos != _last_mouse_pos:
+				_last_mouse_pos = current_mouse_pos
+				needs_update = true
+	else:
+		# Mouse left the bounds - clear preview if needed
+		if not _mouse_in_ui:
+			_mouse_in_ui = true  # Treat as "in UI" to hide preview
+			needs_update = true
+	
+	# Check for camera changes
+	if tool and tool.cached_camera:
+		var cam_pos = tool.cached_camera.get_camera_position()
+		var cam_zoom = tool.cached_camera.zoom
+		
+		if cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom:
+			_last_camera_pos = cam_pos
+			_last_camera_zoom = cam_zoom
+			needs_update = true
+	
+	# Check if markers changed
+	if tool and tool.markers.size() != _last_marker_count:
+		_last_marker_count = tool.markers.size()
+		needs_update = true
+	
+	# Check if placement mode changed
+	if tool:
+		var path_active = tool.path_placement_active
+		var arrow_active = tool.arrow_placement_active
+		
+		if path_active != _last_path_active or arrow_active != _last_arrow_active:
+			_last_path_active = path_active
+			_last_arrow_active = arrow_active
+			needs_update = true
+	
+	# Only update when necessary
+	if needs_update:
+		update()
 
 # Handle mouse input for placing markers
 func _input(event):
@@ -160,6 +254,10 @@ func _draw():
 	
 	# Draw preview marker at cursor (only when tool is active and NOT in delete mode)
 	if tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+		# Don't draw preview if mouse is in UI area
+		if _mouse_in_ui:
+			return
+		
 		# Special preview for Path type
 		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
 			_draw_path_preview(world_left, world_right, world_top, world_bottom)
@@ -172,9 +270,9 @@ func _draw():
 
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):
-	var MARKER_SIZE = marker.MARKER_SIZE
+	var MARKER_SIZE = _get_adaptive_marker_size(marker.MARKER_SIZE, cam_zoom)
 	var MARKER_COLOR = marker.MARKER_COLOR
-	var LINE_WIDTH = marker.LINE_WIDTH
+	var LINE_WIDTH = _get_adaptive_line_width(marker.LINE_WIDTH, cam_zoom)
 	
 	# Draw based on marker type
 	if marker.marker_type == "Line":
@@ -184,21 +282,29 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			angles.append(fmod(marker.angle + 180.0, 360.0))
 		
 		for angle in angles:
+			# Get map boundaries for clipping
+			var map_rect = null
+			if tool.cached_world:
+				map_rect = tool.cached_world.WorldRect
+			
 			var line_points = _calculate_line_endpoints(
 				marker.position,
 				angle,
 				world_left,
 				world_right,
 				world_top,
-				world_bottom
+				world_bottom,
+				map_rect
 			)
 			
-			draw_line(
-				line_points[0],
-				line_points[1],
-				marker.color,
-				LINE_WIDTH
-			)
+			# Only draw if line segment is valid (within map bounds)
+			if line_points[0] != line_points[1]:
+				draw_line(
+					line_points[0],
+					line_points[1],
+					marker.color,
+					LINE_WIDTH
+				)
 	
 	elif marker.marker_type == "Shape":
 		# Draw shape based on subtype
@@ -265,12 +371,17 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			# Draw main line
 			draw_line(start, end, marker.color, LINE_WIDTH)
 			
-			# Draw arrowhead
-			_draw_arrowhead(end, start, marker.arrow_head_length, marker.arrow_head_angle, marker.color, LINE_WIDTH)
+			# Draw arrowhead with adaptive length
+			var arrow_length = _get_adaptive_marker_size(marker.arrow_head_length, cam_zoom)
+			_draw_arrowhead(end, start, arrow_length, marker.arrow_head_angle, marker.color, LINE_WIDTH)
 	
-	# Draw marker circle on top
-	draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
-	draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 1), 2)
+	# Draw marker circle on top (only if marker is visible on screen)
+	var is_marker_visible = marker.position.x >= world_left and marker.position.x <= world_right and \
+	                        marker.position.y >= world_top and marker.position.y <= world_bottom
+	
+	if is_marker_visible:
+		draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
+		draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 1), 2)
 	
 	# Draw coordinates if enabled for this marker
 	if marker.show_coordinates:
@@ -278,10 +389,13 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 
 # Draw semi-transparent preview of marker at cursor position
 func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom):
-	var MARKER_SIZE = 40.0
 	var MARKER_COLOR = Color(1, 0, 0, 0.5)
 	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	var LINE_WIDTH = 8.0
+	
+	# Get camera zoom for adaptive line width and marker size
+	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
+	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw preview based on active marker type
 	if tool.active_marker_type == tool.MARKER_TYPE_LINE:
@@ -291,21 +405,29 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			angles.append(fmod(tool.active_angle + 180.0, 360.0))
 		
 		for angle in angles:
+			# Get map boundaries for clipping
+			var map_rect = null
+			if tool.cached_world:
+				map_rect = tool.cached_world.WorldRect
+			
 			var line_points = _calculate_line_endpoints(
 				pos,
 				angle,
 				world_left,
 				world_right,
 				world_top,
-				world_bottom
+				world_bottom,
+				map_rect
 			)
 			
-			draw_line(
-				line_points[0],
-				line_points[1],
-				LINE_COLOR,
-				LINE_WIDTH
-			)
+			# Only draw if line segment is valid (within map bounds)
+			if line_points[0] != line_points[1]:
+				draw_line(
+					line_points[0],
+					line_points[1],
+					LINE_COLOR,
+					LINE_WIDTH
+				)
 	
 	elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
 		# Draw preview shape
@@ -352,11 +474,14 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 	if not tool.path_placement_active or tool.path_temp_points.size() == 0:
 		return
 	
-	var MARKER_SIZE = 40.0
 	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
 	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	var LINE_WIDTH = 8.0
 	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
+	
+	# Get camera zoom for adaptive line width and marker size
+	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
+	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw all placed points
 	for i in range(tool.path_temp_points.size()):
@@ -407,11 +532,14 @@ func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
 	if not tool.arrow_placement_active or tool.arrow_temp_points.size() == 0:
 		return
 	
-	var MARKER_SIZE = 40.0
 	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
 	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	var LINE_WIDTH = 8.0
 	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
+	
+	# Get camera zoom for adaptive line width and marker size
+	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
+	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw start point (green, larger)
 	var start_point = tool.arrow_temp_points[0]
@@ -425,11 +553,12 @@ func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
 		# Draw preview line
 		draw_line(start_point, preview_end, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
 		
-		# Draw preview arrowhead
+		# Draw preview arrowhead with adaptive length
+		var arrow_length = _get_adaptive_marker_size(tool.active_arrow_head_length, cam_zoom)
 		_draw_arrowhead(
 			preview_end,
 			start_point,
-			tool.active_arrow_head_length,
+			arrow_length,
 			tool.active_arrow_head_angle,
 			PREVIEW_LINE_COLOR,
 			LINE_WIDTH * 0.7
@@ -461,66 +590,119 @@ func _draw_arrowhead(end, start, length, angle_deg, color, line_width):
 	draw_line(end, right_point, color, line_width)
 
 # Calculate line endpoints - always draws to map boundaries
-func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom):
+func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom, map_rect):
 	var angle_rad = deg2rad(angle_deg)
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
 	
 	# Always draw infinite ray from origin to viewport edge
-	return _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom)
+	var viewport_points = _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom)
+	
+	# Clip the line segment to map boundaries
+	if map_rect:
+		return _clip_line_to_rect(viewport_points[0], viewport_points[1], map_rect)
+	else:
+		return viewport_points
+
+# Clip a line segment to a rectangle using Liang-Barsky algorithm
+# Returns [p1_clipped, p2_clipped] if line intersects rect, [p1, p1] if completely outside
+func _clip_line_to_rect(p1, p2, rect):
+	if not rect:
+		return [p1, p2]
+	
+	var x1 = p1.x
+	var y1 = p1.y
+	var x2 = p2.x
+	var y2 = p2.y
+	
+	var dx = x2 - x1
+	var dy = y2 - y1
+	
+	var t_min = 0.0
+	var t_max = 1.0
+	
+	# Check all four boundaries
+	var p = [-dx, dx, -dy, dy]
+	var q = [x1 - rect.position.x, rect.position.x + rect.size.x - x1, 
+	         y1 - rect.position.y, rect.position.y + rect.size.y - y1]
+	
+	for i in range(4):
+		if p[i] == 0:
+			# Line is parallel to boundary
+			if q[i] < 0:
+				# Line is outside this boundary
+				return [p1, p1]  # Completely outside
+		else:
+			var t = q[i] / p[i]
+			if p[i] < 0:
+				# Entering the boundary
+				if t > t_max:
+					return [p1, p1]  # Line is outside
+				t_min = max(t_min, t)
+			else:
+				# Leaving the boundary
+				if t < t_min:
+					return [p1, p1]  # Line is outside
+				t_max = min(t_max, t)
+	
+	if t_min > t_max:
+		return [p1, p1]  # No intersection
+	
+	# Calculate clipped points
+	var clipped_p1 = Vector2(x1 + t_min * dx, y1 + t_min * dy)
+	var clipped_p2 = Vector2(x1 + t_max * dx, y1 + t_max * dy)
+	
+	return [clipped_p1, clipped_p2]
 
 # Calculate where a ray from origin in direction intersects viewport boundaries
-# Returns [origin, intersection_point] representing a ray from marker to edge
+# Returns [point1, point2] representing a ray from origin in the specified direction
+# This ensures lines are visible even when the marker itself is off-screen
 func _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom):
 	var dx = direction.x
 	var dy = direction.y
+	var t_values = []
 	
-	var closest_point = null
-	var closest_t = INF
-	
-	# Check all four boundaries and find the closest intersection in the direction
-	
-	# Left boundary
-	if dx != 0:
+	# Check left boundary
+	if abs(dx) > 0.001:
 		var t = (world_left - origin.x) / dx
-		if t > 0.01:  # Small epsilon to avoid origin point
-			var y = origin.y + t * dy
-			if y >= world_top and y <= world_bottom and t < closest_t:
-				closest_t = t
-				closest_point = Vector2(world_left, y)
+		var y = origin.y + t * dy
+		if y >= world_top and y <= world_bottom:
+			t_values.append(t)
 	
-	# Right boundary
-	if dx != 0:
+	# Check right boundary
+	if abs(dx) > 0.001:
 		var t = (world_right - origin.x) / dx
-		if t > 0.01:
-			var y = origin.y + t * dy
-			if y >= world_top and y <= world_bottom and t < closest_t:
-				closest_t = t
-				closest_point = Vector2(world_right, y)
+		var y = origin.y + t * dy
+		if y >= world_top and y <= world_bottom:
+			t_values.append(t)
 	
-	# Top boundary
-	if dy != 0:
+	# Check top boundary
+	if abs(dy) > 0.001:
 		var t = (world_top - origin.y) / dy
-		if t > 0.01:
-			var x = origin.x + t * dx
-			if x >= world_left and x <= world_right and t < closest_t:
-				closest_t = t
-				closest_point = Vector2(x, world_top)
+		var x = origin.x + t * dx
+		if x >= world_left and x <= world_right:
+			t_values.append(t)
 	
-	# Bottom boundary
-	if dy != 0:
+	# Check bottom boundary
+	if abs(dy) > 0.001:
 		var t = (world_bottom - origin.y) / dy
-		if t > 0.01:
-			var x = origin.x + t * dx
-			if x >= world_left and x <= world_right and t < closest_t:
-				closest_t = t
-				closest_point = Vector2(x, world_bottom)
+		var x = origin.x + t * dx
+		if x >= world_left and x <= world_right:
+			t_values.append(t)
 	
-	# Return ray from origin to edge
-	if closest_point != null:
-		return [origin, closest_point]
+	# Filter: only positive t values (ray goes forward from origin)
+	var positive_t = []
+	for t in t_values:
+		if t >= 0:
+			positive_t.append(t)
 	
-	# Fallback if no intersection found
-	return [origin, origin + direction * 1000]
+	if positive_t.size() > 0:
+		positive_t.sort()
+		# Use origin as start point and furthest positive intersection as end
+		var t_max = positive_t[positive_t.size() - 1]
+		return [origin, origin + direction * t_max]
+	
+	# Fallback: extend line forward
+	return [origin, origin + direction * 5000]
 
 # Draw grid coordinates along marker's guide lines or circle
 func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom):
@@ -610,8 +792,8 @@ func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, 
 	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
 		return
 	
-	var marker_size = 5.0 * cam_zoom.x
-	var text_offset = 20.0 * cam_zoom.x
+	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
+	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
 	var marker_color = line_color
 	var text_color = line_color
 	
@@ -653,8 +835,8 @@ func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, 
 
 # Draw coordinates using custom_snap grid - always to map boundaries
 func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap):
-	var marker_size = 5.0 * cam_zoom.x
-	var text_offset = 20.0 * cam_zoom.x
+	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
+	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
 	var marker_color = line_color
 	var text_color = line_color
 	
@@ -739,8 +921,8 @@ func _draw_coordinates_on_shape(center, radius_cells, shape_subtype, cam_zoom, s
 	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
 		return
 	
-	var marker_size = 5.0 * cam_zoom.x
-	var text_offset = 20.0 * cam_zoom.x
+	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
+	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
 	var marker_color = shape_color
 	var text_color = shape_color
 	
@@ -757,8 +939,8 @@ func _draw_coordinates_on_path(points, cam_zoom, path_color):
 	if points.size() < 2:
 		return
 	
-	var marker_size = 5.0 * cam_zoom.x
-	var text_offset = 20.0 * cam_zoom.x
+	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
+	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
 	var marker_color = path_color
 	var text_color = path_color
 	

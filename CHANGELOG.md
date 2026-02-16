@@ -5,6 +5,40 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-02-16
+
+### 🐛 Fixed
+
+**Performance Optimizations**:
+- Fixed critical performance issue with infinite `update_count` accumulation in `GuidesLinesTool._process()`
+- Removed forced `update()` calls every frame (60fps × 4 overlays = 240fps rendering)
+- Added conditional rendering: overlays now update only when camera/markers/state changes
+- Added iteration limits to coordinate drawing loops (100 for vanilla grid, 1000 for custom_snap)
+- Eliminated performance degradation during idle time
+
+**UI Interaction**:
+- Fixed markers being created when clicking UI buttons (now checks viewport x < 450)
+- Fixed preview marker freezing at last position when cursor enters UI area (now disappears cleanly)
+- Preview now updates smoothly only when cursor is outside UI region
+
+**Visual Improvements**:
+- Added adaptive scaling for lines and markers at low zoom levels (50% and below)
+- Lines and markers now scale proportionally with camera zoom for better visibility
+- All visual elements (lines, markers, text, arrows) adapt to zoom level
+- Consolidated preview constants (PREVIEW_MARKER_SIZE, PREVIEW_LINE_WIDTH) at class level
+
+**Line Marker Rendering**:
+- Fixed Line marker rays disappearing when marker point is outside camera viewport
+- Implemented proper ray-viewport intersection algorithm for off-screen markers
+- Added map boundary clipping: lines no longer extend beyond map edges (WorldRect)
+- Implemented Liang-Barsky line clipping algorithm for precise boundary handling
+- Fixed Mirror parameter: rays now correctly render in one direction, Mirror adds opposite ray
+
+**Code Quality**:
+- Fixed GDScript parse error: moved constants to class level (not inside functions)
+- Simplified `_get_ray_to_viewport_edge()` function for better maintainability
+- Removed unnecessary helper functions
+
 ## [2.0.0] - 2026-02-15
 
 ### 🎉 Major Release - Complete Redesign

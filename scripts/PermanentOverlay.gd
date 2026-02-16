@@ -8,8 +8,40 @@ var cached_world = null
 var cached_camera = null
 var cached_snappy_mod = null  # Custom_snap mod reference (if available)
 
+# Performance optimization: only redraw when camera changes
+var _last_camera_pos = Vector2.ZERO
+var _last_camera_zoom = Vector2.ONE
+var _last_perm_v_enabled = false
+var _last_perm_h_enabled = false
+var _last_show_coords = false
+
+# Performance optimization: iteration limits
+const MAX_COORD_MARKERS = 100  # Maximum coordinate markers for vanilla grid
+const MAX_ITERATIONS = 1000  # Maximum iterations for custom_snap grid
+
 func _ready():
 	set_z_index(99)
+	set_process(true)  # Enable _process for camera change detection
+
+# Check for camera changes and trigger redraw only when needed
+func _process(_delta):
+	if cached_camera and parent_mod:
+		var cam_pos = cached_camera.get_camera_position()
+		var cam_zoom = cached_camera.zoom
+		var perm_v = parent_mod.perm_vertical_enabled
+		var perm_h = parent_mod.perm_horizontal_enabled
+		var show_coords = parent_mod.show_coordinates_enabled
+		
+		# Only redraw if something changed
+		if cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom or \
+		   perm_v != _last_perm_v_enabled or perm_h != _last_perm_h_enabled or \
+		   show_coords != _last_show_coords:
+			_last_camera_pos = cam_pos
+			_last_camera_zoom = cam_zoom
+			_last_perm_v_enabled = perm_v
+			_last_perm_h_enabled = perm_h
+			_last_show_coords = show_coords
+			update()
 
 # Draw permanent guide lines at map center
 # Shows blue lines that can be toggled on/off
@@ -130,7 +162,13 @@ func _draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_to
 		# Get map boundaries
 		var map_rect = cached_world.WorldRect
 		
-		while y <= world_bottom:
+		# Check if too many markers would be drawn
+		var max_iterations = int((world_bottom - world_top) / cell_size.y) + 1
+		if max_iterations > MAX_COORD_MARKERS:
+			return  # Skip drawing if too many markers
+		
+		var iteration_count = 0
+		while y <= world_bottom and iteration_count < MAX_COORD_MARKERS:
 			if abs(y - map_cy) > 0.1:  # Skip center point
 				# Check if position is within map bounds
 				var pos = Vector2(map_cx, y)
@@ -147,6 +185,7 @@ func _draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_to
 					_draw_text_with_outline(text, text_pos, text_color)
 			
 			y += cell_size.y
+			iteration_count += 1
 	
 	# Draw horizontal line coordinates
 	if parent_mod.perm_horizontal_enabled:
@@ -157,7 +196,13 @@ func _draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_to
 		# Get map boundaries
 		var map_rect = cached_world.WorldRect
 		
-		while x <= world_right:
+		# Check if too many markers would be drawn
+		var max_iterations = int((world_right - world_left) / cell_size.x) + 1
+		if max_iterations > MAX_COORD_MARKERS:
+			return  # Skip drawing if too many markers
+		
+		var iteration_count = 0
+		while x <= world_right and iteration_count < MAX_COORD_MARKERS:
 			if abs(x - map_cx) > 0.1:  # Skip center point
 				# Check if position is within map bounds
 				var pos = Vector2(x, map_cy)
@@ -174,6 +219,7 @@ func _draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_to
 					_draw_text_with_outline(text, text_pos, text_color)
 			
 			x += cell_size.x
+			iteration_count += 1
 
 # Draw coordinates using custom_snap grid
 func _draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom, custom_snap):
@@ -194,11 +240,12 @@ func _draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, worl
 	if parent_mod.perm_vertical_enabled:
 		var checked_positions = {}  # Track unique snapped positions
 		var y = world_top
+		var iteration_count = 0
 		
 		# Get map boundaries
 		var map_rect = cached_world.WorldRect
 		
-		while y <= world_bottom:
+		while y <= world_bottom and iteration_count < MAX_ITERATIONS:
 			var test_pos = Vector2(map_cx, y)
 			var snapped = custom_snap.get_snapped_position(test_pos)
 			
@@ -222,16 +269,21 @@ func _draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, worl
 						_draw_text_with_outline(text, text_pos, text_color)
 			
 			y += test_spacing
+			iteration_count += 1
+		
+		if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
+			parent_mod.LOGGER.warn("Vertical coordinate drawing exceeded iteration limit")
 	
 	# Draw horizontal line coordinates
 	if parent_mod.perm_horizontal_enabled:
 		var checked_positions = {}
 		var x = world_left
+		var iteration_count = 0
 		
 		# Get map boundaries
 		var map_rect = cached_world.WorldRect
 		
-		while x <= world_right:
+		while x <= world_right and iteration_count < MAX_ITERATIONS:
 			var test_pos = Vector2(x, map_cy)
 			var snapped = custom_snap.get_snapped_position(test_pos)
 			
@@ -255,3 +307,7 @@ func _draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, worl
 						_draw_text_with_outline(text, text_pos, text_color)
 			
 			x += test_spacing
+			iteration_count += 1
+		
+		if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
+			parent_mod.LOGGER.warn("Horizontal coordinate drawing exceeded iteration limit")
