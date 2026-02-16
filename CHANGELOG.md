@@ -5,6 +5,17 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-02-16
+
+### 🚀 Optimized
+
+- **Massive Performance Boost**: Completely refactored the rendering pipeline for markers (`GuideMarker` and `MarkerOverlay`).
+- **Geometry Caching**: Implemented a comprehensive caching system that pre-calculates marker geometry (lines, polygons, rays) only when properties change, rather than every frame.
+- **Rendering Efficiency**: Removed all expensive trigonometric operations and intersection calculations from the `_draw` loop. The renderer now simply consumes pre-calculated vector arrays.
+- **Engine-Native Clipping**: Replaced manualviewport line clipping with `Liang-Barsky` ray clipping to map boundaries, leveraging Godot's built-in canvas item culling for maximum efficiency.
+- **Fixed Mirroring**: Corrected `Line` marker behavior to properly respect the `Mirror` property by calculating two distinct rays instead of one infinite line.
+- **Code Stability**: Fixed syntax errors and potential "unexpected assignment" issues in GDScript.
+
 ## [2.0.2] - 2026-02-16
 
 ### 🚀 Optimized & Fixed

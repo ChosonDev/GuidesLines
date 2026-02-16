@@ -23,6 +23,10 @@ const MARKER_COLOR = Color(1, 0, 0, 1)  # Red
 const DEFAULT_LINE_COLOR = Color(0, 0.7, 1, 1)  # Blue (fully opaque)
 const LINE_WIDTH = 5.0  # Thicker lines
 
+# CACHED GEOMETRY
+var cached_draw_data = {} 
+var _dirty = true
+
 # Initialize marker with position and type-specific parameters
 func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	position = pos
@@ -33,6 +37,148 @@ func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	mirror = _mirror
 	show_coordinates = coords
 	color = DEFAULT_LINE_COLOR
+	_dirty = true
+
+# Set a property and mark geometry as dirty if needed
+func set_property(prop, value):
+	var changed = false
+	match prop:
+		"angle": 
+			if angle != value: angle = value; changed = true
+		"shape_radius":
+			if shape_radius != value: shape_radius = value; changed = true
+		"shape_subtype":
+			if shape_subtype != value: shape_subtype = value; changed = true
+		"shape_angle":
+			if shape_angle != value: shape_angle = value; changed = true
+		"position":
+			if position != value: position = value; changed = true
+		"mirror":
+			if mirror != value: mirror = value; changed = true
+		"marker_type":
+			if marker_type != value: marker_type = value; changed = true
+		"path_closed":
+			if path_closed != value: path_closed = value; changed = true
+		"arrow_head_length":
+			if arrow_head_length != value: arrow_head_length = value; changed = true
+		"arrow_head_angle":
+			if arrow_head_angle != value: arrow_head_angle = value; changed = true
+		"marker_points":
+			# Arrays are passed by reference, so we assume it changed if set
+			marker_points = value; changed = true
+	
+	if changed:
+		_dirty = true
+
+# Generate geometry data based on current settings
+# map_rect: Rectangle of the map (used for infinite line clipping)
+# cell_size: Vector2 of grid cell size (used for shape scaling)
+func get_draw_data(map_rect, cell_size):
+	if _dirty or cached_draw_data.empty():
+		_recalculate_geometry(map_rect, cell_size)
+	return cached_draw_data
+
+func _recalculate_geometry(map_rect, cell_size):
+	cached_draw_data = {}
+	
+	if marker_type == "Line" and map_rect != null:
+		cached_draw_data["type"] = "line"
+		cached_draw_data["segments"] = []
+		
+		var angles_list = [angle]
+		if mirror: angles_list.append(fmod(angle + 180.0, 360.0))
+		
+		for ang in angles_list:
+			var dir = Vector2(cos(deg2rad(ang)), sin(deg2rad(ang)))
+			var segment = _clip_line_to_rect(position, dir, map_rect)
+			if segment:
+				cached_draw_data["segments"].append(segment)
+
+	elif marker_type == "Shape":
+		cached_draw_data["type"] = "shape"
+		if cell_size:
+			var radius_px = shape_radius * min(cell_size.x, cell_size.y)
+			var angle_rad = deg2rad(shape_angle)
+			
+			if shape_subtype == "Circle":
+				cached_draw_data["shape_type"] = "circle"
+				cached_draw_data["radius"] = radius_px
+			else:
+				cached_draw_data["shape_type"] = "poly"
+				var sides = 4
+				var rotation = 0.0
+				match shape_subtype:
+					"Square": 
+						sides = 4
+						rotation = PI/4 + angle_rad
+					"Pentagon": 
+						sides = 5
+						rotation = -PI/2 + angle_rad
+					"Hexagon": 
+						sides = 6
+						rotation = angle_rad
+					"Octagon": 
+						sides = 8
+						rotation = PI/8 + angle_rad
+
+				
+				cached_draw_data["points"] = _calculate_polygon_vertices(position, radius_px, sides, rotation)
+
+	_dirty = false
+
+# Liang-Barsky line clipping algorithm
+# Returns [p1, p2] inside the rect, or null if outside
+func _clip_line_to_rect(pos: Vector2, dir: Vector2, rect: Rect2):
+	# define the box
+	var x_min = rect.position.x
+	var y_min = rect.position.y
+	var x_max = rect.position.x + rect.size.x
+	var y_max = rect.position.y + rect.size.y
+	
+	# Liang-Barsky for a RAY starting at pos (t >= 0)
+	# P = pos + t * dir
+	
+	var p = [-dir.x, dir.x, -dir.y, dir.y]
+	var q = [pos.x - x_min, x_max - pos.x, pos.y - y_min, y_max - pos.y]
+	
+	var u1 = 0.0 # Start constraint: t >= 0 (Ray starts at pos)
+	var u2 = 1e10 # End constraint: "infinite"
+	
+	for i in range(4):
+		if p[i] == 0:
+			if q[i] < 0:
+				return null # Parallel and outside
+		else:
+			var t = q[i] / p[i]
+			if p[i] < 0:
+				# Entering the boundary from outside
+				if t > u2: return null
+				if t > u1: u1 = t
+			else:
+				# Exiting the boundary
+				if t < u1: return null
+				if t < u2: u2 = t
+	
+	if u1 > u2:
+		return null
+	
+	# If the ray starts inside/on edge (u1=0) and exits at u2
+	# Or if it enters at u1 and exits at u2.
+	
+	var p_start = pos + dir * u1
+	var p_end = pos + dir * u2
+	return [p_start, p_end]
+
+
+func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
+	var vertices = []
+	var angle_step = TAU / sides
+	for i in range(sides):
+		var ang = angle_step * i + rotation_offset
+		var point = center + Vector2(cos(ang), sin(ang)) * radius
+		vertices.append(point)
+	return vertices
+
 
 # Get bounding rectangle for marker selection
 func get_rect():
@@ -176,4 +322,5 @@ func Load(data):
 	if data.has("show_coordinates"):
 		show_coordinates = data.show_coordinates
 	else:
-		show_coordinates = false
+		show_coordinates = false		
+	_dirty = true # Invalidate cache after loading

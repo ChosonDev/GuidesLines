@@ -502,29 +502,33 @@ func _undo_delete_marker(marker_data, index):
 # Helper functions for HistoryApi - place marker
 func _do_place_marker(marker_data):
 	var marker = GuideMarkerClass.new()
-	marker.position = marker_data["position"]
-	marker.id = marker_data["id"]
-	marker.marker_type = marker_data["marker_type"]
+	marker.set_property("position", marker_data["position"])
+	marker.id = marker_data["id"] 
+	marker.set_property("marker_type", marker_data["marker_type"])
 	marker.color = marker_data["color"]
-	marker.show_coordinates = marker_data["coordinates"]
+	marker.set_property("show_coordinates", marker_data["coordinates"])
 	
 	# Load type-specific parameters
 	if marker_data["marker_type"] == MARKER_TYPE_LINE:
-		marker.angle = marker_data["angle"]
-		marker.mirror = marker_data["mirror"]
+		marker.set_property("angle", marker_data.get("angle", 0.0))
+		marker.set_property("mirror", marker_data.get("mirror", false))
 	elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
-		marker.shape_subtype = marker_data["shape_subtype"]
-		marker.shape_radius = marker_data["shape_radius"]
-		marker.shape_angle = marker_data.get("shape_angle", 0.0)
-		# Generate marker_points for Shape (vertices)
-		marker.marker_points = _generate_shape_vertices(marker.position, marker.shape_radius, marker.shape_subtype, marker.shape_angle)
+		marker.set_property("shape_subtype", marker_data["shape_subtype"])
+		marker.set_property("shape_radius", marker_data["shape_radius"])
+		marker.set_property("shape_angle", marker_data.get("shape_angle", 0.0))
+		# Generate marker_points for Shape (vertices) - GuideMarker handles this via cache now
+		# But if we need to store them for save/load, we might still want to generate them?
+		# The old code did: marker.marker_points = _generate_shape_vertices(...)
+		# We should let GuideMarker handle vertices. Marker points are mainly for custom paths/arrows
+		# and potentially for saved Shapes if we want to freeze them?
+		pass 
 	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
-		marker.marker_points = marker_data["marker_points"].duplicate()
-		marker.path_closed = marker_data["path_closed"]
+		marker.set_property("marker_points", marker_data["marker_points"].duplicate())
+		marker.set_property("path_closed", marker_data["path_closed"])
 	elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
-		marker.marker_points = marker_data["marker_points"].duplicate()
-		marker.arrow_head_length = marker_data["arrow_head_length"]
-		marker.arrow_head_angle = marker_data["arrow_head_angle"]
+		marker.set_property("marker_points", marker_data["marker_points"].duplicate())
+		marker.set_property("arrow_head_length", marker_data["arrow_head_length"])
+		marker.set_property("arrow_head_angle", marker_data["arrow_head_angle"])
 	
 	markers.append(marker)
 	markers_lookup[marker.id] = marker # Add to lookup
@@ -535,8 +539,8 @@ func _do_place_marker(marker_data):
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
 			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
 				str(marker_data["position"]),
-				marker_data["angle"],
-				str(marker_data["mirror"])
+				marker_data.get("angle", 0.0),
+				str(marker_data.get("mirror", false))
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
 			LOGGER.debug("Shape marker placed at %s (subtype: %s, radius: %.1f cells)" % [

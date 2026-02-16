@@ -281,50 +281,28 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	var MARKER_COLOR = marker.MARKER_COLOR
 	var LINE_WIDTH = _get_adaptive_line_width(marker.LINE_WIDTH, cam_zoom)
 	
+	var map_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top) # Fallback
+	if tool.cached_world:
+		map_rect = tool.cached_world.WorldRect
+	
+	var cell_size = _get_grid_cell_size()
+	
+	# Fetch pre-calculated geometry
+	var draw_data = marker.get_draw_data(map_rect, cell_size)
+	
 	# Draw based on marker type
 	if marker.marker_type == "Line":
-		# Draw line(s)
-		var angles = [marker.angle]
-		if marker.mirror:
-			angles.append(fmod(marker.angle + 180.0, 360.0))
-		
-		for angle in angles:
-			# Get map boundaries for clipping
-			var map_rect = null
-			if tool.cached_world:
-				map_rect = tool.cached_world.WorldRect
-			
-			var line_points = _calculate_line_endpoints(
-				marker.position,
-				angle,
-				world_left,
-				world_right,
-				world_top,
-				world_bottom,
-				map_rect
-			)
-			
-			# Only draw if line segment is valid (within map bounds)
-			if line_points[0] != line_points[1]:
-				draw_line(
-					line_points[0],
-					line_points[1],
-					marker.color,
-					LINE_WIDTH
-				)
+		if draw_data.has("segments"):
+			for segment in draw_data.segments:
+				draw_line(segment[0], segment[1], marker.color, LINE_WIDTH)
 	
 	elif marker.marker_type == "Shape":
-		# Draw shape based on subtype
-		var cell_size = _get_grid_cell_size()
-		if cell_size:
-			var radius_px = marker.shape_radius * min(cell_size.x, cell_size.y)
-			var angle_rad = deg2rad(marker.shape_angle)  # Convert shape rotation angle to radians
-			
-			match marker.shape_subtype:
-				"Circle":
+		if draw_data.has("type") and draw_data.type == "shape":
+			if draw_data.has("shape_type"):
+				if draw_data.shape_type == "circle":
 					draw_arc(
 						marker.position,
-						radius_px,
+						draw_data.radius,
 						0,
 						TAU,
 						64,
@@ -332,22 +310,9 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 						LINE_WIDTH,
 						true
 					)
-				
-				"Square":
-					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 4, PI/4 + angle_rad)
-					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
-				
-				"Pentagon":
-					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 5, -PI/2 + angle_rad)
-					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
-				
-				"Hexagon":
-					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 6, angle_rad)
-					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
-				
-				"Octagon":
-					var vertices = _calculate_polygon_vertices(marker.position, radius_px, 8, PI/8 + angle_rad)
-					_draw_polygon_outline(vertices, marker.color, LINE_WIDTH)
+				elif draw_data.shape_type == "poly" and draw_data.has("points"):
+					_draw_polygon_outline(draw_data.points, marker.color, LINE_WIDTH)
+
 	
 	elif marker.marker_type == "Path":
 		# Draw path lines
@@ -383,6 +348,8 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			_draw_arrowhead(end, start, arrow_length, marker.arrow_head_angle, marker.color, LINE_WIDTH)
 	
 	# Draw marker circle on top (only if marker is visible on screen)
+	# Optimized visibility check using Godot's built-in Rect2 methods if possible, 
+	# but simple AABB check is fast enough.
 	var is_marker_visible = marker.position.x >= world_left and marker.position.x <= world_right and \
 	                        marker.position.y >= world_top and marker.position.y <= world_bottom
 	
@@ -393,6 +360,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	# Draw coordinates if enabled for this marker
 	if marker.show_coordinates:
 		_draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom)
+
 
 # Draw semi-transparent preview of marker at cursor position
 func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom):
