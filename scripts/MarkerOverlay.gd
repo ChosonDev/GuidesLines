@@ -1,5 +1,7 @@
 extends Node2D
 
+const GeometryUtils = preload("GeometryUtils.gd")
+
 # MarkerOverlay - Handles drawing and input for guide markers
 
 var tool = null
@@ -16,20 +18,6 @@ var _mouse_in_ui = false  # Track if cursor is in UI area
 # Preview marker constants (matching GuideMarker constants)
 const PREVIEW_MARKER_SIZE = 10.0  # Base size before zoom adaptation
 const PREVIEW_LINE_WIDTH = 5.0    # Base width before zoom adaptation
-
-# Calculate polygon vertices for regular n-gon inscribed in circle
-# center: center point, radius: circumradius, sides: number of sides
-# rotation_offset: rotation in radians (default 0, for "point up" orientation)
-func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
-	var vertices = []
-	var angle_step = TAU / sides
-	
-	for i in range(sides):
-		var angle = angle_step * i + rotation_offset
-		var point = center + Vector2(cos(angle), sin(angle)) * radius
-		vertices.append(point)
-	
-	return vertices
 
 # Helper to draw polygon outline from vertices
 func _draw_polygon_outline(vertices, color, line_width):
@@ -425,19 +413,19 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 					)
 				
 				"Square":
-					var vertices = _calculate_polygon_vertices(pos, radius_px, 4, PI/4 + angle_rad)
+					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 4, PI/4 + angle_rad)
 					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Pentagon":
-					var vertices = _calculate_polygon_vertices(pos, radius_px, 5, -PI/2 + angle_rad)
+					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 5, -PI/2 + angle_rad)
 					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Hexagon":
-					var vertices = _calculate_polygon_vertices(pos, radius_px, 6, angle_rad)
+					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 6, angle_rad)
 					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Octagon":
-					var vertices = _calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
+					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
 					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
 	
 	# Draw preview marker
@@ -546,23 +534,11 @@ func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
 # end: arrowhead position, start: direction reference point
 # length: arrowhead length in pixels, angle: arrowhead angle in degrees
 func _draw_arrowhead(end, start, length, angle_deg, color, line_width):
-	# Calculate direction from start to end
-	var direction = (end - start).normalized()
-	
-	# Calculate arrow angle in radians
-	var angle_rad = deg2rad(angle_deg)
-	
-	# Calculate the two points of the arrowhead
-	# Rotate direction by +/- angle_deg to get the two arrowhead lines
-	var left_angle = direction.angle() + PI - angle_rad
-	var right_angle = direction.angle() + PI + angle_rad
-	
-	var left_point = end + Vector2(cos(left_angle), sin(left_angle)) * length
-	var right_point = end + Vector2(cos(right_angle), sin(right_angle)) * length
+	var points = GeometryUtils.calculate_arrowhead_points(end, start, length, angle_deg)
 	
 	# Draw the two arrowhead lines
-	draw_line(end, left_point, color, line_width)
-	draw_line(end, right_point, color, line_width)
+	draw_line(end, points[0], color, line_width)
+	draw_line(end, points[1], color, line_width)
 
 # Calculate line endpoints - always draws to map boundaries
 func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom, map_rect):
@@ -570,114 +546,18 @@ func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
 	
 	# Always draw infinite ray from origin to viewport edge
-	var viewport_points = _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom)
+	# Create a Rect2 for the viewport/world bounds
+	var viewport_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top)
+	var viewport_points = GeometryUtils.get_ray_to_rect_edge(origin, direction, viewport_rect)
 	
 	# Clip the line segment to map boundaries
 	if map_rect:
-		return _clip_line_to_rect(viewport_points[0], viewport_points[1], map_rect)
+		var clipped = GeometryUtils.clip_line_segment_to_rect(viewport_points[0], viewport_points[1], map_rect)
+		if clipped.size() == 2:
+			return clipped
+		return [viewport_points[0], viewport_points[0]] # Return degenerate line if clipped out
 	else:
 		return viewport_points
-
-# Clip a line segment to a rectangle using Liang-Barsky algorithm
-# Returns [p1_clipped, p2_clipped] if line intersects rect, [p1, p1] if completely outside
-func _clip_line_to_rect(p1, p2, rect):
-	if not rect:
-		return [p1, p2]
-	
-	var x1 = p1.x
-	var y1 = p1.y
-	var x2 = p2.x
-	var y2 = p2.y
-	
-	var dx = x2 - x1
-	var dy = y2 - y1
-	
-	var t_min = 0.0
-	var t_max = 1.0
-	
-	# Check all four boundaries
-	var p = [-dx, dx, -dy, dy]
-	var q = [x1 - rect.position.x, rect.position.x + rect.size.x - x1, 
-	         y1 - rect.position.y, rect.position.y + rect.size.y - y1]
-	
-	for i in range(4):
-		if p[i] == 0:
-			# Line is parallel to boundary
-			if q[i] < 0:
-				# Line is outside this boundary
-				return [p1, p1]  # Completely outside
-		else:
-			var t = q[i] / p[i]
-			if p[i] < 0:
-				# Entering the boundary
-				if t > t_max:
-					return [p1, p1]  # Line is outside
-				t_min = max(t_min, t)
-			else:
-				# Leaving the boundary
-				if t < t_min:
-					return [p1, p1]  # Line is outside
-				t_max = min(t_max, t)
-	
-	if t_min > t_max:
-		return [p1, p1]  # No intersection
-	
-	# Calculate clipped points
-	var clipped_p1 = Vector2(x1 + t_min * dx, y1 + t_min * dy)
-	var clipped_p2 = Vector2(x1 + t_max * dx, y1 + t_max * dy)
-	
-	return [clipped_p1, clipped_p2]
-
-# Calculate where a ray from origin in direction intersects viewport boundaries
-# Returns [point1, point2] representing a ray from origin in the specified direction
-# This ensures lines are visible even when the marker itself is off-screen
-func _get_ray_to_viewport_edge(origin, direction, world_left, world_right, world_top, world_bottom):
-	var dx = direction.x
-	var dy = direction.y
-	var t_values = []
-	
-	# Check left boundary
-	if abs(dx) > 0.001:
-		var t = (world_left - origin.x) / dx
-		var y = origin.y + t * dy
-		if y >= world_top and y <= world_bottom:
-			t_values.append(t)
-	
-	# Check right boundary
-	if abs(dx) > 0.001:
-		var t = (world_right - origin.x) / dx
-		var y = origin.y + t * dy
-		if y >= world_top and y <= world_bottom:
-			t_values.append(t)
-	
-	# Check top boundary
-	if abs(dy) > 0.001:
-		var t = (world_top - origin.y) / dy
-		var x = origin.x + t * dx
-		if x >= world_left and x <= world_right:
-			t_values.append(t)
-	
-	# Check bottom boundary
-	if abs(dy) > 0.001:
-		var t = (world_bottom - origin.y) / dy
-		var x = origin.x + t * dx
-		if x >= world_left and x <= world_right:
-			t_values.append(t)
-	
-	# Filter: only positive t values (ray goes forward from origin)
-	var positive_t = []
-	for t in t_values:
-		if t >= 0:
-			positive_t.append(t)
-	
-	if positive_t.size() > 0:
-		positive_t.sort()
-		# Use origin as start point and furthest positive intersection as end
-		var t_max = positive_t[positive_t.size() - 1]
-		return [origin, origin + direction * t_max]
-	
-	# Fallback: extend line forward
-	return [origin, origin + direction * 5000]
 
 # Draw grid coordinates along marker's guide lines or circle
 func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom):
@@ -839,20 +719,9 @@ func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_rig
 		
 		var key = str(int(snapped.x * 10)) + "_" + str(int(snapped.y * 10))
 		
-		if not checked_positions.has(key) and snapped.distance_to(origin) > 0.5:
-			# Check if snapped point is on the line
-			var to_snapped = snapped - origin
-			var angle_to_snapped = atan2(to_snapped.y, to_snapped.x)
-			var angle_diff = abs(angle_to_snapped - angle_rad)
-			
-			# Normalize angle
-			while angle_diff > PI:
-				angle_diff -= TAU
-			angle_diff = abs(angle_diff)
-			if angle_diff > PI:
-				angle_diff = TAU - angle_diff
-			
-			if angle_diff < deg2rad(10):
+		if not checked_positions.has(key):
+			# Use new optimized GeometryUtils method
+			if GeometryUtils.is_point_on_ray(origin, direction, snapped, deg2rad(5.0)):
 				checked_positions[key] = true
 				
 				var delta = snapped - origin - snap_offset

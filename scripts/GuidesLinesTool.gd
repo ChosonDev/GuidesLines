@@ -655,56 +655,6 @@ func snap_position_to_grid(position):
 	
 	return position
 
-# Generate vertices for Shape markers based on subtype
-func _generate_shape_vertices(center, radius_cells, shape_subtype, angle_degrees = 0.0):
-	# Get cell size for converting radius to pixels
-	var cell_size = _get_grid_cell_size()
-	if not cell_size:
-		return []
-	
-	var radius_px = radius_cells * min(cell_size.x, cell_size.y)
-	var angle_rad = deg2rad(angle_degrees)  # Convert degrees to radians
-	
-	# Generate vertices based on shape subtype
-	match shape_subtype:
-		"Circle":
-			# For circle, generate points along the circumference (e.g., 64 points)
-			# Note: angle parameter is ignored for Circle
-			var vertices = []
-			var point_count = 64
-			var angle_step = TAU / point_count
-			for i in range(point_count):
-				var angle = angle_step * i
-				var point = center + Vector2(cos(angle), sin(angle)) * radius_px
-				vertices.append(point)
-			return vertices
-		
-		"Square":
-			return _calculate_polygon_vertices(center, radius_px, 4, PI/4 + angle_rad)
-		
-		"Pentagon":
-			return _calculate_polygon_vertices(center, radius_px, 5, -PI/2 + angle_rad)
-		
-		"Hexagon":
-			return _calculate_polygon_vertices(center, radius_px, 6, angle_rad)
-		
-		"Octagon":
-			return _calculate_polygon_vertices(center, radius_px, 8, PI/8 + angle_rad)
-		
-		_:
-			return []
-
-# Calculate polygon vertices for regular n-gon
-func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
-	var vertices = []
-	var angle_step = TAU / sides
-	
-	for i in range(sides):
-		var angle = angle_step * i + rotation_offset
-		var point = center + Vector2(cos(angle), sin(angle)) * radius
-		vertices.append(point)
-	
-	return vertices
 
 # Get grid cell size (accounting for custom_snap mod if active)
 func _get_grid_cell_size():

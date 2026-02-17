@@ -5,6 +5,20 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-02-17
+
+### 🚀 Optimized & Refactored
+
+**Code Architecture**:
+- **Consolidated Geometry**: Created a new `GeometryUtils` static helper class to handle all geometric calculations.
+- **Unified Math**: Moved duplicate logic for polygon generation, line clipping, and ray intersection to `GeometryUtils`.
+- **Improved Ray Clippping**: Implemented a robust "Slab Method" algorithm for `get_ray_to_rect_edge` to correctly handle ray intersections with map boundaries from both inside and outside.
+- **Cleaner Code**: Significantly reduced code duplication in `GuideMarker.gd` and `MarkerOverlay.gd`.
+
+**Stability**:
+- **Parser Fixes**: Resolved GDScript parsing errors related to class loading order (`extends` before `class_name`).
+- **Constant Management**: Replaced usage of potentially ambiguous `TAU` with `GeometryUtils.TWO_PI`.
+
 ## [2.0.3] - 2026-02-16
 
 ### 🚀 Optimized

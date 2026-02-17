@@ -1,5 +1,7 @@
 extends Reference
 
+const GeometryUtils = preload("GeometryUtils.gd")
+
 # GuideMarker - Simple data class for guide markers
 # Stored and managed by GuidesLinesTool
 
@@ -90,7 +92,7 @@ func _recalculate_geometry(map_rect, cell_size):
 		
 		for ang in angles_list:
 			var dir = Vector2(cos(deg2rad(ang)), sin(deg2rad(ang)))
-			var segment = _clip_line_to_rect(position, dir, map_rect)
+			var segment = GeometryUtils.get_ray_to_rect_edge(position, dir, map_rect)
 			if segment:
 				cached_draw_data["segments"].append(segment)
 
@@ -122,63 +124,9 @@ func _recalculate_geometry(map_rect, cell_size):
 						rotation = PI/8 + angle_rad
 
 				
-				cached_draw_data["points"] = _calculate_polygon_vertices(position, radius_px, sides, rotation)
+				cached_draw_data["points"] = GeometryUtils.calculate_polygon_vertices(position, radius_px, sides, rotation)
 
 	_dirty = false
-
-# Liang-Barsky line clipping algorithm
-# Returns [p1, p2] inside the rect, or null if outside
-func _clip_line_to_rect(pos: Vector2, dir: Vector2, rect: Rect2):
-	# define the box
-	var x_min = rect.position.x
-	var y_min = rect.position.y
-	var x_max = rect.position.x + rect.size.x
-	var y_max = rect.position.y + rect.size.y
-	
-	# Liang-Barsky for a RAY starting at pos (t >= 0)
-	# P = pos + t * dir
-	
-	var p = [-dir.x, dir.x, -dir.y, dir.y]
-	var q = [pos.x - x_min, x_max - pos.x, pos.y - y_min, y_max - pos.y]
-	
-	var u1 = 0.0 # Start constraint: t >= 0 (Ray starts at pos)
-	var u2 = 1e10 # End constraint: "infinite"
-	
-	for i in range(4):
-		if p[i] == 0:
-			if q[i] < 0:
-				return null # Parallel and outside
-		else:
-			var t = q[i] / p[i]
-			if p[i] < 0:
-				# Entering the boundary from outside
-				if t > u2: return null
-				if t > u1: u1 = t
-			else:
-				# Exiting the boundary
-				if t < u1: return null
-				if t < u2: u2 = t
-	
-	if u1 > u2:
-		return null
-	
-	# If the ray starts inside/on edge (u1=0) and exits at u2
-	# Or if it enters at u1 and exits at u2.
-	
-	var p_start = pos + dir * u1
-	var p_end = pos + dir * u2
-	return [p_start, p_end]
-
-
-func _calculate_polygon_vertices(center, radius, sides, rotation_offset = 0.0):
-	var vertices = []
-	var angle_step = TAU / sides
-	for i in range(sides):
-		var ang = angle_step * i + rotation_offset
-		var point = center + Vector2(cos(ang), sin(ang)) * radius
-		vertices.append(point)
-	return vertices
-
 
 # Get bounding rectangle for marker selection
 func get_rect():
