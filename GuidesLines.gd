@@ -3,10 +3,10 @@
 #
 # File Structure:
 #   - GuidesLines.gd: Main mod file (this file)
-#   - scripts/GuideMarker.gd: Placeable marker with guide lines (multi-type support)
-#   - scripts/GuidesLinesTool.gd: Tool for placing and managing markers
-#   - scripts/CrossOverlay.gd: Proximity-based guide overlay
-#   - scripts/PermanentOverlay.gd: Permanent guide overlay
+#   - scripts/guides/GuideMarker.gd: Placeable marker with guide lines (multi-type support)
+#   - scripts/tool/GuidesLinesTool.gd: Tool for placing and managing markers
+#   - scripts/overlays/CrossOverlay.gd: Proximity-based guide overlay
+#   - scripts/overlays/PermanentOverlay.gd: Permanent guide overlay
 
 var script_class = "tool"
 
@@ -119,27 +119,27 @@ func start():
 		return
 	
 	# Load classes (without cache flag to avoid potential issues)
-	GuideMarkerClass = ResourceLoader.load(self.Global.Root + "scripts/GuideMarker.gd", "GDScript", false)
+	GuideMarkerClass = ResourceLoader.load(self.Global.Root + "scripts/guides/GuideMarker.gd", "GDScript", false)
 	if not GuideMarkerClass:
 		print("GuidesLines: ERROR - Failed to load GuideMarker.gd")
 		return
 	
-	GuidesLinesToolClass = ResourceLoader.load(self.Global.Root + "scripts/GuidesLinesTool.gd", "GDScript", false)
+	GuidesLinesToolClass = ResourceLoader.load(self.Global.Root + "scripts/tool/GuidesLinesTool.gd", "GDScript", false)
 	if not GuidesLinesToolClass:
 		print("GuidesLines: ERROR - Failed to load GuidesLinesTool.gd")
 		return
 	
-	MarkerOverlayClass = ResourceLoader.load(self.Global.Root + "scripts/MarkerOverlay.gd", "GDScript", false)
+	MarkerOverlayClass = ResourceLoader.load(self.Global.Root + "scripts/overlays/MarkerOverlay.gd", "GDScript", false)
 	if not MarkerOverlayClass:
 		print("GuidesLines: ERROR - Failed to load MarkerOverlay.gd")
 		return
 	
-	CrossOverlay = ResourceLoader.load(self.Global.Root + "scripts/CrossOverlay.gd", "GDScript", false)
+	CrossOverlay = ResourceLoader.load(self.Global.Root + "scripts/overlays/CrossOverlay.gd", "GDScript", false)
 	if not CrossOverlay:
 		print("GuidesLines: ERROR - Failed to load CrossOverlay.gd")
 		return
 	
-	PermanentOverlay = ResourceLoader.load(self.Global.Root + "scripts/PermanentOverlay.gd", "GDScript", false)
+	PermanentOverlay = ResourceLoader.load(self.Global.Root + "scripts/overlays/PermanentOverlay.gd", "GDScript", false)
 	if not PermanentOverlay:
 		print("GuidesLines: ERROR - Failed to load PermanentOverlay.gd")
 		return

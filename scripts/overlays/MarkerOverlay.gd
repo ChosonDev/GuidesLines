@@ -1,7 +1,7 @@
 extends Node2D
 
-const GeometryUtils = preload("GeometryUtils.gd")
-const GuidesLinesRender = preload("GuidesLinesRender.gd")
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
+const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
 
 # MarkerOverlay - Handles drawing and input for guide markers
 

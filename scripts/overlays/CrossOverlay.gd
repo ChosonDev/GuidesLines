@@ -1,6 +1,6 @@
 extends Node2D
 
-const GuidesLinesRender = preload("GuidesLinesRender.gd")
+const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
 
 # CrossOverlay - Displays proximity-based guide lines
 # Shows red guide lines when cursor is near the map center

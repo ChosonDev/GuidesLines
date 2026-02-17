@@ -1,6 +1,6 @@
 extends Reference
 
-const GeometryUtils = preload("GeometryUtils.gd")
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
 
 # GuideMarker - Simple data class for guide markers
 # Stored and managed by GuidesLinesTool

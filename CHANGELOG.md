@@ -5,6 +5,12 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-02-17
+
+### Refactoring
+- Reorganized the `scripts` folder by grouping files into subdirectories based on their functionality (`tool`, `render`, `overlays`, `guides`, `utils`).
+- Updated all `preload` and `ResourceLoader.load` paths to reflect the new file structure.
+
 ## [2.0.5] - 2026-02-17
 
 ### Refactoring

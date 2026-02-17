@@ -1,6 +1,6 @@
 extends Node2D
 
-const GuidesLinesRender = preload("GuidesLinesRender.gd")
+const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
 
 # PermanentOverlay - Displays permanent guide lines
 # Shows blue guide lines that can be toggled on/off
