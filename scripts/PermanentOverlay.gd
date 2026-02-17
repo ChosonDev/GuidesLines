@@ -1,5 +1,7 @@
 extends Node2D
 
+const GuidesLinesRender = preload("GuidesLinesRender.gd")
+
 # PermanentOverlay - Displays permanent guide lines
 # Shows blue guide lines that can be toggled on/off
 
@@ -84,20 +86,25 @@ func _draw():
 	var world_bottom = cam_pos.y + world_height * 0.5
 	
 	if parent_mod.perm_vertical_enabled:
-		draw_line(
+		GuidesLinesRender.draw_adaptive_line(
+			self,
 			Vector2(map_cx, world_top),
 			Vector2(map_cx, world_bottom),
 			parent_mod.PERM_LINE_COLOR,
-			parent_mod.PERM_LINE_WIDTH
+			parent_mod.PERM_LINE_WIDTH,
+			cam_zoom
 		)
 	
 	if parent_mod.perm_horizontal_enabled:
-		draw_line(
+		GuidesLinesRender.draw_adaptive_line(
+			self,
 			Vector2(world_left, map_cy),
 			Vector2(world_right, map_cy),
 			parent_mod.PERM_LINE_COLOR,
-			parent_mod.PERM_LINE_WIDTH
+			parent_mod.PERM_LINE_WIDTH,
+			cam_zoom
 		)
+
 	
 	# Draw red center marker
 	if parent_mod.perm_vertical_enabled or parent_mod.perm_horizontal_enabled:
@@ -121,25 +128,8 @@ func _draw_grid_coordinates(map_cx, map_cy, world_left, world_right, world_top, 
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
-	# Optim: Use cached font instead of creating new Control every call
-	var font = _cached_font 
-	var scale = 4.0  # Quadruple the text size
-	
-	# Draw outline (black)
-	var outline_color = Color(0, 0, 0, 0.8)
-	var outline_offset = 2
-	for dx in [-outline_offset, 0, outline_offset]:
-		for dy in [-outline_offset, 0, outline_offset]:
-			if dx != 0 or dy != 0:
-				draw_set_transform(position + Vector2(dx, dy), 0, Vector2(scale, scale))
-				draw_string(font, Vector2.ZERO, text, outline_color, -1)
-	
-	# Draw main text
-	draw_set_transform(position, 0, Vector2(scale, scale))
-	draw_string(font, Vector2.ZERO, text, color, -1)
-	
-	# Reset transform
-	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	GuidesLinesRender.draw_text_with_outline(self, text, position, color, _cached_font)
+
 
 # Get custom_snap mod reference if available
 func _get_custom_snap():

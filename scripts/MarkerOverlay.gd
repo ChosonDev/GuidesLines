@@ -1,6 +1,7 @@
 extends Node2D
 
 const GeometryUtils = preload("GeometryUtils.gd")
+const GuidesLinesRender = preload("GuidesLinesRender.gd")
 
 # MarkerOverlay - Handles drawing and input for guide markers
 
@@ -18,40 +19,6 @@ var _mouse_in_ui = false  # Track if cursor is in UI area
 # Preview marker constants (matching GuideMarker constants)
 const PREVIEW_MARKER_SIZE = 10.0  # Base size before zoom adaptation
 const PREVIEW_LINE_WIDTH = 5.0    # Base width before zoom adaptation
-
-# Helper to draw polygon outline from vertices
-func _draw_polygon_outline(vertices, color, line_width):
-	for i in range(vertices.size()):
-		var start = vertices[i]
-		var end = vertices[(i + 1) % vertices.size()]
-		draw_line(start, end, color, line_width)
-
-# Calculate adaptive line width based on camera zoom
-# Returns adjusted line width that's visible at all zoom levels
-func _get_adaptive_line_width(base_width, cam_zoom):
-	# At 100% zoom (cam_zoom.x = 1.0), use base width
-	# At 50% zoom (cam_zoom.x = 2.0), double the width
-	# At 25% zoom (cam_zoom.x = 4.0), quadruple the width
-	var zoom_factor = cam_zoom.x
-	
-	# Apply scaling for small zoom levels (zoomed out)
-	if zoom_factor > 1.0:
-		# Linear scaling: width increases proportionally to zoom
-		return base_width * zoom_factor
-	else:
-		# Normal width when zoomed in
-		return base_width
-
-# Calculate adaptive marker size based on camera zoom
-# Returns adjusted marker size that's visible at all zoom levels
-func _get_adaptive_marker_size(base_size, cam_zoom):
-	# Same logic as line width
-	var zoom_factor = cam_zoom.x
-	
-	if zoom_factor > 1.0:
-		return base_size * zoom_factor
-	else:
-		return base_size
 
 var _cached_font = null # Optim: Cache font resource
 
@@ -265,9 +232,9 @@ func _draw():
 
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):
-	var MARKER_SIZE = _get_adaptive_marker_size(marker.MARKER_SIZE, cam_zoom)
+	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(marker.MARKER_SIZE, cam_zoom)
 	var MARKER_COLOR = marker.MARKER_COLOR
-	var LINE_WIDTH = _get_adaptive_line_width(marker.LINE_WIDTH, cam_zoom)
+	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(marker.LINE_WIDTH, cam_zoom)
 	
 	var map_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top) # Fallback
 	if tool.cached_world:
@@ -288,18 +255,10 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 		if draw_data.has("type") and draw_data.type == "shape":
 			if draw_data.has("shape_type"):
 				if draw_data.shape_type == "circle":
-					draw_arc(
-						marker.position,
-						draw_data.radius,
-						0,
-						TAU,
-						64,
-						marker.color,
-						LINE_WIDTH,
-						true
-					)
+					GuidesLinesRender.draw_circle_outline(self, marker.position, draw_data.radius, marker.color, LINE_WIDTH)
 				elif draw_data.shape_type == "poly" and draw_data.has("points"):
-					_draw_polygon_outline(draw_data.points, marker.color, LINE_WIDTH)
+					GuidesLinesRender.draw_polygon_outline(self, draw_data.points, marker.color, LINE_WIDTH)
+
 
 	
 	elif marker.marker_type == "Path":
@@ -328,12 +287,12 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			var start = marker.marker_points[0]
 			var end = marker.marker_points[1]
 			
-			# Draw main line
-			draw_line(start, end, marker.color, LINE_WIDTH)
+			var arrow_length = GuidesLinesRender.get_adaptive_width(marker.arrow_head_length, cam_zoom)
+			var head_points = GeometryUtils.calculate_arrowhead_points(end, start, arrow_length, marker.arrow_head_angle)
 			
-			# Draw arrowhead with adaptive length
-			var arrow_length = _get_adaptive_marker_size(marker.arrow_head_length, cam_zoom)
-			_draw_arrowhead(end, start, arrow_length, marker.arrow_head_angle, marker.color, LINE_WIDTH)
+			GuidesLinesRender.draw_arrow(self, start, end, head_points, marker.color, LINE_WIDTH)
+
+
 	
 	# Draw marker circle on top (only if marker is visible on screen)
 	# Optimized visibility check using Godot's built-in Rect2 methods if possible, 
@@ -357,8 +316,8 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 	
 	# Get camera zoom for adaptive line width and marker size
 	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
+	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw preview based on active marker type
 	if tool.active_marker_type == tool.MARKER_TYPE_LINE:
@@ -401,32 +360,24 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			
 			match tool.active_shape_subtype:
 				"Circle":
-					draw_arc(
-						pos,
-						radius_px,
-						0,
-						TAU,
-						64,
-						LINE_COLOR,
-						LINE_WIDTH,
-						true
-					)
+					GuidesLinesRender.draw_circle_outline(self, pos, radius_px, LINE_COLOR, LINE_WIDTH)
 				
 				"Square":
 					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 4, PI/4 + angle_rad)
-					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Pentagon":
 					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 5, -PI/2 + angle_rad)
-					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Hexagon":
 					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 6, angle_rad)
-					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 				
 				"Octagon":
 					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
-					_draw_polygon_outline(vertices, LINE_COLOR, LINE_WIDTH)
+					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
+
 	
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
@@ -443,8 +394,8 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 	
 	# Get camera zoom for adaptive line width and marker size
 	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
+	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw all placed points
 	for i in range(tool.path_temp_points.size()):
@@ -501,8 +452,8 @@ func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
 	
 	# Get camera zoom for adaptive line width and marker size
 	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = _get_adaptive_line_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = _get_adaptive_marker_size(PREVIEW_MARKER_SIZE, cam_zoom)
+	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
 	
 	# Draw start point (green, larger)
 	var start_point = tool.arrow_temp_points[0]
@@ -513,32 +464,13 @@ func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
 	if tool.arrow_temp_points.size() == 1 and tool.arrow_preview_point != null:
 		var preview_end = tool.arrow_preview_point
 		
-		# Draw preview line
-		draw_line(start_point, preview_end, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
+		var arrow_length = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
+		var head_points = GeometryUtils.calculate_arrowhead_points(preview_end, start_point, arrow_length, tool.active_arrow_head_angle)
 		
-		# Draw preview arrowhead with adaptive length
-		var arrow_length = _get_adaptive_marker_size(tool.active_arrow_head_length, cam_zoom)
-		_draw_arrowhead(
-			preview_end,
-			start_point,
-			arrow_length,
-			tool.active_arrow_head_angle,
-			PREVIEW_LINE_COLOR,
-			LINE_WIDTH * 0.7
-		)
+		GuidesLinesRender.draw_arrow(self, start_point, preview_end, head_points, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
 		
 		# Draw cursor preview circle
 		draw_circle(preview_end, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
-
-# Draw arrowhead at the end point
-# end: arrowhead position, start: direction reference point
-# length: arrowhead length in pixels, angle: arrowhead angle in degrees
-func _draw_arrowhead(end, start, length, angle_deg, color, line_width):
-	var points = GeometryUtils.calculate_arrowhead_points(end, start, length, angle_deg)
-	
-	# Draw the two arrowhead lines
-	draw_line(end, points[0], color, line_width)
-	draw_line(end, points[1], color, line_width)
 
 # Calculate line endpoints - always draws to map boundaries
 func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom, map_rect):
@@ -647,10 +579,11 @@ func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, 
 	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
 		return
 	
-	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
-	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
+	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
 	var marker_color = line_color
 	var text_color = line_color
+
 	
 	var angle_rad = deg2rad(angle_deg)
 	var direction = Vector2(cos(angle_rad), sin(angle_rad))
@@ -690,8 +623,8 @@ func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, 
 
 # Draw coordinates using custom_snap grid - always to map boundaries
 func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap):
-	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
-	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
+	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
 	var marker_color = line_color
 	var text_color = line_color
 	
@@ -740,25 +673,7 @@ func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_rig
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
-	# Optim: Use cached font instead of creating new Control every call
-	var font = _cached_font 
-	var scale = 4.0  # Quadruple the text size
-	
-	# Draw outline (black)
-	var outline_color = Color(0, 0, 0, 0.8)
-	var outline_offset = 2
-	for dx in [-outline_offset, 0, outline_offset]:
-		for dy in [-outline_offset, 0, outline_offset]:
-			if dx != 0 or dy != 0:
-				draw_set_transform(position + Vector2(dx, dy), 0, Vector2(scale, scale))
-				draw_string(font, Vector2.ZERO, text, outline_color, -1)
-	
-	# Draw main text
-	draw_set_transform(position, 0, Vector2(scale, scale))
-	draw_string(font, Vector2.ZERO, text, color, -1)
-	
-	# Reset transform
-	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	GuidesLinesRender.draw_text_with_outline(self, text, position, color, _cached_font)
 
 # Draw coordinates on shape (only at center)
 func _draw_coordinates_on_shape(center, radius_cells, shape_subtype, cam_zoom, shape_color):
@@ -766,8 +681,8 @@ func _draw_coordinates_on_shape(center, radius_cells, shape_subtype, cam_zoom, s
 	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
 		return
 	
-	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
-	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
+	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
 	var marker_color = shape_color
 	var text_color = shape_color
 	
@@ -784,10 +699,11 @@ func _draw_coordinates_on_path(points, cam_zoom, path_color):
 	if points.size() < 2:
 		return
 	
-	var marker_size = _get_adaptive_marker_size(5.0, cam_zoom)
-	var text_offset = _get_adaptive_marker_size(20.0, cam_zoom)
+	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
 	var marker_color = path_color
 	var text_color = path_color
+
 	
 	# Get cell size for distance calculation
 	var cell_size = _get_grid_cell_size()

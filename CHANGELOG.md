@@ -5,6 +5,20 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-02-17
+
+### Refactoring
+- **Drawing Logic Refactoring**:
+  - Created a new static helper class `GuidesLinesRender` (`scripts/GuidesLinesRender.gd`) to centralize all drawing logic.
+  - Moved adaptive line width calculation, text-with-outline rendering, and drawing of primitives (lines, circles, polygons, arrows) into `GuidesLinesRender`.
+  - All overlay classes (`MarkerOverlay`, `PermanentOverlay`, `CrossOverlay`) now use `GuidesLinesRender` for their drawing operations, eliminating code duplication.
+- **Code Cleanup**:
+  - Removed redundant drawing helper functions from `MarkerOverlay.gd` and `PermanentOverlay.gd`.
+  - Ensured consistent rendering behavior across all guide types by using the centralized rendering class.
+
+### Bug Fixes
+- Fixed several parsing errors (`Expected indented block`, `Identifier not found`) that occurred during the refactoring process by ensuring correct `preload` usage and cleaning up corrupted code blocks.
+
 ## [2.0.4] - 2026-02-17
 
 ### 🚀 Optimized & Refactored

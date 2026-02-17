@@ -42,11 +42,11 @@ var PermanentOverlay = null
 const DETECTION_DISTANCE = 70.0
 const HYSTERESIS = 30.0
 const CROSS_LINE_COLOR = Color(1, 0, 0, 0.8)  # Red
-const CROSS_LINE_WIDTH = 10.0
+const CROSS_LINE_WIDTH = 5.0
 
 # Permanent guides - from v1
 const PERM_LINE_COLOR = Color(0, 0.7, 1, 0.6)  # Blue
-const PERM_LINE_WIDTH = 10.0
+const PERM_LINE_WIDTH = 5.0
 
 # ============================================================================
 # STATE

@@ -1,5 +1,7 @@
 extends Node2D
 
+const GuidesLinesRender = preload("GuidesLinesRender.gd")
+
 # CrossOverlay - Displays proximity-based guide lines
 # Shows red guide lines when cursor is near the map center
 
@@ -82,19 +84,25 @@ func _draw():
 	
 	# Draw lines spanning the full map dimensions
 	# Godot handles viewport culling efficiently, no need for manual clipping
+	var cam_zoom = cached_camera.zoom
 	
 	if parent_mod.cross_show_v:
-		draw_line(
+		GuidesLinesRender.draw_adaptive_line(
+			self,
 			_v_line_start,
 			_v_line_end,
 			parent_mod.CROSS_LINE_COLOR,
-			parent_mod.CROSS_LINE_WIDTH
+			parent_mod.CROSS_LINE_WIDTH,
+			cam_zoom
 		)
 	
 	if parent_mod.cross_show_h:
-		draw_line(
+		GuidesLinesRender.draw_adaptive_line(
+			self,
 			_h_line_start,
 			_h_line_end,
 			parent_mod.CROSS_LINE_COLOR,
-			parent_mod.CROSS_LINE_WIDTH
+			parent_mod.CROSS_LINE_WIDTH,
+			cam_zoom
 		)
+
