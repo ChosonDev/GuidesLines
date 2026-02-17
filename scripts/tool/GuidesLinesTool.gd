@@ -94,7 +94,6 @@ var cached_snappy_mod = null  # Custom_snap mod reference (if available)
 
 # Tool state
 var is_enabled = false
-var snap_to_grid = true  # Snap markers to grid by default
 var show_coordinates = false  # Show grid coordinates on new markers
 var delete_mode = false  # Delete mode - click to remove markers
 
@@ -250,11 +249,13 @@ func place_marker(pos):
 		_handle_arrow_placement(pos)
 		return
 	
-	# Apply grid snapping if enabled
-	var snapped_pos = snap_position_to_grid(pos)
+	# Apply grid snapping if enabled globally
+	var final_pos = pos
+	if parent_mod.Global.Editor.IsSnapToGrid:
+		final_pos = snap_position_to_grid(pos)
 	
 	var marker_data = {
-		"position": snapped_pos,
+		"position": final_pos,
 		"marker_type": active_marker_type,
 		"color": active_color,
 		"coordinates": show_coordinates,
@@ -286,20 +287,22 @@ func place_marker(pos):
 
 # Handle path marker placement (multi-point)
 func _handle_path_placement(pos):
-	var snapped_pos = snap_position_to_grid(pos)
+	var final_pos = pos
+	if parent_mod.Global.Editor.IsSnapToGrid:
+		final_pos = snap_position_to_grid(pos)
 	
 	# First point - start path placement
 	if not path_placement_active:
 		path_placement_active = true
-		path_temp_points = [snapped_pos]
+		path_temp_points = [final_pos]
 		if LOGGER:
-			LOGGER.info("Path placement started at %s" % [str(snapped_pos)])
+			LOGGER.info("Path placement started at %s" % [str(final_pos)])
 		update_ui()
 		return
 	
 	# Check if clicking near first point (close path)
 	var first_point = path_temp_points[0]
-	if snapped_pos.distance_to(first_point) < 30.0 and path_temp_points.size() >= 3:
+	if final_pos.distance_to(first_point) < 30.0 and path_temp_points.size() >= 3:
 		# Close path and create marker
 		var point_count = path_temp_points.size()
 		_finalize_path_marker(true)
@@ -308,9 +311,9 @@ func _handle_path_placement(pos):
 		return
 	
 	# Add new point to path
-	path_temp_points.append(snapped_pos)
+	path_temp_points.append(final_pos)
 	if LOGGER:
-		LOGGER.debug("Path point added: %s (total: %d)" % [str(snapped_pos), path_temp_points.size()])
+		LOGGER.debug("Path point added: %s (total: %d)" % [str(final_pos), path_temp_points.size()])
 	update_ui()
 
 # Finalize path marker (called on RMB or close)
@@ -355,20 +358,22 @@ func _cancel_path_placement():
 
 # Handle arrow marker placement (2-point auto-finish)
 func _handle_arrow_placement(pos):
-	var snapped_pos = snap_position_to_grid(pos)
+	var final_pos = pos
+	if parent_mod.Global.Editor.IsSnapToGrid:
+		final_pos = snap_position_to_grid(pos)
 	
 	# First point - start arrow placement
 	if not arrow_placement_active:
 		arrow_placement_active = true
-		arrow_temp_points = [snapped_pos]
+		arrow_temp_points = [final_pos]
 		if LOGGER:
-			LOGGER.info("Arrow placement started at %s" % [str(snapped_pos)])
+			LOGGER.info("Arrow placement started at %s" % [str(final_pos)])
 		update_ui()
 		return
 	
 	# Second point - auto-finish arrow
 	if arrow_temp_points.size() == 1:
-		arrow_temp_points.append(snapped_pos)
+		arrow_temp_points.append(final_pos)
 		if LOGGER:
 			LOGGER.info("Arrow completed with 2 points")
 		_finalize_arrow_marker()
@@ -575,27 +580,17 @@ func _undo_place_marker(marker_id):
 		if LOGGER:
 			LOGGER.warn("Attempted to undo placement of non-existent marker id: %d" % [marker_id])
 
-# Enable/disable grid snapping for marker placement
-func set_snap_to_grid(enabled):
-	# Can't disable snap when coordinates are enabled
-	if show_coordinates and not enabled:
-		return
-	# Cancel path if disabling snap during path placement
-	if not enabled and path_placement_active:
-		_cancel_path_placement()
-	# Cancel arrow if disabling snap during arrow placement
-	if not enabled and arrow_placement_active:
-		_cancel_arrow_placement()
-	snap_to_grid = enabled
-	update_snap_checkbox_state()
-
 # Enable/disable coordinate display on new markers
 func set_show_coordinates(enabled):
+	# Coordinates require snapping, but we now rely on global snap.
+	# We can just set the value.
 	show_coordinates = enabled
-	# Auto-enable snap to grid when coordinates are enabled
-	if enabled:
-		snap_to_grid = true
-	update_snap_checkbox_state()
+	
+	# Update UI
+	if tool_panel:
+		var coords_check = tool_panel.find_node("CoordinatesCheckbox", true, false)
+		if coords_check:
+			coords_check.pressed = show_coordinates
 
 func set_delete_mode(enabled):
 	delete_mode = enabled
@@ -603,17 +598,6 @@ func set_delete_mode(enabled):
 	# Force overlay update to hide/show preview
 	if overlay:
 		overlay.update()
-
-# Update snap checkbox enabled/disabled state based on coordinates
-func update_snap_checkbox_state():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var snap_check = container.get_node_or_null("SnapCheckbox")
-		if snap_check:
-			snap_check.pressed = snap_to_grid
-			snap_check.disabled = show_coordinates  # Disable when coordinates are on
 
 # Update all UI checkboxes based on delete mode
 func update_ui_checkboxes_state():
@@ -642,9 +626,6 @@ func update_ui_checkboxes_state():
 # Snap position to grid, using custom_snap mod if available
 # Falls back to vanilla Dungeondraft snapping
 func snap_position_to_grid(position):
-	if not snap_to_grid:
-		return position
-	
 	# Use custom_snap if available
 	if cached_snappy_mod and cached_snappy_mod.has_method("get_snapped_position"):
 		return cached_snappy_mod.get_snapped_position(position)
@@ -808,13 +789,6 @@ func create_ui_panel():
 	var options_label = Label.new()
 	options_label.text = "Marker Options:"
 	container.add_child(options_label)
-	
-	var snap_check = CheckButton.new()
-	snap_check.text = "Snap to Grid"
-	snap_check.pressed = snap_to_grid
-	snap_check.name = "SnapCheckbox"
-	snap_check.connect("toggled", parent_mod, "_on_snap_to_grid_toggled", [self])
-	container.add_child(snap_check)
 	
 	var coords_check = CheckButton.new()
 	coords_check.text = "Show Coordinates"

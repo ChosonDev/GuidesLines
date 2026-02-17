@@ -5,6 +5,17 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.7] - 2026-02-17
+
+### Changed
+- The "Snap to Grid" checkbox has been removed from the tool's UI.
+- The mod now respects Dungeondraft's global "Snap to Grid" setting, providing better integration and a more consistent user experience.
+- Marker placement (including lines, shapes, paths, and arrows) will only snap to the grid if the global snapping option is enabled in Dungeondraft.
+
+### Fixed
+- Resolved a bug where markers would always snap to the grid, regardless of the global setting.
+- Fixed several parsing errors caused by incorrect indentation and leftover code from the refactoring process.
+
 ## [2.0.6] - 2026-02-17
 
 ### Refactoring

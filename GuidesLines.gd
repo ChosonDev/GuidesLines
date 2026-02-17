@@ -252,10 +252,6 @@ func _on_delete_all_markers(tool_instance):
 	if tool_instance:
 		tool_instance.delete_all_markers()
 
-func _on_snap_to_grid_toggled(enabled, tool_instance):
-	if tool_instance:
-		tool_instance.set_snap_to_grid(enabled)
-
 func _on_show_coordinates_toggled(enabled, tool_instance):
 	if tool_instance:
 		tool_instance.set_show_coordinates(enabled)
