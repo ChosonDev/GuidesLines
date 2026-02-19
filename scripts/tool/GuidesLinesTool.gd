@@ -251,7 +251,7 @@ func place_marker(pos):
 	
 	# Apply grid snapping if enabled globally
 	var final_pos = pos
-	if parent_mod.Global.Editor.IsSnapToGrid:
+	if parent_mod.Global.Editor.IsSnapping:
 		final_pos = snap_position_to_grid(pos)
 	
 	var marker_data = {
@@ -287,8 +287,9 @@ func place_marker(pos):
 
 # Handle path marker placement (multi-point)
 func _handle_path_placement(pos):
+	# Apply grid snapping if enabled globally
 	var final_pos = pos
-	if parent_mod.Global.Editor.IsSnapToGrid:
+	if parent_mod.Global.Editor.IsSnapping:
 		final_pos = snap_position_to_grid(pos)
 	
 	# First point - start path placement
@@ -358,8 +359,9 @@ func _cancel_path_placement():
 
 # Handle arrow marker placement (2-point auto-finish)
 func _handle_arrow_placement(pos):
+	# Apply grid snapping if enabled globally
 	var final_pos = pos
-	if parent_mod.Global.Editor.IsSnapToGrid:
+	if parent_mod.Global.Editor.IsSnapping:
 		final_pos = snap_position_to_grid(pos)
 	
 	# First point - start arrow placement
@@ -1505,4 +1507,80 @@ func adjust_shape_radius_with_wheel(direction):
 	
 	if LOGGER:
 		LOGGER.info("Shape radius adjusted via mouse wheel: %.1f cells" % [active_shape_radius])
+
+# Adjust shape angle using mouse wheel (only for Shape type, non-Circle)
+# direction: 1 for wheel up (increase), -1 for wheel down (decrease)
+func adjust_shape_angle_with_wheel(direction):
+	if LOGGER:
+		LOGGER.debug("adjust_shape_angle_with_wheel called: direction=%d, current_type=%s, current_angle=%.1f" % [direction, active_marker_type, active_shape_angle])
+	
+	# Only works for Shape type, and not for Circle
+	if active_marker_type != MARKER_TYPE_SHAPE:
+		if LOGGER:
+			LOGGER.debug("Wheel angle adjustment ignored - not Shape type")
+		return
+	if active_shape_subtype == SHAPE_CIRCLE:
+		if LOGGER:
+			LOGGER.debug("Wheel angle adjustment ignored - Circle has no angle")
+		return
+	
+	# Angle step: 5 degrees per wheel tick
+	var angle_step = 5.0
+	
+	var new_angle = fmod(active_shape_angle + (direction * angle_step), 360.0)
+	if new_angle < 0:
+		new_angle += 360.0
+	
+	if LOGGER:
+		LOGGER.debug("Shape angle changing: %.1f° -> %.1f°" % [active_shape_angle, new_angle])
+	
+	active_shape_angle = new_angle
+	
+	# Save to type settings
+	type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
+	
+	# Update UI
+	_update_shape_angle_spinbox()
+	
+	# Update preview
+	if overlay:
+		overlay.update()
+	
+	if LOGGER:
+		LOGGER.info("Shape angle adjusted via mouse wheel: %.1f°" % [active_shape_angle])
+
+# Rotate shape by 45 degrees via RMB shortcut
+func rotate_shape_45():
+	if LOGGER:
+		LOGGER.debug("rotate_shape_45 called: current_type=%s, current_angle=%.1f" % [active_marker_type, active_shape_angle])
+	
+	# Only works for Shape type, and not for Circle
+	if active_marker_type != MARKER_TYPE_SHAPE:
+		if LOGGER:
+			LOGGER.debug("rotate_shape_45 ignored - not Shape type")
+		return
+	if active_shape_subtype == SHAPE_CIRCLE:
+		if LOGGER:
+			LOGGER.debug("rotate_shape_45 ignored - Circle has no angle")
+		return
+	
+	var new_angle = fmod(active_shape_angle + 45.0, 360.0)
+	
+	if LOGGER:
+		LOGGER.debug("Shape angle rotating 45°: %.1f° -> %.1f°" % [active_shape_angle, new_angle])
+	
+	active_shape_angle = new_angle
+	
+	# Save to type settings
+	type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
+	
+	# Update UI
+	_update_shape_angle_spinbox()
+	
+	# Update preview
+	if overlay:
+		overlay.update()
+	
+	if LOGGER:
+		LOGGER.info("Shape rotated 45° via RMB: %.1f°" % [active_shape_angle])
 

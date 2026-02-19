@@ -114,6 +114,11 @@ func _input(event):
 			tool._cancel_arrow_placement()
 			get_tree().set_input_as_handled()
 			return
+		# Shape type: RMB rotates by 45 degrees (not in delete mode)
+		if tool.active_marker_type == tool.MARKER_TYPE_SHAPE and event.pressed and not tool.delete_mode:
+			tool.rotate_shape_45()
+			get_tree().set_input_as_handled()
+			return
 	
 	# Handle ESC key for Path cancellation
 	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
@@ -146,18 +151,28 @@ func _input(event):
 					get_tree().set_input_as_handled()
 					return
 			
-			# Shape type: adjust radius
+			# Shape type: wheel rotates angle, Alt+wheel adjusts radius
 			elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
 				if event.button_index == BUTTON_WHEEL_UP and event.pressed:
-					if tool.LOGGER:
-						tool.LOGGER.debug("MarkerOverlay: Mouse wheel UP detected (Shape)")
-					tool.adjust_shape_radius_with_wheel(1)
+					if event.alt:
+						if tool.LOGGER:
+							tool.LOGGER.debug("MarkerOverlay: Alt+Mouse wheel UP detected (Shape radius)")
+						tool.adjust_shape_radius_with_wheel(1)
+					else:
+						if tool.LOGGER:
+							tool.LOGGER.debug("MarkerOverlay: Mouse wheel UP detected (Shape angle)")
+						tool.adjust_shape_angle_with_wheel(1)
 					get_tree().set_input_as_handled()
 					return
 				elif event.button_index == BUTTON_WHEEL_DOWN and event.pressed:
-					if tool.LOGGER:
-						tool.LOGGER.debug("MarkerOverlay: Mouse wheel DOWN detected (Shape)")
-					tool.adjust_shape_radius_with_wheel(-1)
+					if event.alt:
+						if tool.LOGGER:
+							tool.LOGGER.debug("MarkerOverlay: Alt+Mouse wheel DOWN detected (Shape radius)")
+						tool.adjust_shape_radius_with_wheel(-1)
+					else:
+						if tool.LOGGER:
+							tool.LOGGER.debug("MarkerOverlay: Mouse wheel DOWN detected (Shape angle)")
+						tool.adjust_shape_angle_with_wheel(-1)
 					get_tree().set_input_as_handled()
 					return
 		

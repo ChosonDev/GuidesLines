@@ -5,6 +5,22 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.9] - 2026-02-19
+
+### Added
+- **Shape Mouse Controls**: Shape markers now follow object-tool conventions for mouse interaction:
+  - **Scroll Wheel** — rotates the shape (5°/tick).
+  - **Alt + Scroll Wheel** — changes the shape radius (0.1 cells/tick, previous wheel behavior).
+  - **RMB** — rotates the shape by +45°.
+- Added `adjust_shape_angle_with_wheel(direction)` method to `GuidesLinesTool` — adjusts shape rotation via scroll wheel (5° step), wrapping 0–360°.
+- Added `rotate_shape_45()` method to `GuidesLinesTool` — rotates shape by 45° on RMB press.
+
+### Changed
+- Circle subtype is excluded from all rotation controls (scroll wheel angle and RMB +45°), as rotation has no effect on circles.
+
+### Fixed
+- **Grid snapping not working**: Marker placement never snapped to the grid even when snapping was globally enabled. Root cause was using the non-existent property `Global.Editor.IsSnapToGrid` (always evaluated to `false`) instead of the correct official API property `Global.Editor.IsSnapping`. Fixed in `place_marker()`, `_handle_path_placement()`, and `_handle_arrow_placement()`.
+
 ## [2.0.8] - 2026-02-19
 
 ### Added
