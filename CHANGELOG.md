@@ -5,6 +5,16 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8] - 2026-02-19
+
+### Added
+- **Mod Settings Panel**: Integrated with `_Lib` `ModConfigApi` — settings are now accessible via **Edit → Preferences → Mods → Guides Lines**.
+- **Persistent Settings**: Toggle states for Proximity Cross Guides, Permanent Vertical/Horizontal Center Lines, and Show Grid Coordinates are now saved between sessions (`user://mod_config/choson_guideslines.json`).
+- **Configurable Hotkey**: Added a hotkey to activate the Guide Markers tool (default: `9`), configurable via **Edit → Preferences → Shortcuts → Guides Lines**. Shortcut assignment is saved between sessions.
+
+### Changed
+- Settings variables (`cross_guides_enabled`, `perm_vertical_enabled`, `perm_horizontal_enabled`, `show_coordinates_enabled`) are now managed through `ModConfigApi` rather than being hardcoded.
+
 ## [2.0.7] - 2026-02-17
 
 ### Changed

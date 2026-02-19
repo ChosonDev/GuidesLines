@@ -52,6 +52,9 @@ const PERM_LINE_WIDTH = 5.0
 # STATE
 # ============================================================================
 
+# ModConfig agent (handles settings persistence via _Lib)
+var mod_config = null
+
 # Tool and UI
 var guides_tool = null
 var tool_panel = null
@@ -105,6 +108,9 @@ func start():
 				LOGGER.debug("UpdateChecker registered for automatic updates")
 			else:
 				LOGGER.info("UpdateChecker not available")
+			
+			# Initialize mod config (settings + shortcuts persistence)
+			_init_mod_config()
 		else:
 			print("GuidesLines: _Lib registered but Logger not available")
 	else:
@@ -147,6 +153,43 @@ func start():
 	if LOGGER:
 		LOGGER.debug("Classes loaded successfully")
 
+# Initialize ModConfig: registers hotkeys and settings through _Lib
+func _init_mod_config():
+	if not (self.Global.API.has("ModConfigApi") and self.Global.API.has("InputMapApi")):
+		if LOGGER:
+			LOGGER.warn("ModConfigApi or InputMapApi not available — settings will not be saved")
+		return
+	
+	var input_definitions = {
+		"Activate Guide Markers Tool": ["guideslines_activate_tool", "9"],
+	}
+	self.Global.API.InputMapApi.add_actions(input_definitions)
+	
+	var builder = self.Global.API.ModConfigApi.create_config()
+	mod_config = builder\
+		.shortcuts("shortcuts", input_definitions).rect_min_y(80)\
+		.h_separator()\
+		.v_box_container().enter()\
+			.label("Guide Overlays")\
+			.check_button("cross_guides_enabled", cross_guides_enabled, "Proximity Cross Guides")\
+				.connect_current("loaded", self, "_on_cross_guides_toggled")\
+				.connect_current("updated", self, "_on_cross_guides_toggled")\
+			.check_button("perm_vertical_enabled", perm_vertical_enabled, "Permanent Vertical Center Line")\
+				.connect_current("loaded", self, "_on_perm_vertical_toggled")\
+				.connect_current("updated", self, "_on_perm_vertical_toggled")\
+			.check_button("perm_horizontal_enabled", perm_horizontal_enabled, "Permanent Horizontal Center Line")\
+				.connect_current("loaded", self, "_on_perm_horizontal_toggled")\
+				.connect_current("updated", self, "_on_perm_horizontal_toggled")\
+			.check_button("show_coordinates_enabled", show_coordinates_enabled, "Show Grid Coordinates")\
+				.connect_current("loaded", self, "_on_perm_coordinates_toggled")\
+				.connect_current("updated", self, "_on_perm_coordinates_toggled")\
+		.exit()\
+		.build()
+	builder = null
+	
+	if LOGGER:
+		LOGGER.info("ModConfig initialized — settings saved to user://mod_config/choson_guideslines.json")
+
 # Main update loop - called every frame
 # Manages tool lifecycle and updates overlays
 func update(_delta):
@@ -154,6 +197,10 @@ func update(_delta):
 	if not tool_created and Global.Editor != null and Global.Editor.Toolset != null:
 		create_tool()
 		tool_created = true
+	
+	# Hotkey to activate the Guide Markers tool
+	if tool_created and Input.is_action_just_released("guideslines_activate_tool", true):
+		Global.Editor.Toolset.Quickswitch("GuidesLinesTool")
 	
 	# Only work when map is loaded
 	if Global.World == null or Global.WorldUI == null:
