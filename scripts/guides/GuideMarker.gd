@@ -11,6 +11,7 @@ var angle = 0.0  # Line angle in degrees (0-360) [Line only]
 var shape_subtype = "Circle"  # Shape subtype: Circle, Square, Pentagon, Hexagon, Octagon [Shape only]
 var shape_radius = 1.0  # Shape radius in grid cells (circumradius) [Shape only]
 var shape_angle = 0.0  # Shape rotation angle in degrees (0-360) [Shape only, disabled for Circle]
+var shape_sides = 6  # Number of sides for Custom polygon [Shape/Custom only]
 var marker_points = []  # Array of Vector2 points [Shape vertices/Path/Arrow points]
 var path_closed = false  # Whether path is closed (loop) [Path only]
 var arrow_head_length = 50.0  # Arrowhead length in pixels [Arrow only]
@@ -36,6 +37,7 @@ func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	shape_radius = 1.0  # Default Shape radius
 	shape_subtype = "Circle"  # Default Shape subtype
 	shape_angle = 0.0  # Default Shape angle
+	shape_sides = 6  # Default sides for Custom polygon
 	mirror = _mirror
 	show_coordinates = coords
 	color = DEFAULT_LINE_COLOR
@@ -53,6 +55,8 @@ func set_property(prop, value):
 			if shape_subtype != value: shape_subtype = value; changed = true
 		"shape_angle":
 			if shape_angle != value: shape_angle = value; changed = true
+		"shape_sides":
+			if shape_sides != value: shape_sides = value; changed = true
 		"position":
 			if position != value: position = value; changed = true
 		"mirror":
@@ -122,10 +126,11 @@ func _recalculate_geometry(map_rect, cell_size):
 					"Octagon": 
 						sides = 8
 						rotation = PI/8 + angle_rad
-
+					"Custom":
+						sides = shape_sides
+						rotation = angle_rad
 				
 				cached_draw_data["points"] = GeometryUtils.calculate_polygon_vertices(position, radius_px, sides, rotation)
-
 	_dirty = false
 
 # Get bounding rectangle for marker selection
@@ -155,6 +160,7 @@ func Save():
 		data["shape_subtype"] = shape_subtype
 		data["shape_radius"] = shape_radius
 		data["shape_angle"] = shape_angle
+		data["shape_sides"] = shape_sides
 		# Optionally store generated vertices
 		if marker_points.size() > 0:
 			var points_data = []
@@ -215,6 +221,11 @@ func Load(data):
 			shape_angle = data.shape_angle
 		else:
 			shape_angle = 0.0
+		
+		if data.has("shape_sides"):
+			shape_sides = data.shape_sides
+		else:
+			shape_sides = 6
 		
 		# Load pre-calculated vertices if available, otherwise will be generated on demand
 		if data.has("marker_points"):

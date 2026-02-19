@@ -5,6 +5,26 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.10] - 2026-02-19
+
+### Added
+- **Shape subtype "Custom (N-sided)"**: New polygon subtype that allows placing a regular polygon with any number of sides from 3 to 50.
+  - Added **"Custom (N-sided)"** option to the Shape Type selector in the tool panel.
+  - Added **Sides** SpinBox (range 3–50) in the Shape settings UI. The control is only visible when the "Custom" subtype is selected.
+  - `active_shape_sides` variable and `DEFAULT_SHAPE_SIDES = 6` constant added to `GuidesLinesTool`.
+  - `SHAPE_CUSTOM = "Custom"` constant added.
+  - Sides setting is persisted in `type_settings["Shape"]["sides"]` and survives type switching.
+  - Sides setting is reset to default (6) when "Reset to Defaults" is pressed.
+- **`shape_sides` property in `GuideMarker`**: Stores the number of polygon sides for Custom markers.
+  - Saved and loaded via `Save()` / `Load()` with backward compatibility (defaults to 6 if absent).
+  - Correctly invalidates geometry cache when changed via `set_property()`.
+- **Custom polygon geometry**: `_recalculate_geometry()` in `GuideMarker` now handles the `"Custom"` subtype, computing vertices from `shape_sides` and `shape_angle` via `GeometryUtils.calculate_polygon_vertices()`.
+- **Preview rendering**: `MarkerOverlay._draw_custom_marker_preview()` renders the Custom polygon preview at the cursor using `tool.active_shape_sides`.
+- Rotation controls (scroll wheel, RMB +45°) work unchanged for the Custom subtype.
+
+### Fixed
+- Fixed `match` block in `GuideMarker._recalculate_geometry()`: the `"Custom"` branch was incorrectly indented outside the `match` statement, causing a crash on placement. Also restored the missing `cached_draw_data["points"] = ...` call that had been lost in the same block.
+
 ## [2.0.9] - 2026-02-19
 
 ### Added

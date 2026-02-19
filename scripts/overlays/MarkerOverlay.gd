@@ -392,6 +392,12 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 				"Octagon":
 					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
 					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
+				
+				"Custom":
+					var vertices = GeometryUtils.calculate_polygon_vertices(
+						pos, radius_px, tool.active_shape_sides, angle_rad
+					)
+					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 
 	
 	# Draw preview marker

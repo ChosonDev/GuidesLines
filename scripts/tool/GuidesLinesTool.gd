@@ -109,6 +109,7 @@ const SHAPE_SQUARE = "Square"
 const SHAPE_PENTAGON = "Pentagon"
 const SHAPE_HEXAGON = "Hexagon"
 const SHAPE_OCTAGON = "Octagon"
+const SHAPE_CUSTOM = "Custom"
 
 var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 
@@ -117,6 +118,7 @@ var active_angle = 0.0
 var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
 var active_shape_subtype = SHAPE_CIRCLE  # Active shape subtype
 var active_shape_angle = 0.0  # Shape rotation angle in degrees
+var active_shape_sides = 6  # Number of polygon sides for Custom shape type
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
@@ -131,7 +133,8 @@ var type_settings = {
 	"Shape": {
 		"subtype": "Circle",
 		"radius": 1.0,
-		"angle": 0.0
+		"angle": 0.0,
+		"sides": 6
 	},
 	"Path": {
 		# Path has no persistent settings, it's point-based
@@ -147,6 +150,7 @@ const DEFAULT_ANGLE = 0.0
 const DEFAULT_SHAPE_RADIUS = 1.0
 const DEFAULT_SHAPE_SUBTYPE = "Circle"
 const DEFAULT_SHAPE_ANGLE = 0.0
+const DEFAULT_SHAPE_SIDES = 6
 const DEFAULT_ARROW_HEAD_LENGTH = 50.0
 const DEFAULT_ARROW_HEAD_ANGLE = 30.0
 const DEFAULT_COLOR = Color(0, 0.7, 1, 1)
@@ -270,6 +274,7 @@ func place_marker(pos):
 		marker_data["shape_subtype"] = active_shape_subtype
 		marker_data["shape_radius"] = active_shape_radius
 		marker_data["shape_angle"] = active_shape_angle
+		marker_data["shape_sides"] = active_shape_sides
 	
 	# Execute the action first
 	_do_place_marker(marker_data)
@@ -523,6 +528,7 @@ func _do_place_marker(marker_data):
 		marker.set_property("shape_subtype", marker_data["shape_subtype"])
 		marker.set_property("shape_radius", marker_data["shape_radius"])
 		marker.set_property("shape_angle", marker_data.get("shape_angle", 0.0))
+		marker.set_property("shape_sides", marker_data.get("shape_sides", DEFAULT_SHAPE_SIDES))
 		# Generate marker_points for Shape (vertices) - GuideMarker handles this via cache now
 		# But if we need to store them for save/load, we might still want to generate them?
 		# The old code did: marker.marker_points = _generate_shape_vertices(...)
@@ -885,14 +891,17 @@ func _on_reset_pressed():
 		active_shape_radius = DEFAULT_SHAPE_RADIUS
 		active_shape_subtype = DEFAULT_SHAPE_SUBTYPE
 		active_shape_angle = DEFAULT_SHAPE_ANGLE
+		active_shape_sides = DEFAULT_SHAPE_SIDES
 		
 		type_settings[MARKER_TYPE_SHAPE]["radius"] = DEFAULT_SHAPE_RADIUS
 		type_settings[MARKER_TYPE_SHAPE]["subtype"] = DEFAULT_SHAPE_SUBTYPE
 		type_settings[MARKER_TYPE_SHAPE]["angle"] = DEFAULT_SHAPE_ANGLE
+		type_settings[MARKER_TYPE_SHAPE]["sides"] = DEFAULT_SHAPE_SIDES
 		
 		_update_shape_radius_spinbox()
 		_update_shape_subtype_selector()
 		_update_shape_angle_spinbox()
+		_update_shape_sides_spinbox()
 	
 	# Reset Arrow type settings
 	elif active_marker_type == MARKER_TYPE_ARROW:
@@ -968,6 +977,11 @@ func _on_shape_subtype_changed(subtype_index):
 		if angle_spinbox:
 			angle_spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
 		
+		# Show/hide sides row - only for Custom subtype
+		var sides_row = shape_settings_container.find_node("SidesRow", true, false)
+		if sides_row:
+			sides_row.visible = (active_shape_subtype == SHAPE_CUSTOM)
+		
 		if overlay:
 			overlay.update()
 		
@@ -1029,6 +1043,26 @@ func _update_shape_angle_spinbox():
 			spinbox.value = active_shape_angle
 			# Update editable state based on subtype
 			spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
+
+func _on_shape_sides_changed(value):
+	active_shape_sides = int(value)
+	type_settings[MARKER_TYPE_SHAPE]["sides"] = active_shape_sides
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Shape sides changed to: %d" % [active_shape_sides])
+
+func _update_shape_sides_spinbox():
+	if not tool_panel:
+		return
+	var container = tool_panel.Align.get_child(0)
+	if container:
+		var spinbox = container.find_node("ShapeSidesSpinBox", true, false)
+		if spinbox:
+			spinbox.value = active_shape_sides
+		var sides_row = container.find_node("SidesRow", true, false)
+		if sides_row:
+			sides_row.visible = (active_shape_subtype == SHAPE_CUSTOM)
 
 # UI Callbacks for Arrow settings
 func _on_arrow_head_length_changed(value):
@@ -1154,6 +1188,8 @@ func _create_shape_settings_ui():
 	subtype_option.set_item_metadata(3, SHAPE_HEXAGON)
 	subtype_option.add_item("Octagon (8-sided)")
 	subtype_option.set_item_metadata(4, SHAPE_OCTAGON)
+	subtype_option.add_item("Custom (N-sided)")
+	subtype_option.set_item_metadata(5, SHAPE_CUSTOM)
 	
 	# Set current selection
 	for i in range(subtype_option.get_item_count()):
@@ -1213,6 +1249,32 @@ func _create_shape_settings_ui():
 	angle_spin.editable = (active_shape_subtype != SHAPE_CIRCLE)
 	angle_hbox.add_child(angle_spin)
 	container.add_child(angle_hbox)
+	
+	container.add_child(_create_spacer(5))
+	
+	# Sides SpinBox (only visible for Custom subtype)
+	var sides_hbox = HBoxContainer.new()
+	sides_hbox.name = "SidesRow"
+	var sides_label = Label.new()
+	sides_label.text = "Sides:"
+	sides_label.rect_min_size = Vector2(80, 0)
+	sides_hbox.add_child(sides_label)
+	
+	var sides_spin = SpinBox.new()
+	sides_spin.min_value = 3
+	sides_spin.max_value = 50
+	sides_spin.step = 1
+	sides_spin.value = active_shape_sides
+	sides_spin.name = "ShapeSidesSpinBox"
+	sides_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sides_spin.connect("value_changed", self, "_on_shape_sides_changed")
+	sides_spin.allow_greater = false
+	sides_spin.allow_lesser = false
+	sides_hbox.add_child(sides_spin)
+	container.add_child(sides_hbox)
+	
+	# Only show sides row for Custom subtype
+	sides_hbox.visible = (active_shape_subtype == SHAPE_CUSTOM)
 	
 	return container
 
@@ -1388,11 +1450,13 @@ func _load_type_settings(marker_type):
 		active_shape_subtype = settings["subtype"]
 		active_shape_radius = settings["radius"]
 		active_shape_angle = settings.get("angle", 0.0)
+		active_shape_sides = settings.get("sides", DEFAULT_SHAPE_SIDES)
 		
 		# Update UI
 		_update_shape_subtype_selector()
 		_update_shape_radius_spinbox()
 		_update_shape_angle_spinbox()
+		_update_shape_sides_spinbox()
 	
 	# Load Arrow type settings
 	elif marker_type == MARKER_TYPE_ARROW:
@@ -1418,6 +1482,7 @@ func _save_current_type_settings():
 		type_settings[MARKER_TYPE_SHAPE]["subtype"] = active_shape_subtype
 		type_settings[MARKER_TYPE_SHAPE]["radius"] = active_shape_radius
 		type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
+		type_settings[MARKER_TYPE_SHAPE]["sides"] = active_shape_sides
 	
 	# Save Arrow type settings
 	elif active_marker_type == MARKER_TYPE_ARROW:
