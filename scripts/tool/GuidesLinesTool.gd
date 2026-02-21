@@ -220,6 +220,9 @@ func Update(delta):
 			LOGGER.debug("Tool active: overlay=%s, markers=%d" % [str(overlay != null), markers.size()])
 	
 	if not is_enabled:
+		# Still ensure overlay exists for API-placed markers
+		if not overlay and cached_worldui:
+			_create_overlay()
 		return
 	
 	# Create overlay if needed
@@ -427,6 +430,35 @@ func _cancel_arrow_placement():
 	if overlay:
 		overlay.update()
 
+# ============================================================================
+# API BRIDGE METHODS
+# Called by GuidesLinesApi to avoid exposing inner HistoryRecord classes
+# ============================================================================
+
+# Place a marker from the external API (handles history recording internally)
+func api_place_marker(marker_data: Dictionary) -> void:
+	_do_place_marker(marker_data)
+	next_id += 1
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		var record = PlaceMarkerRecord.new(self, marker_data)
+		parent_mod.Global.API.HistoryApi.record(record, 100)
+
+# Delete a marker by id from the external API (handles history recording internally)
+# Returns true if the marker was found and deleted
+func api_delete_marker_by_id(marker_id: int) -> bool:
+	if not markers_lookup.has(marker_id):
+		return false
+	var marker = markers_lookup[marker_id]
+	var index = markers.find(marker)
+	if index == -1:
+		return false
+	var marker_data = marker.Save()
+	_do_delete_marker(index)
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		var record = DeleteMarkerRecord.new(self, marker_data, index)
+		parent_mod.Global.API.HistoryApi.record(record, 100)
+	return true
+
 # Delete all markers from the map
 func delete_all_markers():
 	if markers.size() == 0:
@@ -453,6 +485,9 @@ func _do_delete_all():
 		overlay.update()
 	if LOGGER:
 		LOGGER.debug("All markers deleted")
+	# Notify external API listeners
+	if parent_mod.guides_lines_api:
+		parent_mod.guides_lines_api._notify_all_markers_deleted()
 
 func _undo_delete_all(saved_markers):
 	for marker_data in saved_markers:
@@ -490,6 +525,7 @@ func delete_marker_at_position(pos, threshold = 20.0):
 func _do_delete_marker(index):
 	if index < markers.size():
 		var marker = markers[index]
+		var deleted_id = marker.id
 		markers_lookup.erase(marker.id) # Remove from lookup
 		markers.remove(index)
 		update_ui()
@@ -497,6 +533,9 @@ func _do_delete_marker(index):
 			overlay.update()
 		if LOGGER:
 			LOGGER.debug("Marker deleted at index %d" % [index])
+		# Notify external API listeners
+		if parent_mod.guides_lines_api:
+			parent_mod.guides_lines_api._notify_marker_deleted(deleted_id)
 
 func _undo_delete_marker(marker_data, index):
 	var marker = GuideMarkerClass.new()
@@ -571,6 +610,9 @@ func _do_place_marker(marker_data):
 				marker_data["arrow_head_length"],
 				marker_data["arrow_head_angle"]
 			])
+	# Notify external API listeners
+	if parent_mod.guides_lines_api:
+		parent_mod.guides_lines_api._notify_marker_placed(marker_data["id"], marker_data["position"])
 
 func _undo_place_marker(marker_id):
 	# Optimized removal using Dictionary lookup

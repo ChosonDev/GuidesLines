@@ -30,6 +30,7 @@ const TOOL_ICON_PATH = "icons/guides_lines_icon.png"
 
 var GuideMarkerClass = null
 var GuidesLinesToolClass = null
+var GuidesLinesApiClass = null
 var MarkerOverlayClass = null
 var CrossOverlay = null
 var PermanentOverlay = null
@@ -63,6 +64,9 @@ var tool_created = false  # Flag to prevent multiple creation attempts
 # Proximity and permanent guide overlays (optional features)
 var cross_overlay = null
 var perm_overlay = null
+
+# External API (for intermod communication)
+var guides_lines_api = null
 
 # Cached custom_snap mod reference (checked once after map load)
 var cached_snappy_mod = null
@@ -150,8 +154,16 @@ func start():
 		print("GuidesLines: ERROR - Failed to load PermanentOverlay.gd")
 		return
 	
+	GuidesLinesApiClass = ResourceLoader.load(self.Global.Root + "scripts/api/guides_lines_api.gd", "GDScript", false)
+	if not GuidesLinesApiClass:
+		print("GuidesLines: ERROR - Failed to load guides_lines_api.gd")
+		# Non-fatal: continue without external API
+	
 	if LOGGER:
 		LOGGER.debug("Classes loaded successfully")
+	
+	# Register external API after all classes are loaded
+	_register_external_api()
 
 # Initialize ModConfig: registers hotkeys and settings through _Lib
 func _init_mod_config():
@@ -189,6 +201,27 @@ func _init_mod_config():
 	
 	if LOGGER:
 		LOGGER.info("ModConfig initialized — settings saved to user://mod_config/choson_guideslines.json")
+
+# Register our external API so other mods can call our functions
+# Called from start() after Logger and mod_config are initialized
+func _register_external_api():
+	if not (self.Global.API and self.Global.API.has("Logger")):
+		if LOGGER:
+			LOGGER.warn("Cannot register GuidesLinesApi — ApiApi not ready")
+		return
+	
+	if not GuidesLinesApiClass:
+		# Class not loaded yet — will be loaded in start() after class loading
+		# This function is called twice: first from start() (early), second after
+		# class loading. The second call actually creates the instance.
+		return
+	
+	var api_logger = self.Global.API.Logger.for_class("GuidesLinesApi")
+	guides_lines_api = GuidesLinesApiClass.new(self, api_logger)
+	self.Global.API.register("GuidesLinesApi", guides_lines_api)
+	
+	if LOGGER:
+		LOGGER.info("GuidesLinesApi registered and available to other mods")
 
 # Main update loop - called every frame
 # Manages tool lifecycle and updates overlays
@@ -242,9 +275,9 @@ func update(_delta):
 		elif not is_active and guides_tool.is_enabled:
 			guides_tool.Disable()
 		
-		# Always call Update when the tool is enabled
-		if guides_tool.is_enabled:
-			guides_tool.Update(_delta)
+		# Always call Update — overlay creation and marker drawing
+		# must work even when the tool is not the active tool (e.g. API usage)
+		guides_tool.Update(_delta)
 	
 	# Update proximity and permanent guides if enabled
 	if cross_guides_enabled or perm_vertical_enabled or perm_horizontal_enabled:

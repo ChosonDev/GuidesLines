@@ -5,6 +5,33 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.11] - 2026-02-21
+
+### Added
+- **`GuidesLinesApi` — External API for inter-mod communication**: New file `scripts/api/guides_lines_api.gd` exposes a rich programmatic interface so other mods can interact with GuidesLines without touching internal state.
+  - **Signals**: `marker_placed(marker_id, position)`, `marker_deleted(marker_id)`, `all_markers_deleted()`, `settings_changed(setting_name, value)`.
+  - **Marker placement**: `place_line_marker()`, `place_shape_marker()`, `place_arrow_marker()`, `place_path_marker()` — all with full parameter control and automatic history (undo/redo) recording.
+  - **Marker deletion**: `delete_marker(id)`, `delete_all_markers()` — both backed by `HistoryApi`.
+  - **Marker queries**: `get_markers()`, `get_marker(id)`, `get_marker_count()`.
+  - **Spatial queries**:
+    - `find_nearest_marker(coords, radius)` — search by marker position.
+    - `find_nearest_marker_by_geometry(coords, radius)` — search against actual drawn geometry (line segments, shape edges/circumference, path segments, arrow shaft); returns closest point and nearest vertex.
+    - `find_nearest_geometry_point(coords, radius)` — returns the exact closest point on any marker geometry.
+    - `find_line_intersection(line_from, line_to, coords, radius)` — finds the nearest intersection of an infinite line with any marker geometry.
+  - **Overlay & settings control**: `set_cross_guides()`, `set_permanent_vertical()`, `set_permanent_horizontal()`, `set_show_coordinates()`, `get_settings()`.
+  - **Tool control**: `activate_tool()`, `is_tool_active()`, `is_ready()`.
+  - API is registered via `_Lib`'s `ApiApi` as `"GuidesLinesApi"` and can be consumed by other mods with `self.Global.API.GuidesLinesApi`.
+
+### Changed
+- `GuidesLines.gd` now loads `guides_lines_api.gd`, instantiates `GuidesLinesApi`, and registers it after all classes are loaded via new `_register_external_api()` helper.
+- `GuidesLinesTool.Update()` now always runs (even when the tool is not the active tool) so that API-placed markers are drawn correctly at all times.
+- `GuidesLinesTool` creates its overlay even while the tool is inactive, ensuring markers placed via the API are visible immediately.
+
+### Technical Changes
+- **`GuidesLinesTool` — API bridge methods**: Added `api_place_marker(marker_data)` and `api_delete_marker_by_id(marker_id)` as thin public wrappers that call the internal `_do_*` helpers and record the appropriate `HistoryApi` records, keeping the inner `PlaceMarkerRecord`/`DeleteMarkerRecord` classes private.
+- **Event notifications**: `_do_place_marker()`, `_do_delete_marker()`, and `_do_delete_all()` now call `guides_lines_api._notify_marker_placed/deleted/all_deleted()` after mutating state, so signal subscribers always receive events regardless of whether the action originated from the user or the API.
+- `_do_delete_marker()` now captures `deleted_id` before erasing the entry from `markers_lookup` to guarantee the correct id is forwarded to the notification call.
+
 ## [2.0.10] - 2026-02-19
 
 ### Added
