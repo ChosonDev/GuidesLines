@@ -5,6 +5,79 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-02-21
+
+### Added — Shape Clipping Modes
+
+Two new optional modes for Shape markers that trim overlapping outlines on placement.
+Only one mode can be active at a time; enabling one automatically disables the other.
+
+#### `scripts/utils/GeometryUtils.gd` — new static functions
+
+| Function | Description |
+|---|---|
+| `segment_segment_intersect(a1,a2,b1,b2)` | Returns the intersection `Vector2` of two segments, or `null` if parallel / non-overlapping. |
+| `segment_intersects_circle(a,b,center,r)` | Returns an `Array` of 0–2 `Vector2` points where segment `[a]→[b]` crosses the circle. |
+| `point_inside_circle(p,center,r)` | Returns `true` if `p` is strictly inside the circle. |
+| `clip_polygon_against_shapes(poly_pts,b_shapes)` | Splits each polygon edge at every intersection with `b_shapes`, keeps only sub-segments whose midpoint lies **outside** all shapes. Returns `Array` of `{"type":"seg","a":…,"b":…}`. |
+| `clip_circle_against_shapes(center,r,b_shapes)` | Splits the circle at every intersection angle with `b_shapes`, keeps only arcs whose midpoint lies **outside** all shapes. Returns `Array` of `{"type":"arc","center":…,"radius":…,"from":…,"to":…}`. |
+
+#### `scripts/guides/GuideMarker.gd`
+
+- `var clip_data = []` — runtime list of clipped draw primitives (`seg` / `arc` items). When non-empty, the renderer uses this list instead of the full shape.
+- `var clipped_by_ids = []` — IDs of other Shape markers currently acting as clippers for this marker. Used to recompute `clip_data` when a clipper is removed.
+- `func clear_clip()` — resets both fields, restoring full-shape rendering.
+
+#### `scripts/tool/GuidesLinesTool.gd`
+
+**New variables**
+
+| Variable | Default | Description |
+|---|---|---|
+| `auto_clip_shapes` | `false` | **Clip Intersecting Shapes** — mutual mode: both the new and all intersecting existing markers are clipped. |
+| `cut_existing_shapes` | `false` | **Cut Into Existing Shapes** — one-way mode: only existing markers are clipped by the new shape; the new marker is left intact. |
+
+**New private methods**
+
+| Method | Description |
+|---|---|
+| `_get_shape_descriptor(marker, cell_size)` | Converts a marker's `draw_data` into a `{shape_type, …}` dict for GeometryUtils. |
+| `_shapes_intersect(desc_a, desc_b)` | Returns `true` if the outlines of two shape descriptors actually cross. Handles all Poly×Poly, Poly×Circle, Circle×Circle combinations. |
+| `_recompute_marker_clip(marker, cell_size)` | Rebuilds `marker.clip_data` from the current `clipped_by_ids` list. |
+| `_apply_shape_clipping(new_marker)` | **Mutual** — registers `new_marker` and each intersecting marker as clippers of each other, then recomputes both sides. |
+| `_apply_cut_to_existing_shapes(new_marker)` | **One-way** — registers `new_marker` as a clipper of each intersecting marker only (new marker unchanged). |
+| `_remove_shape_clipping(removed_id)` | Called on deletion/undo-placement; removes `removed_id` from every marker's `clipped_by_ids` and recomputes affected markers. |
+| `_set_shape_checkbox(node_name, value)` | Sets a `CheckButton` state inside `shape_settings_container` without firing its `toggled` signal (prevents recursion). |
+
+**Hooks added to existing methods**
+
+- `_do_place_marker` — calls `_apply_shape_clipping` or `_apply_cut_to_existing_shapes` after adding the marker.
+- `_undo_place_marker` — calls `_remove_shape_clipping` before removing the marker.
+- `_do_delete_marker` — calls `_remove_shape_clipping` before removing the marker.
+- `_undo_delete_marker` — calls the appropriate clipping method after restoring the marker.
+
+**UI additions** (inside Shape settings panel)
+
+- `CheckButton "Clip Intersecting Shapes"` with hint label — enables mutual clipping.
+- `CheckButton "Cut Into Existing Shapes"` with hint label — enables one-way clipping.
+- Enabling either checkbox automatically unchecks the other via `_set_shape_checkbox`.
+
+#### `scripts/overlays/MarkerOverlay.gd` — clipped rendering
+
+- `_draw_custom_marker`: when `marker.clip_data` is non-empty, draws each `seg` item as `draw_line` and each `arc` item as `draw_arc` (point count scaled to arc span). Falls back to normal full-shape rendering when `clip_data` is empty.
+
+#### Undo / Redo behaviour
+
+| Action | Effect on clip state |
+|---|---|
+| Place B (clips A) → Undo | `_remove_shape_clipping(B.id)` restores A's full outline |
+| Delete A → Undo | `_apply_shape_clipping` / `_apply_cut_to_existing_shapes` reapplies A's clipping |
+| Redo Place B | `_do_place_marker` re-runs the appropriate clipping pass |
+
+`clip_data` is **not serialised** — it is recomputed automatically through the history system and requires no changes to the save format.
+
+---
+
 ## [2.1.0] - 2026-02-21
 
 ### Refactoring — Geometry centralisation (Phase 3)
@@ -458,6 +531,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 
 ---
 
+[2.1.1]: https://github.com/ChosonDev/GuidesLines/compare/v2.1.0...v2.1.1
 [2.0.0]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.10...v2.0.0
 [1.0.10]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/ChosonDev/GuidesLines/compare/v1.0.8...v1.0.9

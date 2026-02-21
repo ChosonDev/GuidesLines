@@ -269,7 +269,17 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	elif marker.marker_type == "Shape":
 		if draw_data.has("type") and draw_data.type == "shape":
 			if draw_data.has("shape_type"):
-				if draw_data.shape_type == "circle":
+				# --- Clipped rendering ---
+				if marker.clip_data.size() > 0:
+					for item in marker.clip_data:
+						if item.type == "seg":
+							draw_line(item.a, item.b, marker.color, LINE_WIDTH)
+						elif item.type == "arc":
+							var span = item.to - item["from"]
+							var pt_count = max(4, int(round(64.0 * span / TAU)))
+							draw_arc(item.center, item.radius, item["from"], item.to, pt_count, marker.color, LINE_WIDTH, true)
+				# --- Normal (full-shape) rendering ---
+				elif draw_data.shape_type == "circle":
 					GuidesLinesRender.draw_circle_outline(self, marker.position, draw_data.radius, marker.color, LINE_WIDTH)
 				elif draw_data.shape_type == "poly" and draw_data.has("points"):
 					GuidesLinesRender.draw_polygon_outline(self, draw_data.points, marker.color, LINE_WIDTH)

@@ -4,6 +4,7 @@ extends Reference
 # Stores markers internally and draws them via overlay
 
 const CLASS_NAME = "GuidesLinesTool"
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
 
 # ============================================================================
 # HISTORY RECORDS FOR UNDO/REDO SUPPORT
@@ -123,6 +124,8 @@ var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
+var auto_clip_shapes = false  # Clip intersecting shape markers on placement (mutual)
+var cut_existing_shapes = false  # Cut lines of existing markers inside the new shape (one-way)
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -514,6 +517,8 @@ func _do_delete_marker(index):
 	if index < markers.size():
 		var marker = markers[index]
 		var deleted_id = marker.id
+		# Clean up clipping relationships before removing
+		_remove_shape_clipping(deleted_id)
 		markers_lookup.erase(marker.id) # Remove from lookup
 		markers.remove(index)
 		update_ui()
@@ -532,6 +537,11 @@ func _undo_delete_marker(marker_data, index):
 	markers_lookup[marker.id] = marker # Add to lookup
 	if marker.id >= next_id:
 		next_id = marker.id + 1
+	# Reapply clipping relationships if the features are enabled
+	if auto_clip_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_shape_clipping(marker)
+	if cut_existing_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_cut_to_existing_shapes(marker)
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -572,6 +582,12 @@ func _do_place_marker(marker_data):
 	
 	markers.append(marker)
 	markers_lookup[marker.id] = marker # Add to lookup
+	# Apply shape clipping if the feature is enabled
+	if auto_clip_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_shape_clipping(marker)
+	# Apply one-way cut to existing markers if the feature is enabled
+	if cut_existing_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_cut_to_existing_shapes(marker)
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -606,6 +622,8 @@ func _undo_place_marker(marker_id):
 	# Optimized removal using Dictionary lookup
 	if markers_lookup.has(marker_id):
 		var marker = markers_lookup[marker_id]
+		# Clean up clipping relationships contributed by this marker
+		_remove_shape_clipping(marker_id)
 		markers.erase(marker) # Godot optimizes erase by value, but still O(n) for array search internally
 		markers_lookup.erase(marker_id) # O(1)
 		
@@ -689,6 +707,149 @@ func _get_grid_cell_size():
 	if not cached_world.Level or not cached_world.Level.TileMap:
 		return null
 	return cached_world.Level.TileMap.CellSize
+
+# ============================================================================
+# SHAPE CLIPPING (Clip Intersecting Shapes feature)
+# ============================================================================
+
+# Build a shape descriptor dict for GeometryUtils clip functions.
+# Returns { shape_type, ... } or {} if not applicable.
+func _get_shape_descriptor(marker, cell_size) -> Dictionary:
+	var dd = marker.get_draw_data(null, cell_size)
+	if not dd.has("shape_type"):
+		return {}
+	if dd.shape_type == "circle":
+		return {"shape_type": "circle", "center": marker.position, "radius": dd.radius}
+	elif dd.shape_type == "poly":
+		return {"shape_type": "poly", "points": dd.points}
+	return {}
+
+# Return true if the outlines of two shape descriptors actually intersect.
+func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
+	if desc_a.empty() or desc_b.empty():
+		return false
+	if desc_a.shape_type == "poly" and desc_b.shape_type == "poly":
+		var n = desc_a.points.size()
+		var m = desc_b.points.size()
+		for i in range(n):
+			var a1 = desc_a.points[i]
+			var a2 = desc_a.points[(i + 1) % n]
+			for j in range(m):
+				var b1 = desc_b.points[j]
+				var b2 = desc_b.points[(j + 1) % m]
+				if GeometryUtils.segment_segment_intersect(a1, a2, b1, b2) != null:
+					return true
+		return false
+	elif desc_a.shape_type == "poly" and desc_b.shape_type == "circle":
+		var n = desc_a.points.size()
+		for i in range(n):
+			var a1 = desc_a.points[i]
+			var a2 = desc_a.points[(i + 1) % n]
+			if GeometryUtils.segment_intersects_circle(a1, a2, desc_b.center, desc_b.radius).size() > 0:
+				return true
+		return false
+	elif desc_a.shape_type == "circle" and desc_b.shape_type == "poly":
+		return _shapes_intersect(desc_b, desc_a)
+	elif desc_a.shape_type == "circle" and desc_b.shape_type == "circle":
+		var d = desc_a.center.distance_to(desc_b.center)
+		return d < desc_a.radius + desc_b.radius and d > abs(desc_a.radius - desc_b.radius)
+	return false
+
+# Recompute clip_data for [marker] using its current clipped_by_ids list.
+# Call this whenever the set of clippers changes.
+func _recompute_marker_clip(marker, cell_size):
+	if marker.marker_type != MARKER_TYPE_SHAPE:
+		return
+	if cell_size == null:
+		return
+	var self_desc = _get_shape_descriptor(marker, cell_size)
+	if self_desc.empty():
+		return
+	# Build list of shape descriptors from current clippers that still exist
+	var b_shapes = []
+	for other_id in marker.clipped_by_ids:
+		if markers_lookup.has(other_id):
+			var other = markers_lookup[other_id]
+			var d = _get_shape_descriptor(other, cell_size)
+			if not d.empty():
+				b_shapes.append(d)
+	if b_shapes.empty():
+		marker.clip_data = []
+		return
+	if self_desc.shape_type == "poly":
+		marker.clip_data = GeometryUtils.clip_polygon_against_shapes(self_desc.points, b_shapes)
+	elif self_desc.shape_type == "circle":
+		marker.clip_data = GeometryUtils.clip_circle_against_shapes(self_desc.center, self_desc.radius, b_shapes)
+
+# Apply ONE-WAY cut when [new_marker] is placed: find all intersecting shape markers
+# and register new_marker as their clipper — but NOT vice versa.
+# The new marker itself is left untouched (its clip_data stays empty).
+func _apply_cut_to_existing_shapes(new_marker):
+	if not cut_existing_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
+		return
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return
+	var new_desc = _get_shape_descriptor(new_marker, cell_size)
+	if new_desc.empty():
+		return
+	for other in markers:
+		if other.id == new_marker.id or other.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var other_desc = _get_shape_descriptor(other, cell_size)
+		if other_desc.empty():
+			continue
+		if not _shapes_intersect(new_desc, other_desc):
+			continue
+		# Register new_marker as clipper of other (one-way only)
+		if not other.clipped_by_ids.has(new_marker.id):
+			other.clipped_by_ids.append(new_marker.id)
+			_recompute_marker_clip(other, cell_size)
+	if overlay:
+		overlay.update()
+
+# Apply clipping when [new_marker] is placed: find all intersecting shape markers
+# and register mutual clip relationships, then recompute both sides.
+func _apply_shape_clipping(new_marker):
+	if not auto_clip_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
+		return
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return
+	var new_desc = _get_shape_descriptor(new_marker, cell_size)
+	if new_desc.empty():
+		return
+	for other in markers:
+		if other.id == new_marker.id or other.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var other_desc = _get_shape_descriptor(other, cell_size)
+		if other_desc.empty():
+			continue
+		if not _shapes_intersect(new_desc, other_desc):
+			continue
+		# Register mutual relationship
+		if not new_marker.clipped_by_ids.has(other.id):
+			new_marker.clipped_by_ids.append(other.id)
+		if not other.clipped_by_ids.has(new_marker.id):
+			other.clipped_by_ids.append(new_marker.id)
+		# Recompute clipping for both markers
+		_recompute_marker_clip(new_marker, cell_size)
+		_recompute_marker_clip(other, cell_size)
+	if overlay:
+		overlay.update()
+
+# Remove clipping contributions of [removed_id] from all remaining markers
+# and recompute their clip_data.
+func _remove_shape_clipping(removed_id):
+	var cell_size = _get_grid_cell_size()
+	for marker in markers:
+		if marker.id == removed_id:
+			continue
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		if marker.clipped_by_ids.has(removed_id):
+			marker.clipped_by_ids.erase(removed_id)
+			_recompute_marker_clip(marker, cell_size)
 
 # Update tool panel UI with current marker count
 func update_ui():
@@ -1074,6 +1235,35 @@ func _on_shape_sides_changed(value):
 	if LOGGER:
 		LOGGER.debug("Shape sides changed to: %d" % [active_shape_sides])
 
+func _on_auto_clip_shapes_toggled(enabled):
+	auto_clip_shapes = enabled
+	# Only one clip mode can be active at a time
+	if enabled and cut_existing_shapes:
+		cut_existing_shapes = false
+		_set_shape_checkbox("CutExistingShapesCheckbox", false)
+	if LOGGER:
+		LOGGER.info("Clip Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
+
+func _on_cut_existing_shapes_toggled(enabled):
+	cut_existing_shapes = enabled
+	# Only one clip mode can be active at a time
+	if enabled and auto_clip_shapes:
+		auto_clip_shapes = false
+		_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+	if LOGGER:
+		LOGGER.info("Cut Into Existing Shapes: %s" % ["ON" if enabled else "OFF"])
+
+# Helper: set pressed state on a named CheckButton inside shape_settings_container
+# without triggering its toggled signal (to avoid recursion).
+func _set_shape_checkbox(node_name: String, value: bool) -> void:
+	if not shape_settings_container:
+		return
+	var btn = shape_settings_container.find_node(node_name, true, false)
+	if btn:
+		btn.set_block_signals(true)
+		btn.pressed = value
+		btn.set_block_signals(false)
+
 func _update_shape_sides_spinbox():
 	if not tool_panel:
 		return
@@ -1285,6 +1475,34 @@ func _create_shape_settings_ui():
 	
 	# Only show sides row for Custom subtype
 	sides_hbox.visible = (active_shape_subtype == SHAPE_CUSTOM)
+
+	container.add_child(_create_spacer(10))
+
+	# Clip Intersecting Shapes toggle
+	var clip_check = CheckButton.new()
+	clip_check.text = "Clip Intersecting Shapes"
+	clip_check.pressed = auto_clip_shapes
+	clip_check.name = "ClipIntersectingShapesCheckbox"
+	clip_check.connect("toggled", self, "_on_auto_clip_shapes_toggled")
+	container.add_child(clip_check)
+
+	var clip_hint = Label.new()
+	clip_hint.text = "  (new shapes clip each other)"
+	clip_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(clip_hint)
+
+	# Cut Into Existing Shapes toggle
+	var cut_check = CheckButton.new()
+	cut_check.text = "Cut Into Existing Shapes"
+	cut_check.pressed = cut_existing_shapes
+	cut_check.name = "CutExistingShapesCheckbox"
+	cut_check.connect("toggled", self, "_on_cut_existing_shapes_toggled")
+	container.add_child(cut_check)
+
+	var cut_hint = Label.new()
+	cut_hint.text = "  (new shape cuts lines of others)"
+	cut_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(cut_hint)
 	
 	return container
 

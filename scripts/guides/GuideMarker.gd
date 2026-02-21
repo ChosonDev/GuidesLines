@@ -30,6 +30,15 @@ const LINE_WIDTH = 5.0  # Thicker lines
 var cached_draw_data = {} 
 var _dirty = true
 
+# CLIP DATA (Clip Intersecting Shapes feature)
+# When non-empty, the renderer uses this list of draw primitives instead of the full shape.
+# Each item is one of:
+#   { "type": "seg", "a": Vector2, "b": Vector2 }
+#   { "type": "arc", "center": Vector2, "radius": float, "from": float, "to": float }
+var clip_data = []
+# IDs of other shape markers that contribute to this marker's clipping
+var clipped_by_ids = []
+
 # Initialize marker with position and type-specific parameters
 func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	position = pos
@@ -83,6 +92,11 @@ func get_draw_data(map_rect, cell_size):
 	if _dirty or cached_draw_data.empty():
 		_recalculate_geometry(map_rect, cell_size)
 	return cached_draw_data
+
+# Clear clip data, restoring normal (full-shape) rendering for this marker
+func clear_clip():
+	clip_data = []
+	clipped_by_ids = []
 
 func _recalculate_geometry(map_rect, cell_size):
 	cached_draw_data = {}
