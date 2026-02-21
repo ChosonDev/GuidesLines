@@ -268,34 +268,12 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	
 	elif marker.marker_type == "Shape":
 		if draw_data.has("type") and draw_data.type == "shape":
-			if draw_data.has("shape_type"):
-				var primitives = draw_data.get("render_primitives", [])
-				var fills      = draw_data.get("render_fills", [])
-
-				# --- Step 1: outline (clipped or full fallback) ---
-				if primitives.size() > 0:
-					# Difference / clip rendering — use pre-computed outline
-					for item in primitives:
-						if item.type == "seg":
-							draw_line(item.a, item.b, marker.color, LINE_WIDTH)
-						elif item.type == "arc":
-							var span = item.to - item["from"]
-							var pt_count = max(4, int(round(64.0 * span / TAU)))
-							draw_arc(item.center, item.radius, item["from"], item.to, pt_count, marker.color, LINE_WIDTH, true)
-				elif draw_data.shape_type == "circle":
-					# Full-shape rendering (no clipping active, or all diffs inside)
-					GuidesLinesRender.draw_circle_outline(self, marker.position, draw_data.radius, marker.color, LINE_WIDTH)
-				elif draw_data.shape_type == "poly" and draw_data.has("points"):
-					GuidesLinesRender.draw_polygon_outline(self, draw_data.points, marker.color, LINE_WIDTH)
-
-				# --- Step 2: diff boundary fills — always drawn on top ---
-				for item in fills:
-					if item.type == "seg":
-						draw_line(item.a, item.b, marker.color, LINE_WIDTH)
-					elif item.type == "arc":
-						var span = item.to - item["from"]
-						var pt_count = max(4, int(round(64.0 * span / TAU)))
-						draw_arc(item.center, item.radius, item["from"], item.to, pt_count, marker.color, LINE_WIDTH, true)
+			# Single primitives list holds the complete current visual state:
+			# original outline minus clipped/diff zones, plus diff boundary segments.
+			var primitives = draw_data.get("primitives", [])
+			for item in primitives:
+				if item.type == "seg":
+					draw_line(item.a, item.b, marker.color, LINE_WIDTH)
 
 
 	
@@ -395,12 +373,8 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 		if cell_size:
 			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
 			var angle_rad = deg2rad(tool.active_shape_angle)
-
-			if tool.active_shape_subtype == "Circle":
-				GuidesLinesRender.draw_circle_outline(self, pos, radius_px, LINE_COLOR, LINE_WIDTH)
-			else:
-				var vertices = GeometryUtils.calculate_shape_vertices(pos, radius_px, tool.active_shape_subtype, angle_rad, tool.active_shape_sides)
-				GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
+			var vertices = GeometryUtils.calculate_shape_vertices(pos, radius_px, tool.active_shape_sides, angle_rad)
+			GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 
 	
 	# Draw preview marker
@@ -544,7 +518,6 @@ func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_t
 		_draw_coordinates_on_shape(
 			marker.position,
 			marker.shape_radius,
-			marker.shape_subtype,
 			cam_zoom,
 			marker.color
 		)
@@ -700,7 +673,7 @@ func _draw_text_with_outline(text, position, color):
 	GuidesLinesRender.draw_text_with_outline(self, text, position, color, _cached_font)
 
 # Draw coordinates on shape (only at center)
-func _draw_coordinates_on_shape(center, radius_cells, shape_subtype, cam_zoom, shape_color):
+func _draw_coordinates_on_shape(center, radius_cells, cam_zoom, shape_color):
 	var cell_size = _get_grid_cell_size()
 	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
 		return

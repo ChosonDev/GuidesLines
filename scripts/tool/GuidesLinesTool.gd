@@ -10,27 +10,43 @@ const GeometryUtils = preload("../utils/GeometryUtils.gd")
 # HISTORY RECORDS FOR UNDO/REDO SUPPORT
 # ============================================================================
 
-# History record for placing a marker
+# History record for placing a marker.
+# clip_snapshots stores the primitives of every marker that was clipped as a
+# side-effect of this placement (auto_clip / cut modes).
+# undo() removes the placed marker AND restores those clipped markers.
 class PlaceMarkerRecord:
 	var tool
 	var marker_data
-	
-	func _init(tool_ref, data):
+	# { marker_id: {"primitives": [...]} }
+	var clip_snapshots = {}
+
+	func _init(tool_ref, data, p_clip_snapshots = {}):
 		tool = tool_ref
 		marker_data = data
+		clip_snapshots = p_clip_snapshots
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord created for id: %d" % [data["id"]])
-	
+
 	func redo():
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord.redo() called for id: %d" % [marker_data["id"]])
+		# Re-snapshot before redo so that the NEXT undo can restore correctly.
+		if tool.auto_clip_shapes or tool.cut_existing_shapes:
+			clip_snapshots = tool._snapshot_potential_clip_targets(marker_data["position"])
 		tool._do_place_marker(marker_data)
-	
+
 	func undo():
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord.undo() called for id: %d" % [marker_data["id"]])
 		tool._undo_place_marker(marker_data["id"])
-	
+		# Restore the primitives of every marker that was clipped by this placement.
+		for cid in clip_snapshots:
+			if tool.markers_lookup.has(cid):
+				tool.markers_lookup[cid].set_primitives(
+					clip_snapshots[cid]["primitives"].duplicate(true))
+		if tool.overlay:
+			tool.overlay.update()
+
 	func record_type():
 		return "GuidesLines.PlaceMarker"
 
@@ -78,14 +94,14 @@ class DeleteAllMarkersRecord:
 	func record_type():
 		return "GuidesLines.DeleteAll"
 
-# History record for applying a Difference operation
-# Uses snapshots to undo, because there is no "diff marker" that could be
-# removed via _remove_shape_clipping.
+# History record for applying a Difference operation.
+# Uses snapshots to undo, because there is no "diff marker" that could be removed.
 class DifferenceRecord:
 	var tool
-	var diff_desc   # in-memory Dictionary (has Vector2 values — not serializable)
+	var diff_desc   # in-memory Dictionary (has Vector2 values вЂ” not serializable)
 	var diff_op     # serializable Dictionary stored in tool.difference_ops
-	var snapshots   # { marker_id: {"render_primitives":[...], "render_fills":[...], "clipped_by_ids":[...]} }
+	# { marker_id: {"primitives":[...]} }
+	var snapshots
 
 	func _init(tool_ref, p_desc, p_op, p_snapshots):
 		tool = tool_ref
@@ -99,11 +115,8 @@ class DifferenceRecord:
 	func undo():
 		for id in snapshots:
 			if tool.markers_lookup.has(id):
-				var m = tool.markers_lookup[id]
-				m.set_render_primitives(
-					snapshots[id]["render_primitives"].duplicate(true),
-					snapshots[id]["render_fills"].duplicate(true))
-				m.clipped_by_ids = snapshots[id]["clipped_by_ids"].duplicate()
+				tool.markers_lookup[id].set_primitives(
+					snapshots[id]["primitives"].duplicate(true))
 		tool.difference_ops.erase(diff_op)
 		if tool.overlay:
 			tool.overlay.update()
@@ -137,7 +150,7 @@ const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
 const MARKER_TYPE_ARROW = "Arrow"
 
-# Shape subtypes
+# Shape preset labels (UI-only вЂ” used to set initial sides/angle when a preset is selected)
 const SHAPE_CIRCLE = "Circle"
 const SHAPE_SQUARE = "Square"
 const SHAPE_PENTAGON = "Pentagon"
@@ -150,16 +163,15 @@ var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 # Active marker settings (for new markers)
 var active_angle = 0.0
 var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
-var active_shape_subtype = SHAPE_CIRCLE  # Active shape subtype
 var active_shape_angle = 0.0  # Shape rotation angle in degrees
-var active_shape_sides = 6  # Number of polygon sides for Custom shape type
+var active_shape_sides = 64  # Number of polygon sides (default: Circle = 64)
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
 var auto_clip_shapes = false  # Clip intersecting shape markers on placement (mutual)
 var cut_existing_shapes = false  # Cut lines of existing markers inside the new shape (one-way)
-var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
+var difference_mode = false  # Difference mode вЂ” don't place new shape; fill overlap into existing markers
 var difference_ops = []  # Array of serializable op dicts; replayed on map load
 
 # Type-specific settings storage (each type stores its own parameters)
@@ -169,10 +181,9 @@ var type_settings = {
 		"mirror": false
 	},
 	"Shape": {
-		"subtype": "Circle",
 		"radius": 1.0,
 		"angle": 0.0,
-		"sides": 6
+		"sides": 64
 	},
 	"Path": {
 		# Path has no persistent settings, it's point-based
@@ -186,7 +197,6 @@ var type_settings = {
 # Default values
 const DEFAULT_ANGLE = 0.0
 const DEFAULT_SHAPE_RADIUS = 1.0
-const DEFAULT_SHAPE_SUBTYPE = "Circle"
 const DEFAULT_SHAPE_ANGLE = 0.0
 const DEFAULT_SHAPE_SIDES = 6
 const DEFAULT_ARROW_HEAD_LENGTH = 50.0
@@ -300,7 +310,7 @@ func place_marker(pos):
 		_handle_arrow_placement(pos)
 		return
 
-	# Difference mode: don't place a marker — instead apply difference to existing shapes
+	# Difference mode: don't place a marker вЂ” instead apply difference to existing shapes
 	if difference_mode and active_marker_type == MARKER_TYPE_SHAPE:
 		var final_pos_diff = pos
 		if parent_mod.Global.Editor.IsSnapping:
@@ -332,11 +342,16 @@ func place_marker(pos):
 		marker_data["angle"] = active_angle
 		marker_data["mirror"] = active_mirror
 	elif active_marker_type == MARKER_TYPE_SHAPE:
-		marker_data["shape_subtype"] = active_shape_subtype
 		marker_data["shape_radius"] = active_shape_radius
 		marker_data["shape_angle"] = active_shape_angle
 		marker_data["shape_sides"] = active_shape_sides
 	
+	# Snapshot primitives of markers that would be clipped BEFORE placement,
+	# so PlaceMarkerRecord can restore them on undo.
+	var clip_snaps = {}
+	if active_marker_type == MARKER_TYPE_SHAPE and (auto_clip_shapes or cut_existing_shapes):
+		clip_snaps = _snapshot_potential_clip_targets(final_pos)
+
 	# Execute the action first
 	_do_place_marker(marker_data)
 	next_id += 1
@@ -344,7 +359,7 @@ func place_marker(pos):
 	# Then add to history if available
 	if LOGGER:
 		LOGGER.debug("Adding marker placement to history (id: %d)" % [marker_data["id"]])
-	_record_history(PlaceMarkerRecord.new(self, marker_data))
+	_record_history(PlaceMarkerRecord.new(self, marker_data, clip_snaps))
 
 # Handle path marker placement (multi-point)
 func _handle_path_placement(pos):
@@ -486,9 +501,12 @@ func _cancel_arrow_placement():
 
 # Place a marker from the external API (handles history recording internally)
 func api_place_marker(marker_data: Dictionary) -> void:
+	var clip_snaps = {}
+	if marker_data.get("marker_type") == MARKER_TYPE_SHAPE and (auto_clip_shapes or cut_existing_shapes):
+		clip_snaps = _snapshot_potential_clip_targets(marker_data["position"])
 	_do_place_marker(marker_data)
 	next_id += 1
-	_record_history(PlaceMarkerRecord.new(self, marker_data))
+	_record_history(PlaceMarkerRecord.new(self, marker_data, clip_snaps))
 
 # Delete a marker by id from the external API (handles history recording internally)
 # Returns true if the marker was found and deleted
@@ -611,7 +629,6 @@ func _do_place_marker(marker_data):
 		marker.set_property("angle", marker_data.get("angle", 0.0))
 		marker.set_property("mirror", marker_data.get("mirror", false))
 	elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
-		marker.set_property("shape_subtype", marker_data["shape_subtype"])
 		marker.set_property("shape_radius", marker_data["shape_radius"])
 		marker.set_property("shape_angle", marker_data.get("shape_angle", 0.0))
 		marker.set_property("shape_sides", marker_data.get("shape_sides", DEFAULT_SHAPE_SIDES))
@@ -642,15 +659,15 @@ func _do_place_marker(marker_data):
 		overlay.update()
 	if LOGGER:
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
-			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
+			LOGGER.debug("Line marker placed at %s (angle: %.1fВ°, mirror: %s)" % [
 				str(marker_data["position"]),
 				marker_data.get("angle", 0.0),
 				str(marker_data.get("mirror", false))
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_SHAPE:
-			LOGGER.debug("Shape marker placed at %s (subtype: %s, radius: %.1f cells)" % [
+			LOGGER.debug("Shape marker placed at %s (sides: %d, radius: %.1f cells)" % [
 				str(marker_data["position"]),
-				marker_data["shape_subtype"],
+				marker_data["shape_sides"],
 				marker_data["shape_radius"]
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_PATH:
@@ -659,7 +676,7 @@ func _do_place_marker(marker_data):
 				str(marker_data["path_closed"])
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
-			LOGGER.debug("Arrow marker placed with 2 points (head: %.1fpx at %.1f°)" % [
+			LOGGER.debug("Arrow marker placed with 2 points (head: %.1fpx at %.1fВ°)" % [
 				marker_data["arrow_head_length"],
 				marker_data["arrow_head_angle"]
 			])
@@ -762,10 +779,20 @@ func _get_grid_cell_size():
 # ============================================================================
 
 # Build a shape descriptor dict for GeometryUtils clip functions.
-# Returns { shape_type, ... } or {} if not applicable.
+# Computes polygon vertices directly from marker parameters вЂ” does NOT rely on
+# cached_draw_data["points"] (which is no longer stored).
+# Also calls get_draw_data() to ensure the marker's primitives are initialised.
+# Returns { shape_type, points } or {} if not applicable.
 func _get_shape_descriptor(marker, cell_size) -> Dictionary:
-	marker.get_draw_data(null, cell_size)  # ensure cache is fresh
-	return marker.get_base_descriptor()
+	if marker.marker_type != MARKER_TYPE_SHAPE:
+		return {}
+	# Ensure primitives are initialised for fresh markers.
+	marker.get_draw_data(null, cell_size)
+	var radius_px = marker.shape_radius * min(cell_size.x, cell_size.y)
+	var angle_rad = deg2rad(marker.shape_angle)
+	var pts = GeometryUtils.calculate_shape_vertices(
+		marker.position, radius_px, marker.shape_sides, angle_rad)
+	return {"shape_type": "poly", "points": pts}
 
 ## Build a shape descriptor using current tool settings at [pos].
 ## Creates a temporary marker (not added to the scene) so we can reuse
@@ -777,7 +804,6 @@ func _build_shape_descriptor_at(pos: Vector2) -> Dictionary:
 	var tmp = GuideMarkerClass.new()
 	tmp.position         = pos
 	tmp.marker_type      = MARKER_TYPE_SHAPE
-	tmp.shape_subtype    = active_shape_subtype
 	tmp.shape_radius     = active_shape_radius
 	tmp.shape_angle      = active_shape_angle
 	tmp.shape_sides      = active_shape_sides
@@ -799,19 +825,6 @@ func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 				if GeometryUtils.segment_segment_intersect(a1, a2, b1, b2) != null:
 					return true
 		return false
-	elif desc_a.shape_type == "poly" and desc_b.shape_type == "circle":
-		var n = desc_a.points.size()
-		for i in range(n):
-			var a1 = desc_a.points[i]
-			var a2 = desc_a.points[(i + 1) % n]
-			if GeometryUtils.segment_intersects_circle(a1, a2, desc_b.center, desc_b.radius).size() > 0:
-				return true
-		return false
-	elif desc_a.shape_type == "circle" and desc_b.shape_type == "poly":
-		return _shapes_intersect(desc_b, desc_a)
-	elif desc_a.shape_type == "circle" and desc_b.shape_type == "circle":
-		var d = desc_a.center.distance_to(desc_b.center)
-		return d < desc_a.radius + desc_b.radius and d > abs(desc_a.radius - desc_b.radius)
 	return false
 
 # Return true if the two shapes have any overlapping area:
@@ -831,9 +844,7 @@ func _shapes_overlap(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 
 # Return a representative interior point for a shape descriptor (centroid).
 func _shape_sample_point(desc: Dictionary):
-	if desc.shape_type == "circle":
-		return desc.center
-	elif desc.shape_type == "poly" and desc.points.size() > 0:
+	if desc.shape_type == "poly" and desc.points.size() > 0:
 		var sum = Vector2.ZERO
 		for p in desc.points:
 			sum += p
@@ -844,39 +855,12 @@ func _shape_sample_point(desc: Dictionary):
 func _point_in_shape(pt: Vector2, desc: Dictionary) -> bool:
 	if desc.shape_type == "poly":
 		return Geometry.is_point_in_polygon(pt, desc.points)
-	elif desc.shape_type == "circle":
-		return GeometryUtils.point_inside_circle(pt, desc.center, desc.radius)
 	return false
 
-# Recompute render_primitives for [marker] using its current clipped_by_ids list.
-# Call this whenever the set of clippers changes.
-func _recompute_marker_clip(marker, cell_size):
-	if marker.marker_type != MARKER_TYPE_SHAPE:
-		return
-	if cell_size == null:
-		return
-	var self_desc = _get_shape_descriptor(marker, cell_size)
-	if self_desc.empty():
-		return
-	# Build list of shape descriptors from current clippers that still exist
-	var b_shapes = []
-	for other_id in marker.clipped_by_ids:
-		if markers_lookup.has(other_id):
-			var other = markers_lookup[other_id]
-			var d = _get_shape_descriptor(other, cell_size)
-			if not d.empty():
-				b_shapes.append(d)
-	if b_shapes.empty():
-		marker.set_render_primitives([], [])
-		return
-	if self_desc.shape_type == "poly":
-		marker.set_render_primitives(GeometryUtils.clip_polygon_against_shapes(self_desc.points, b_shapes), [])
-	elif self_desc.shape_type == "circle":
-		marker.set_render_primitives(GeometryUtils.clip_circle_against_shapes(self_desc.center, self_desc.radius, b_shapes), [])
 
-# Apply ONE-WAY cut when [new_marker] is placed: find all intersecting shape markers
-# and register new_marker as their clipper — but NOT vice versa.
-# The new marker itself is left untouched (its render_primitives stay empty).
+# Apply ONE-WAY cut when [new_marker] is placed: clip the primitives of every
+# intersecting Shape marker using new_markerвЂ™s shape boundary.
+# The new marker itself keeps its full unclipped outline.
 func _apply_cut_to_existing_shapes(new_marker):
 	if not cut_existing_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
 		return
@@ -894,15 +878,15 @@ func _apply_cut_to_existing_shapes(new_marker):
 			continue
 		if not _shapes_intersect(new_desc, other_desc):
 			continue
-		# Register new_marker as clipper of other (one-way only)
-		if not other.clipped_by_ids.has(new_marker.id):
-			other.clipped_by_ids.append(new_marker.id)
-			_recompute_marker_clip(other, cell_size)
+		# Apply cut directly to other's current outline.
+		other.set_primitives(
+			GeometryUtils.clip_primitives_against_shapes(
+				other.get_primitives(), [new_desc]))
 	if overlay:
 		overlay.update()
 
-# Apply clipping when [new_marker] is placed: find all intersecting shape markers
-# and register mutual clip relationships, then recompute both sides.
+# Apply mutual clipping when [new_marker] is placed: clip each intersecting
+# Shape markerвЂ™s current primitives against the otherвЂ™s boundary.
 func _apply_shape_clipping(new_marker):
 	if not auto_clip_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
 		return
@@ -920,29 +904,21 @@ func _apply_shape_clipping(new_marker):
 			continue
 		if not _shapes_intersect(new_desc, other_desc):
 			continue
-		# Register mutual relationship
-		if not new_marker.clipped_by_ids.has(other.id):
-			new_marker.clipped_by_ids.append(other.id)
-		if not other.clipped_by_ids.has(new_marker.id):
-			other.clipped_by_ids.append(new_marker.id)
-		# Recompute clipping for both markers
-		_recompute_marker_clip(new_marker, cell_size)
-		_recompute_marker_clip(other, cell_size)
+		# Clip existing marker's outline by new_marker.
+		other.set_primitives(
+			GeometryUtils.clip_primitives_against_shapes(
+				other.get_primitives(), [new_desc]))
+		# Clip new_marker's outline by the existing marker.
+		new_marker.set_primitives(
+			GeometryUtils.clip_primitives_against_shapes(
+				new_marker.get_primitives(), [other_desc]))
 	if overlay:
 		overlay.update()
 
-# Remove clipping contributions of [removed_id] from all remaining markers
-# and recompute their render_primitives.
-func _remove_shape_clipping(removed_id):
-	var cell_size = _get_grid_cell_size()
-	for marker in markers:
-		if marker.id == removed_id:
-			continue
-		if marker.marker_type != MARKER_TYPE_SHAPE:
-			continue
-		if marker.clipped_by_ids.has(removed_id):
-			marker.clipped_by_ids.erase(removed_id)
-			_recompute_marker_clip(marker, cell_size)
+# Clip / Cut relationships are reflected directly in primitives.
+# This function is kept as a no-op hook in case future logic needs it.
+func _remove_shape_clipping(_removed_id):
+	pass
 
 # ============================================================================
 # DIFFERENCE MODE CORE
@@ -950,29 +926,19 @@ func _remove_shape_clipping(removed_id):
 
 ## Build in-memory descriptor from a serializable op dict.
 func _desc_from_op(op: Dictionary) -> Dictionary:
-	if op.shape_type == "poly":
-		var pts = []
-		for v in op.points:
-			pts.append(Vector2(v[0], v[1]))
-		return {"shape_type": "poly", "points": pts}
-	else:  # circle
-		return {"shape_type": "circle",
-		        "center": Vector2(op.center[0], op.center[1]),
-		        "radius": op.radius}
+	var pts = []
+	for v in op.points:
+		pts.append(Vector2(v[0], v[1]))
+	return {"shape_type": "poly", "points": pts}
 
 ## Build serializable op dict from an in-memory descriptor.
 func _op_from_desc(desc: Dictionary) -> Dictionary:
-	if desc.shape_type == "poly":
-		var pts = []
-		for v in desc.points:
-			pts.append([v.x, v.y])
-		return {"shape_type": "poly", "points": pts}
-	else:
-		return {"shape_type": "circle",
-		        "center": [desc.center.x, desc.center.y],
-		        "radius": desc.radius}
+	var pts = []
+	for v in desc.points:
+		pts.append([v.x, v.y])
+	return {"shape_type": "poly", "points": pts}
 
-## Snapshot clip state of all Shape markers that intersect diff_desc.
+## Snapshot primitives of all Shape markers that intersect diff_desc.
 func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
 	var snap = {}
 	var cell_size = _get_grid_cell_size()
@@ -984,83 +950,14 @@ func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
 			continue
 		if _shapes_overlap(desc, diff_desc):
 			snap[marker.id] = {
-				"render_primitives": marker.get_render_primitives().duplicate(true),
-				"render_fills":      marker.get_render_fills().duplicate(true),
-				"clipped_by_ids":    marker.clipped_by_ids.duplicate()
+				"primitives": marker.get_primitives().duplicate(true)
 			}
 	return snap
 
-## Rebuild render_primitives for [marker] using only the difference_ops that were
-## explicitly applied to it (tracked via op["applied_to"]).
-## Always starts from the original marker geometry so multiple diffs compound.
-func _rebuild_all_diffs_for_marker(marker, cell_size):
-	var target_desc = _get_shape_descriptor(marker, cell_size)
-	if target_desc.empty():
-		return
-
-	# Collect ops applied to this marker. For backward-compatibility, also
-	# migrate ops whose applied_to is empty by doing a geometric overlap check.
-	var affecting: Array = []
-	for op in difference_ops:
-		if op.get("applied_to", []).has(marker.id):
-			affecting.append(_desc_from_op(op))
-		elif not op.has("applied_to") or op["applied_to"].empty():
-			# Legacy op with no tracking — check geometrically and migrate.
-			var op_desc = _desc_from_op(op)
-			if _shapes_overlap(target_desc, op_desc):
-				if not op.has("applied_to"):
-					op["applied_to"] = []
-				op["applied_to"].append(marker.id)
-				affecting.append(op_desc)
-
-	if affecting.empty():
-		marker.set_render_primitives([], [])
-		return
-
-	# Outer: marker outline OUTSIDE all its diffs simultaneously
-	var outer = []
-	if target_desc.shape_type == "poly":
-		outer = GeometryUtils.clip_polygon_against_shapes(target_desc.points, affecting)
-	elif target_desc.shape_type == "circle":
-		outer = GeometryUtils.clip_circle_against_shapes(target_desc.center, target_desc.radius, affecting)
-
-	# If outer covers the full shape (no actual edge was cut, e.g. all diffs are
-	# inside), leave render_primitives empty so the fallback full-shape path is
-	# used.  This prevents a redundant full-arc primitive from appearing in the
-	# list alongside the fill lines.
-	var all_inside = true
-	for d in affecting:
-		if _shapes_intersect(target_desc, d):
-			all_inside = false
-			break
-	if all_inside:
-		outer = []  # let fallback draw the full shape
-
-	# Fill: each diff's outline INSIDE the marker, clipped against all OTHER diffs
-	# so fill lines from earlier ops don't bleed into holes made by later ops.
-	var fills = []
-	for i in range(affecting.size()):
-		var d = affecting[i]
-		var raw_fill = []
-		if d.shape_type == "poly":
-			raw_fill = GeometryUtils.clip_polygon_inside_shape(d.points, target_desc)
-		elif d.shape_type == "circle":
-			raw_fill = GeometryUtils.clip_circle_inside_shape(d.center, d.radius, target_desc)
-		# Remove portions that fall inside any other diff's hole
-		var other_diffs = []
-		for j in range(affecting.size()):
-			if j != i:
-				other_diffs.append(affecting[j])
-		if not other_diffs.empty():
-			raw_fill = GeometryUtils.clip_primitives_against_shapes(raw_fill, other_diffs)
-		fills += raw_fill
-
-	marker.set_render_primitives(outer, fills)
-
-## Apply a Difference operation. Records which markers were affected in
-## diff_op["applied_to"] so that subsequent rebuilds stay per-marker isolated.
+## Apply a Difference operation directly to each affected marker's current
+## primitives (no rebuild from original polygon).
+## Outline segments inside the diff area are replaced by the diff boundary.
 func _do_apply_difference(diff_desc: Dictionary, diff_op: Dictionary):
-	# Ensure the op has an applied_to list before registering
 	if not diff_op.has("applied_to"):
 		diff_op["applied_to"] = []
 	if not difference_ops.has(diff_op):
@@ -1075,42 +972,94 @@ func _do_apply_difference(diff_desc: Dictionary, diff_op: Dictionary):
 			continue
 		if not _shapes_overlap(target_desc, diff_desc):
 			continue
-		# Tag this marker as affected by this op, then rebuild from all its ops
+
+		# Record which marker this op was applied to.
 		if not diff_op["applied_to"].has(marker.id):
 			diff_op["applied_to"].append(marker.id)
-		_rebuild_all_diffs_for_marker(marker, cell_size)
+
+		# Clip the current outline: keep segments OUTSIDE the diff shape.
+		# Append the diff boundary (inside the marker) to the same list.
+		var diff_boundary = GeometryUtils.clip_polygon_inside_shape(
+			diff_desc.points, target_desc)
+		marker.set_primitives(
+			GeometryUtils.clip_primitives_against_shapes(
+				marker.get_primitives(), [diff_desc]) + diff_boundary)
 
 	if overlay:
 		overlay.update()
+
+## Snapshot primitives of all Shape markers that would be affected
+## by a new Clip / Cut shape placed at [pos] with the current active settings.
+## Call this BEFORE _do_place_marker so the snapshot captures pre-clip state.
+func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
+	var snap = {}
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return snap
+	var new_desc = _build_shape_descriptor_at(pos)
+	if new_desc.empty():
+		return snap
+	for marker in markers:
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var other_desc = _get_shape_descriptor(marker, cell_size)
+		if _shapes_intersect(new_desc, other_desc):
+			snap[marker.id] = {
+				"primitives": marker.get_primitives().duplicate(true)
+			}
+	return snap
 
 ## Serialize difference_ops for map save.
 func save_difference_ops() -> Array:
 	return difference_ops.duplicate(true)
 
-## Restore difference_ops on map load and rebuild only the markers each op
-## was applied to (per the saved applied_to lists).
+## Restore difference_ops on map load and re-apply them sequentially to the
+## fresh primitives of each affected marker.
+## Ops are applied in array order (the same order they were originally applied).
 func load_difference_ops(ops: Array):
 	difference_ops = []
 	for op in ops:
 		difference_ops.append(op.duplicate(true))
 
-	# Rebuild markers.  For legacy ops that have no applied_to tracking we
-	# cannot know which markers were affected, so we fall back to rebuilding
-	# all markers (the migration inside _rebuild_all_diffs_for_marker will
-	# populate applied_to from a geometric check).
 	var cell_size = _get_grid_cell_size()
-	var has_legacy_ops = false
-	var affected_ids    = {}
+
 	for op in difference_ops:
-		var a = op.get("applied_to", [])
-		if a.empty():
-			has_legacy_ops = true
+		var diff_desc = _desc_from_op(op)
+		var applied_to = op.get("applied_to", [])
+
+		var target_ids = {}
+		if applied_to.empty():
+			# Legacy op without applied_to: determine geometrically which markers
+			# overlap and migrate the op in-place.
+			for marker in markers:
+				if marker.marker_type != MARKER_TYPE_SHAPE:
+					continue
+				var desc = _get_shape_descriptor(marker, cell_size)
+				if _shapes_overlap(desc, diff_desc):
+					target_ids[marker.id] = true
+					if not op.has("applied_to"):
+						op["applied_to"] = []
+					if not op["applied_to"].has(marker.id):
+						op["applied_to"].append(marker.id)
 		else:
-			for id in a:
-				affected_ids[id] = true
-	for marker in markers:
-		if has_legacy_ops or affected_ids.has(marker.id):
-			_rebuild_all_diffs_for_marker(marker, cell_size)
+			for id in applied_to:
+				target_ids[id] = true
+
+		for id in target_ids:
+			if not markers_lookup.has(id):
+				continue
+			var marker = markers_lookup[id]
+			var target_desc = _get_shape_descriptor(marker, cell_size)
+			if target_desc.empty():
+				continue
+			# Ensure primitives are initialised.
+			if marker.get_primitives().empty():
+				marker.get_draw_data(null, cell_size)
+			var new_outer = GeometryUtils.clip_primitives_against_shapes(
+				marker.get_primitives(), [diff_desc])
+			var diff_boundary = GeometryUtils.clip_polygon_inside_shape(
+				diff_desc.points, target_desc)
+			marker.set_primitives(new_outer + diff_boundary)
 
 	if overlay:
 		overlay.update()
@@ -1304,7 +1253,7 @@ func _on_quick_angle_pressed(angle_value):
 	active_angle = angle_value
 	_update_angle_spinbox()
 	if LOGGER:
-		LOGGER.debug("Quick angle set to: %.1f°" % [angle_value])
+		LOGGER.debug("Quick angle set to: %.1fВ°" % [angle_value])
 
 func _on_angle_changed(value):
 	active_angle = value
@@ -1312,7 +1261,7 @@ func _on_angle_changed(value):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Angle changed to: %.1f°" % [value])
+		LOGGER.debug("Angle changed to: %.1fВ°" % [value])
 
 func _on_color_changed(new_color):
 	active_color = new_color
@@ -1345,17 +1294,14 @@ func _on_reset_pressed():
 	# Reset Shape type settings
 	elif active_marker_type == MARKER_TYPE_SHAPE:
 		active_shape_radius = DEFAULT_SHAPE_RADIUS
-		active_shape_subtype = DEFAULT_SHAPE_SUBTYPE
 		active_shape_angle = DEFAULT_SHAPE_ANGLE
 		active_shape_sides = DEFAULT_SHAPE_SIDES
 		
 		type_settings[MARKER_TYPE_SHAPE]["radius"] = DEFAULT_SHAPE_RADIUS
-		type_settings[MARKER_TYPE_SHAPE]["subtype"] = DEFAULT_SHAPE_SUBTYPE
 		type_settings[MARKER_TYPE_SHAPE]["angle"] = DEFAULT_SHAPE_ANGLE
 		type_settings[MARKER_TYPE_SHAPE]["sides"] = DEFAULT_SHAPE_SIDES
 		
 		_update_shape_radius_spinbox()
-		_update_shape_subtype_selector()
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
 	
@@ -1395,7 +1341,7 @@ func _set_spinbox_value(node_name: String, value: float) -> void:
 
 func _update_angle_spinbox():
 	if LOGGER:
-		LOGGER.debug("Updating AngleSpinBox: %.1f°" % [active_angle])
+		LOGGER.debug("Updating AngleSpinBox: %.1fВ°" % [active_angle])
 	_set_spinbox_value("AngleSpinBox", active_angle)
 
 func _update_color_picker():
@@ -1416,31 +1362,54 @@ func _update_mirror_checkbox():
 		if checkbox:
 			checkbox.pressed = active_mirror
 
-# UI Callbacks for Shape settings
+# UI callback for shape preset selector.
+# Selecting a preset sets the canonical starting sides and angle for that shape;
+# subtype is no longer stored on the marker вЂ” only sides/angle matter.
 func _on_shape_subtype_changed(subtype_index):
 	if not type_selector:
 		return
 	
 	var subtype_selector = shape_settings_container.find_node("ShapeSubtypeSelector", true, false)
 	if subtype_selector:
-		active_shape_subtype = subtype_selector.get_item_metadata(subtype_index)
-		type_settings[MARKER_TYPE_SHAPE]["subtype"] = active_shape_subtype
+		var preset = subtype_selector.get_item_metadata(subtype_index)
 		
-		# Enable/disable angle spinbox based on subtype
-		var angle_spinbox = shape_settings_container.find_node("ShapeAngleSpinBox", true, false)
-		if angle_spinbox:
-			angle_spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
+		# Apply canonical defaults for the selected preset
+		match preset:
+			SHAPE_CIRCLE:
+				active_shape_sides = 64
+				active_shape_angle = 0.0
+			SHAPE_SQUARE:
+				active_shape_sides = 4
+				active_shape_angle = 45.0
+			SHAPE_PENTAGON:
+				active_shape_sides = 5
+				active_shape_angle = -90.0
+			SHAPE_HEXAGON:
+				active_shape_sides = 6
+				active_shape_angle = 0.0
+			SHAPE_OCTAGON:
+				active_shape_sides = 8
+				active_shape_angle = 22.5
+			SHAPE_CUSTOM:
+				# Keep current sides/angle as-is when switching to Custom
+				pass
 		
-		# Show/hide sides row - only for Custom subtype
+		type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
+		type_settings[MARKER_TYPE_SHAPE]["sides"] = active_shape_sides
+		
+		# Show/hide sides spinbox вЂ” visible only for Custom
 		var sides_row = shape_settings_container.find_node("SidesRow", true, false)
 		if sides_row:
-			sides_row.visible = (active_shape_subtype == SHAPE_CUSTOM)
+			sides_row.visible = (preset == SHAPE_CUSTOM)
+		
+		_update_shape_angle_spinbox()
+		_update_shape_sides_spinbox()
 		
 		if overlay:
 			overlay.update()
 		
 		if LOGGER:
-			LOGGER.info("Shape subtype changed to: %s" % [active_shape_subtype])
+			LOGGER.info("Shape preset changed to: %s (sides=%d, angle=%.1f)" % [preset, active_shape_sides, active_shape_angle])
 
 func _on_shape_radius_changed(value):
 	# Ensure minimum radius of 0.1
@@ -1464,22 +1433,10 @@ func _on_shape_angle_changed(value):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Shape angle changed to: %.1f°" % [value])
+		LOGGER.debug("Shape angle changed to: %.1fВ°" % [value])
 
 func _update_shape_radius_spinbox():
 	_set_spinbox_value("ShapeRadiusSpinBox", active_shape_radius)
-
-func _update_shape_subtype_selector():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var selector = container.find_node("ShapeSubtypeSelector", true, false)
-		if selector:
-			for i in range(selector.get_item_count()):
-				if selector.get_item_metadata(i) == active_shape_subtype:
-					selector.selected = i
-					break
 
 func _update_shape_angle_spinbox():
 	if not tool_panel:
@@ -1489,8 +1446,6 @@ func _update_shape_angle_spinbox():
 		var spinbox = container.find_node("ShapeAngleSpinBox", true, false)
 		if spinbox:
 			spinbox.value = active_shape_angle
-			# Update editable state based on subtype
-			spinbox.editable = (active_shape_subtype != SHAPE_CIRCLE)
 
 func _on_shape_sides_changed(value):
 	active_shape_sides = int(value)
@@ -1558,9 +1513,6 @@ func _update_shape_sides_spinbox():
 		var spinbox = container.find_node("ShapeSidesSpinBox", true, false)
 		if spinbox:
 			spinbox.value = active_shape_sides
-		var sides_row = container.find_node("SidesRow", true, false)
-		if sides_row:
-			sides_row.visible = (active_shape_subtype == SHAPE_CUSTOM)
 
 # UI Callbacks for Arrow settings
 func _on_arrow_head_length_changed(value):
@@ -1585,7 +1537,7 @@ func _on_arrow_head_angle_changed(value):
 	if overlay:
 		overlay.update()
 	if LOGGER:
-		LOGGER.debug("Arrow head angle changed to: %.1f°" % [value])
+		LOGGER.debug("Arrow head angle changed to: %.1fВ°" % [value])
 
 func _update_arrow_head_length_spinbox():
 	_set_spinbox_value("ArrowHeadLengthSpinBox", active_arrow_head_length)
@@ -1615,7 +1567,7 @@ func _create_line_settings_ui():
 	quick_grid.columns = 4
 	
 	var quick_angles = [0, 45, 90, 135, 180, 225, 270, 315]
-	var angle_names = ["0°", "45°", "90°", "135°", "180°", "225°", "270°", "315°"]
+	var angle_names = ["0В°", "45В°", "90В°", "135В°", "180В°", "225В°", "270В°", "315В°"]
 	
 	for i in range(quick_angles.size()):
 		var btn = Button.new()
@@ -1629,7 +1581,7 @@ func _create_line_settings_ui():
 	# Angle SpinBox
 	var angle_hbox = HBoxContainer.new()
 	var angle_label = Label.new()
-	angle_label.text = "Angle (°):"
+	angle_label.text = "Angle (В°):"
 	angle_label.rect_min_size = Vector2(80, 0)
 	angle_hbox.add_child(angle_label)
 	
@@ -1677,11 +1629,8 @@ func _create_shape_settings_ui():
 	subtype_option.add_item("Custom (N-sided)")
 	subtype_option.set_item_metadata(5, SHAPE_CUSTOM)
 	
-	# Set current selection
-	for i in range(subtype_option.get_item_count()):
-		if subtype_option.get_item_metadata(i) == active_shape_subtype:
-			subtype_option.selected = i
-			break
+	# Default to Circle preset (index 0)
+	subtype_option.selected = 0
 	
 	subtype_option.name = "ShapeSubtypeSelector"
 	subtype_option.connect("item_selected", self, "_on_shape_subtype_changed")
@@ -1719,7 +1668,7 @@ func _create_shape_settings_ui():
 	# Angle SpinBox (disabled for Circle)
 	var angle_hbox = HBoxContainer.new()
 	var angle_label = Label.new()
-	angle_label.text = "Angle (°):"
+	angle_label.text = "Angle (В°):"
 	angle_label.rect_min_size = Vector2(80, 0)
 	angle_hbox.add_child(angle_label)
 	
@@ -1731,8 +1680,6 @@ func _create_shape_settings_ui():
 	angle_spin.name = "ShapeAngleSpinBox"
 	angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	angle_spin.connect("value_changed", self, "_on_shape_angle_changed")
-	# Disable for Circle subtype
-	angle_spin.editable = (active_shape_subtype != SHAPE_CIRCLE)
 	angle_hbox.add_child(angle_spin)
 	container.add_child(angle_hbox)
 	
@@ -1759,8 +1706,8 @@ func _create_shape_settings_ui():
 	sides_hbox.add_child(sides_spin)
 	container.add_child(sides_hbox)
 	
-	# Only show sides row for Custom subtype
-	sides_hbox.visible = (active_shape_subtype == SHAPE_CUSTOM)
+	# Only show sides row for Custom subtype (hidden by default)
+	sides_hbox.visible = false
 
 	container.add_child(_create_spacer(10))
 
@@ -1974,13 +1921,11 @@ func _load_type_settings(marker_type):
 	
 	# Load Shape type settings
 	elif marker_type == MARKER_TYPE_SHAPE:
-		active_shape_subtype = settings["subtype"]
 		active_shape_radius = settings["radius"]
 		active_shape_angle = settings.get("angle", 0.0)
 		active_shape_sides = settings.get("sides", DEFAULT_SHAPE_SIDES)
 		
 		# Update UI
-		_update_shape_subtype_selector()
 		_update_shape_radius_spinbox()
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
@@ -2006,7 +1951,6 @@ func _save_current_type_settings():
 	
 	# Save Shape type settings
 	elif active_marker_type == MARKER_TYPE_SHAPE:
-		type_settings[MARKER_TYPE_SHAPE]["subtype"] = active_shape_subtype
 		type_settings[MARKER_TYPE_SHAPE]["radius"] = active_shape_radius
 		type_settings[MARKER_TYPE_SHAPE]["angle"] = active_shape_angle
 		type_settings[MARKER_TYPE_SHAPE]["sides"] = active_shape_sides
@@ -2044,7 +1988,7 @@ func adjust_angle_with_wheel(direction):
 		new_angle -= 360
 	
 	if LOGGER:
-		LOGGER.debug("Angle changing: %.1f° -> %.1f°" % [active_angle, new_angle])
+		LOGGER.debug("Angle changing: %.1fВ° -> %.1fВ°" % [active_angle, new_angle])
 	
 	active_angle = new_angle
 	
@@ -2059,7 +2003,7 @@ func adjust_angle_with_wheel(direction):
 		overlay.update()
 	
 	if LOGGER:
-		LOGGER.info("Angle adjusted via mouse wheel: %.1f°" % [active_angle])
+		LOGGER.info("Angle adjusted via mouse wheel: %.1fВ°" % [active_angle])
 
 # Adjust shape radius using mouse wheel (only for Shape type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
@@ -2106,14 +2050,10 @@ func adjust_shape_angle_with_wheel(direction):
 	if LOGGER:
 		LOGGER.debug("adjust_shape_angle_with_wheel called: direction=%d, current_type=%s, current_angle=%.1f" % [direction, active_marker_type, active_shape_angle])
 	
-	# Only works for Shape type, and not for Circle
+	# Only works for Shape type
 	if active_marker_type != MARKER_TYPE_SHAPE:
 		if LOGGER:
 			LOGGER.debug("Wheel angle adjustment ignored - not Shape type")
-		return
-	if active_shape_subtype == SHAPE_CIRCLE:
-		if LOGGER:
-			LOGGER.debug("Wheel angle adjustment ignored - Circle has no angle")
 		return
 	
 	# Angle step: 5 degrees per wheel tick
@@ -2124,7 +2064,7 @@ func adjust_shape_angle_with_wheel(direction):
 		new_angle += 360.0
 	
 	if LOGGER:
-		LOGGER.debug("Shape angle changing: %.1f° -> %.1f°" % [active_shape_angle, new_angle])
+		LOGGER.debug("Shape angle changing: %.1fВ° -> %.1fВ°" % [active_shape_angle, new_angle])
 	
 	active_shape_angle = new_angle
 	
@@ -2139,27 +2079,23 @@ func adjust_shape_angle_with_wheel(direction):
 		overlay.update()
 	
 	if LOGGER:
-		LOGGER.info("Shape angle adjusted via mouse wheel: %.1f°" % [active_shape_angle])
+		LOGGER.info("Shape angle adjusted via mouse wheel: %.1fВ°" % [active_shape_angle])
 
 # Rotate shape by 45 degrees via RMB shortcut
 func rotate_shape_45():
 	if LOGGER:
 		LOGGER.debug("rotate_shape_45 called: current_type=%s, current_angle=%.1f" % [active_marker_type, active_shape_angle])
 	
-	# Only works for Shape type, and not for Circle
+	# Only works for Shape type
 	if active_marker_type != MARKER_TYPE_SHAPE:
 		if LOGGER:
 			LOGGER.debug("rotate_shape_45 ignored - not Shape type")
-		return
-	if active_shape_subtype == SHAPE_CIRCLE:
-		if LOGGER:
-			LOGGER.debug("rotate_shape_45 ignored - Circle has no angle")
 		return
 	
 	var new_angle = fmod(active_shape_angle + 45.0, 360.0)
 	
 	if LOGGER:
-		LOGGER.debug("Shape angle rotating 45°: %.1f° -> %.1f°" % [active_shape_angle, new_angle])
+		LOGGER.debug("Shape angle rotating 45В°: %.1fВ° -> %.1fВ°" % [active_shape_angle, new_angle])
 	
 	active_shape_angle = new_angle
 	
@@ -2174,5 +2110,5 @@ func rotate_shape_45():
 		overlay.update()
 	
 	if LOGGER:
-		LOGGER.info("Shape rotated 45° via RMB: %.1f°" % [active_shape_angle])
+		LOGGER.info("Shape rotated 45В° via RMB: %.1fВ°" % [active_shape_angle])
 

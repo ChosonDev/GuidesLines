@@ -105,12 +105,11 @@ func place_line_marker(position: Vector2, angle: float = 0.0, mirror: bool = fal
 ## Returns the integer id of the created marker, or -1 on failure.
 ## Parameters:
 ##   position — world-space Vector2
-##   subtype  — one of "Circle", "Square", "Pentagon", "Hexagon", "Octagon", "Custom"
 ##   radius   — circumradius in grid cells (default 1.0)
 ##   angle    — rotation in degrees (default 0.0)
-##   sides    — number of sides for "Custom" subtype (default 6)
+##   sides    — number of polygon sides (default 6)
 ##   color    — marker color (default active color)
-func place_shape_marker(position: Vector2, subtype: String = "Circle", radius: float = 1.0,
+func place_shape_marker(position: Vector2, radius: float = 1.0,
 						angle: float = 0.0, sides: int = 6, color = null) -> int:
 	if not _has_tool():
 		return -1
@@ -122,14 +121,13 @@ func place_shape_marker(position: Vector2, subtype: String = "Circle", radius: f
 		"color": color if color != null else tool.active_color,
 		"coordinates": tool.show_coordinates,
 		"id": marker_id,
-		"shape_subtype": subtype,
 		"shape_radius": radius,
 		"shape_angle": angle,
 		"shape_sides": sides,
 	}
 	tool.api_place_marker(marker_data)
 	if LOGGER:
-		LOGGER.debug("API: Shape marker placed id=%d pos=%s subtype=%s" % [marker_id, str(position), subtype])
+		LOGGER.debug("API: Shape marker placed id=%d pos=%s sides=%d" % [marker_id, str(position), sides])
 	return marker_id
 
 ## Places a Path marker.
@@ -320,21 +318,14 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 
 			"Shape":
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type"):
-					if draw_data["shape_type"] == "circle" and draw_data.has("radius"):
-						var pt = GeometryUtils.closest_point_on_circle(coords, marker.position, draw_data["radius"])
-						var d = coords.distance_to(pt)
-						if d < min_dist:
-							min_dist = d
-							min_point = pt
-					elif draw_data["shape_type"] == "poly" and draw_data.has("points"):
-						var pts = draw_data["points"]
-						var pt = GeometryUtils.closest_point_on_polygon_edges(coords, pts)
-						var d = coords.distance_to(pt)
-						if d < min_dist:
-							min_dist = d
-							min_point = pt
-						min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
+				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
+					var pts = draw_data["points"]
+					var pt = GeometryUtils.closest_point_on_polygon_edges(coords, pts)
+					var d = coords.distance_to(pt)
+					if d < min_dist:
+						min_dist = d
+						min_point = pt
+					min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
 
 			"Path":
 				var pts = marker.marker_points
@@ -433,16 +424,12 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 				if marker.position.distance_to(coords) > radius:
 					continue
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type"):
-					if draw_data["shape_type"] == "circle" and draw_data.has("radius"):
-						for pt in _line_intersect_circle(line_from, line_dir, marker.position, draw_data["radius"]):
+				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
+					var pts = draw_data["points"]
+					for i in range(pts.size()):
+						var pt = _line_intersect_segment(line_from, line_dir, pts[i], pts[(i + 1) % pts.size()])
+						if pt != null:
 							candidates.append(pt)
-					elif draw_data["shape_type"] == "poly" and draw_data.has("points"):
-						var pts = draw_data["points"]
-						for i in range(pts.size()):
-							var pt = _line_intersect_segment(line_from, line_dir, pts[i], pts[(i + 1) % pts.size()])
-							if pt != null:
-								candidates.append(pt)
 
 			"Path":
 				if marker.position.distance_to(coords) > radius:
@@ -535,11 +522,8 @@ func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 				if marker.position.distance_to(coords) > radius:
 					continue
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type"):
-					if draw_data["shape_type"] == "circle" and draw_data.has("radius"):
-						candidates.append(GeometryUtils.closest_point_on_circle(coords, marker.position, draw_data["radius"]))
-					elif draw_data["shape_type"] == "poly" and draw_data.has("points"):
-						candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, draw_data["points"]))
+				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
+					candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, draw_data["points"]))
 
 			"Path":
 				if marker.position.distance_to(coords) > radius:
@@ -705,8 +689,3 @@ func _closest_point_on_segment(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
 ## [a]→[b].  Returns the intersection Vector2 or null if parallel / miss.
 func _line_intersect_segment(lp: Vector2, ld: Vector2, a: Vector2, b: Vector2):
 	return GeometryUtils.line_intersect_segment(lp, ld, a, b)
-
-## Intersects an infinite line (lp + t*ld, ld must be normalised) with a circle.
-## Returns an Array of 0, 1, or 2 Vector2 intersection points.
-func _line_intersect_circle(lp: Vector2, ld: Vector2, center: Vector2, r: float) -> Array:
-	return GeometryUtils.line_intersect_circle(lp, ld, center, r)

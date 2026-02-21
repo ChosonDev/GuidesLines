@@ -8,10 +8,9 @@ const GeometryUtils = preload("../utils/GeometryUtils.gd")
 var position = Vector2.ZERO
 var marker_type = "Line"  # Type of marker (Line, Shape, Path, Arrow)
 var angle = 0.0  # Line angle in degrees (0-360) [Line only]
-var shape_subtype = "Circle"  # Shape subtype: Circle, Square, Pentagon, Hexagon, Octagon [Shape only]
 var shape_radius = 1.0  # Shape radius in grid cells (circumradius) [Shape only]
-var shape_angle = 0.0  # Shape rotation angle in degrees (0-360) [Shape only, disabled for Circle]
-var shape_sides = 6  # Number of sides for Custom polygon [Shape/Custom only]
+var shape_angle = 0.0  # Shape rotation angle in degrees (0-360) [Shape only]
+var shape_sides = 6  # Number of polygon sides [Shape only]
 var marker_points = []  # Array of Vector2 points [Shape vertices/Path/Arrow points]
 var path_closed = false  # Whether path is closed (loop) [Path only]
 var arrow_head_length = 50.0  # Arrowhead length in pixels [Arrow only]
@@ -28,33 +27,24 @@ const LINE_WIDTH = 5.0  # Thicker lines
 
 # CACHED GEOMETRY — single source of truth for all current geometric data.
 # Structure for Shape:
-#   "type":             "shape"
-#   "shape_type":       "circle" | "poly"
-#   "radius":           float            (circle only)
-#   "points":           Array[Vector2]   (poly only)
+#   "type":        "shape"
+#   "shape_type":  "poly"
 #
-#   "render_primitives": Array — OUTLINE replacement (clip / cut modes).
-#     [] = draw full shape outline via fallback
-#     [{"type":"seg","a":V2,"b":V2}, {"type":"arc",...}, ...]
-#
-#   "render_fills": Array — EXTRA lines drawn ON TOP of the outline (Difference fills).
-#     Always rendered independently, even when render_primitives is empty.
-#     Same item format as render_primitives.
+#   "primitives":  Array[{"type":"seg","a":V2,"b":V2}]
+#     The ONLY authoritative list of segments — outline AND all Difference boundary
+#     segments mixed together.  Set once on fresh placement (full polygon edges)
+#     and then modified IN-PLACE by each Clip / Cut / Difference op.
+#     Never rebuilt from original parameters — use undo snapshots to revert.
 var cached_draw_data = {}
 var _dirty = true
-
-# IDs of other Shape markers that clip this one (used by auto_clip / cut modes).
-# Not saved to file — restored on load via the history system.
-var clipped_by_ids = []
 
 # Initialize marker with position and type-specific parameters
 func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	position = pos
 	angle = _angle
 	shape_radius = 1.0  # Default Shape radius
-	shape_subtype = "Circle"  # Default Shape subtype
 	shape_angle = 0.0  # Default Shape angle
-	shape_sides = 6  # Default sides for Custom polygon
+	shape_sides = 6  # Default sides
 	mirror = _mirror
 	show_coordinates = coords
 	color = DEFAULT_LINE_COLOR
@@ -68,8 +58,6 @@ func set_property(prop, value):
 			if angle != value: angle = value; changed = true
 		"shape_radius":
 			if shape_radius != value: shape_radius = value; changed = true
-		"shape_subtype":
-			if shape_subtype != value: shape_subtype = value; changed = true
 		"shape_angle":
 			if shape_angle != value: shape_angle = value; changed = true
 		"shape_sides":
@@ -101,47 +89,29 @@ func get_draw_data(map_rect, cell_size):
 		_recalculate_geometry(map_rect, cell_size)
 	return cached_draw_data
 
-## Reset render_primitives and render_fills so the renderer draws the full unclipped shape.
+## Reset to the full unclipped outline.
+## Clears Clip/Cut/Difference state; the next get_draw_data() rebuilds primitives
+## from shape parameters (because saved_primitives is now empty).
 func clear_clip():
-	clipped_by_ids = []
-	if cached_draw_data.has("render_primitives"):
-		cached_draw_data["render_primitives"] = []
-	if cached_draw_data.has("render_fills"):
-		cached_draw_data["render_fills"] = []
+	cached_draw_data["primitives"] = []
+	_dirty = true
 
-## Write outline primitives (outer clip result) and fill primitives (diff boundary lines)
-## as two separate arrays. Called by GuidesLinesTool after clip/diff calculation.
-## [outer]: replaces the shape outline when non-empty.
-## [fills]: always drawn on top of whatever outline is shown.
-func set_render_primitives(outer: Array, fills: Array = []):
-	cached_draw_data["render_primitives"] = outer
-	cached_draw_data["render_fills"]      = fills
+## Set the current segments (outline + diff fills merged into one list).
+## Called by GuidesLinesTool after any Clip / Cut / Difference operation.
+func set_primitives(segs: Array):
+	cached_draw_data["primitives"] = segs
 
-## Convenience: get just the outline primitives (used by DifferenceRecord snapshot).
-func get_render_primitives() -> Array:
-	return cached_draw_data.get("render_primitives", [])
-
-## Convenience: get just the fill primitives (used by DifferenceRecord snapshot).
-func get_render_fills() -> Array:
-	return cached_draw_data.get("render_fills", [])
-
-## Base descriptor of the original geometry (without clip) — used by clipping algorithms.
-func get_base_descriptor() -> Dictionary:
-	if cached_draw_data.empty():
-		return {}
-	if cached_draw_data.get("shape_type") == "circle":
-		return {"shape_type": "circle", "center": position, "radius": cached_draw_data["radius"]}
-	elif cached_draw_data.get("shape_type") == "poly":
-		return {"shape_type": "poly", "points": cached_draw_data["points"]}
-	return {}
+## Get the current segments.
+func get_primitives() -> Array:
+	return cached_draw_data.get("primitives", [])
 
 func _recalculate_geometry(map_rect, cell_size):
-	# Preserve render_primitives across recalculation so clip/diff results are
-	# not lost when geometry parameters are invalidated for unrelated reasons.
-	var saved_primitives = cached_draw_data.get("render_primitives", [])
-	var saved_fills      = cached_draw_data.get("render_fills", [])
+	# Preserve primitives across recalculation so Clip/Cut/Difference results
+	# survive unrelated property changes (e.g. colour, show_coordinates).
+	# Empty saved_primitives means this is a fresh (unmodified) shape.
+	var saved_primitives = cached_draw_data.get("primitives", [])
 	cached_draw_data = {}
-	
+
 	if marker_type == "Line" and map_rect != null:
 		cached_draw_data["type"] = "line"
 		cached_draw_data["segments"] = []
@@ -156,22 +126,30 @@ func _recalculate_geometry(map_rect, cell_size):
 				cached_draw_data["segments"].append(segment)
 
 	elif marker_type == "Shape":
-		cached_draw_data["type"] = "shape"
+		cached_draw_data["type"]       = "shape"
+		cached_draw_data["shape_type"] = "poly"
 		if cell_size:
-			var radius_px = shape_radius * min(cell_size.x, cell_size.y)
-			var angle_rad = deg2rad(shape_angle)
-			
-			if shape_subtype == "Circle":
-				cached_draw_data["shape_type"] = "circle"
-				cached_draw_data["radius"] = radius_px
+			if saved_primitives.size() > 0:
+				# Restore previously modified state (Clip / Cut / Difference applied).
+				cached_draw_data["primitives"] = saved_primitives
 			else:
-				cached_draw_data["shape_type"] = "poly"
-				cached_draw_data["points"] = GeometryUtils.calculate_shape_vertices(position, radius_px, shape_subtype, angle_rad, shape_sides)
-		# Always restore both render fields — must be outside "if cell_size" so
-		# clip/diff results are never lost even when cell_size is temporarily null.
-		cached_draw_data["render_primitives"] = saved_primitives
-		cached_draw_data["render_fills"]      = saved_fills
+				# Fresh shape — build full polygon outline from parameters.
+				var radius_px = shape_radius * min(cell_size.x, cell_size.y)
+				var angle_rad = deg2rad(shape_angle)
+				var pts = GeometryUtils.calculate_shape_vertices(position, radius_px, shape_sides, angle_rad)
+				cached_draw_data["primitives"] = _points_to_segs(pts)
+		else:
+			# cell_size unavailable — preserve whatever state existed.
+			cached_draw_data["primitives"] = saved_primitives
 	_dirty = false
+
+# Convert a polygon vertex array to an array of seg items representing its full outline.
+static func _points_to_segs(pts: Array) -> Array:
+	var segs = []
+	var n = pts.size()
+	for i in range(n):
+		segs.append({"type": "seg", "a": pts[i], "b": pts[(i + 1) % n]})
+	return segs
 
 # Get bounding rectangle for marker selection
 func get_rect():
@@ -197,7 +175,6 @@ func Save():
 		data["angle"] = angle
 		data["mirror"] = mirror
 	elif marker_type == "Shape":
-		data["shape_subtype"] = shape_subtype
 		data["shape_radius"] = shape_radius
 		data["shape_angle"] = shape_angle
 		data["shape_sides"] = shape_sides
@@ -242,7 +219,6 @@ func Load(data):
 		else:
 			mirror = false
 	elif marker_type == "Shape":
-		shape_subtype = data.get("shape_subtype", "Circle")
 		shape_radius  = data.get("shape_radius", 1.0)
 		shape_angle   = data.get("shape_angle", 0.0)
 		shape_sides   = data.get("shape_sides", 6)

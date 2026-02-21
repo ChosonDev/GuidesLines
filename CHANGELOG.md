@@ -5,6 +5,36 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] - 2026-02-22
+
+### Refactoring — Single primitives array, direct in-place modification
+
+Simplified the Shape marker geometry model: all operations (Clip, Cut, Difference) now
+modify a single `primitives` array in-place instead of maintaining separate fields.
+
+#### Changes
+
+- **Single `primitives` array** — replaced `render_primitives` + `render_fills` with one
+  unified list. Difference boundary segments are merged directly into `primitives`.
+- **Removed `clipped_by_ids`** — was a relic of the old rebuild-from-scratch approach;
+  no longer needed now that operations modify primitives directly.
+- **Removed `_recompute_marker_state`** — all ops call `set_primitives()` directly.
+- **Circle as 64-gon** — Circle subtype unified with other Shape subtypes; computed via
+  `calculate_shape_vertices` with 64 sides, no special-case code paths.
+- **Single-pass renderer** — `MarkerOverlay` iterates `primitives` once per marker.
+- **Undo snapshots** — `PlaceMarkerRecord` and `DifferenceRecord` snapshot and restore
+  `{"primitives": [...]}` only.
+
+#### Files changed
+
+- `scripts/guides/GuideMarker.gd` — removed `render_fills`, `clipped_by_ids`;
+  `set_primitives(segs)` takes a single array.
+- `scripts/tool/GuidesLinesTool.gd` — all clip/cut/difference functions updated;
+  snapshots store only `primitives`.
+- `scripts/overlays/MarkerOverlay.gd` — single render loop over `primitives`.
+
+---
+
 ## [2.1.3] - 2026-02-22
 
 ### Fixed — Difference Mode rendering split (outer outline vs. fill lines)

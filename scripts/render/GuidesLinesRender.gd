@@ -94,8 +94,3 @@ static func draw_polygon_outline(canvas: CanvasItem, vertices: Array, color: Col
 		var p1 = vertices[i]
 		var p2 = vertices[(i + 1) % vertices.size()]
 		canvas.draw_line(p1, p2, color, width)
-
-# Draws a circle outline (arc)
-static func draw_circle_outline(canvas: CanvasItem, center: Vector2, radius: float, color: Color, width: float, segments: int = 64):
-	canvas.draw_arc(center, radius, 0, TAU, segments, color, width, true)
-
