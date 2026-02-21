@@ -26,17 +26,25 @@ const MARKER_COLOR = Color(1, 0, 0, 1)  # Red
 const DEFAULT_LINE_COLOR = Color(0, 0.7, 1, 1)  # Blue (fully opaque)
 const LINE_WIDTH = 5.0  # Thicker lines
 
-# CACHED GEOMETRY
-var cached_draw_data = {} 
+# CACHED GEOMETRY — single source of truth for all current geometric data.
+# Structure for Shape:
+#   "type":             "shape"
+#   "shape_type":       "circle" | "poly"
+#   "radius":           float            (circle only)
+#   "points":           Array[Vector2]   (poly only)
+#
+#   "render_primitives": Array — OUTLINE replacement (clip / cut modes).
+#     [] = draw full shape outline via fallback
+#     [{"type":"seg","a":V2,"b":V2}, {"type":"arc",...}, ...]
+#
+#   "render_fills": Array — EXTRA lines drawn ON TOP of the outline (Difference fills).
+#     Always rendered independently, even when render_primitives is empty.
+#     Same item format as render_primitives.
+var cached_draw_data = {}
 var _dirty = true
 
-# CLIP DATA (Clip Intersecting Shapes feature)
-# When non-empty, the renderer uses this list of draw primitives instead of the full shape.
-# Each item is one of:
-#   { "type": "seg", "a": Vector2, "b": Vector2 }
-#   { "type": "arc", "center": Vector2, "radius": float, "from": float, "to": float }
-var clip_data = []
-# IDs of other shape markers that contribute to this marker's clipping
+# IDs of other Shape markers that clip this one (used by auto_clip / cut modes).
+# Not saved to file — restored on load via the history system.
 var clipped_by_ids = []
 
 # Initialize marker with position and type-specific parameters
@@ -93,12 +101,45 @@ func get_draw_data(map_rect, cell_size):
 		_recalculate_geometry(map_rect, cell_size)
 	return cached_draw_data
 
-# Clear clip data, restoring normal (full-shape) rendering for this marker
+## Reset render_primitives and render_fills so the renderer draws the full unclipped shape.
 func clear_clip():
-	clip_data = []
 	clipped_by_ids = []
+	if cached_draw_data.has("render_primitives"):
+		cached_draw_data["render_primitives"] = []
+	if cached_draw_data.has("render_fills"):
+		cached_draw_data["render_fills"] = []
+
+## Write outline primitives (outer clip result) and fill primitives (diff boundary lines)
+## as two separate arrays. Called by GuidesLinesTool after clip/diff calculation.
+## [outer]: replaces the shape outline when non-empty.
+## [fills]: always drawn on top of whatever outline is shown.
+func set_render_primitives(outer: Array, fills: Array = []):
+	cached_draw_data["render_primitives"] = outer
+	cached_draw_data["render_fills"]      = fills
+
+## Convenience: get just the outline primitives (used by DifferenceRecord snapshot).
+func get_render_primitives() -> Array:
+	return cached_draw_data.get("render_primitives", [])
+
+## Convenience: get just the fill primitives (used by DifferenceRecord snapshot).
+func get_render_fills() -> Array:
+	return cached_draw_data.get("render_fills", [])
+
+## Base descriptor of the original geometry (without clip) — used by clipping algorithms.
+func get_base_descriptor() -> Dictionary:
+	if cached_draw_data.empty():
+		return {}
+	if cached_draw_data.get("shape_type") == "circle":
+		return {"shape_type": "circle", "center": position, "radius": cached_draw_data["radius"]}
+	elif cached_draw_data.get("shape_type") == "poly":
+		return {"shape_type": "poly", "points": cached_draw_data["points"]}
+	return {}
 
 func _recalculate_geometry(map_rect, cell_size):
+	# Preserve render_primitives across recalculation so clip/diff results are
+	# not lost when geometry parameters are invalidated for unrelated reasons.
+	var saved_primitives = cached_draw_data.get("render_primitives", [])
+	var saved_fills      = cached_draw_data.get("render_fills", [])
 	cached_draw_data = {}
 	
 	if marker_type == "Line" and map_rect != null:
@@ -126,6 +167,10 @@ func _recalculate_geometry(map_rect, cell_size):
 			else:
 				cached_draw_data["shape_type"] = "poly"
 				cached_draw_data["points"] = GeometryUtils.calculate_shape_vertices(position, radius_px, shape_subtype, angle_rad, shape_sides)
+		# Always restore both render fields — must be outside "if cell_size" so
+		# clip/diff results are never lost even when cell_size is temporarily null.
+		cached_draw_data["render_primitives"] = saved_primitives
+		cached_draw_data["render_fills"]      = saved_fills
 	_dirty = false
 
 # Get bounding rectangle for marker selection
@@ -156,12 +201,7 @@ func Save():
 		data["shape_radius"] = shape_radius
 		data["shape_angle"] = shape_angle
 		data["shape_sides"] = shape_sides
-		# Optionally store generated vertices
-		if marker_points.size() > 0:
-			var points_data = []
-			for point in marker_points:
-				points_data.append([point.x, point.y])
-			data["marker_points"] = points_data
+		# Shape vertices are NOT saved — they are recomputed on load from the parameters above
 	elif marker_type == "Path":
 		# Serialize path points
 		var points_data = []
@@ -202,33 +242,12 @@ func Load(data):
 		else:
 			mirror = false
 	elif marker_type == "Shape":
-		if data.has("shape_subtype"):
-			shape_subtype = data.shape_subtype
-		else:
-			shape_subtype = "Circle"  # Default
-		
-		if data.has("shape_radius"):
-			shape_radius = data.shape_radius
-		else:
-			shape_radius = 1.0
-		
-		if data.has("shape_angle"):
-			shape_angle = data.shape_angle
-		else:
-			shape_angle = 0.0
-		
-		if data.has("shape_sides"):
-			shape_sides = data.shape_sides
-		else:
-			shape_sides = 6
-		
-		# Load pre-calculated vertices if available, otherwise will be generated on demand
-		if data.has("marker_points"):
-			marker_points = []
-			for point_data in data.marker_points:
-				marker_points.append(Vector2(point_data[0], point_data[1]))
-		else:
-			marker_points = []  # Will be generated when needed
+		shape_subtype = data.get("shape_subtype", "Circle")
+		shape_radius  = data.get("shape_radius", 1.0)
+		shape_angle   = data.get("shape_angle", 0.0)
+		shape_sides   = data.get("shape_sides", 6)
+		# marker_points are not used for Shape — vertices are recomputed from the parameters above
+		marker_points = []
 	elif marker_type == "Path":
 		if data.has("marker_points"):
 			marker_points = []

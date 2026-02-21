@@ -423,6 +423,97 @@ static func clip_polygon_against_shapes(poly_pts: Array, b_shapes: Array) -> Arr
 				result.append({"type": "seg", "a": pa + edge * ts[k], "b": pa + edge * ts[k + 1]})
 	return result
 
+## Clip polygon edges keeping only sub-segments whose midpoint lies INSIDE [container].
+## Mirror of clip_polygon_against_shapes — used for the Difference feature to fill
+## cut openings with the clipper's own outline.
+## Returns Array of { "type": "seg", "a": Vector2, "b": Vector2 }.
+static func clip_polygon_inside_shape(poly_pts: Array, container: Dictionary) -> Array:
+	var result = []
+	var n = poly_pts.size()
+	for i in range(n):
+		var pa = poly_pts[i]
+		var pb = poly_pts[(i + 1) % n]
+		var edge = pb - pa
+		var edge_len_sq = edge.length_squared()
+		if edge_len_sq < 1e-10:
+			continue
+		var ts = [0.0, 1.0]
+		if container.shape_type == "poly":
+			var m = container.points.size()
+			for j in range(m):
+				var qa = container.points[j]
+				var qb = container.points[(j + 1) % m]
+				var pt = segment_segment_intersect(pa, pb, qa, qb)
+				if pt != null:
+					ts.append(clamp((pt - pa).dot(edge) / edge_len_sq, 0.0, 1.0))
+		elif container.shape_type == "circle":
+			var hit_pts = segment_intersects_circle(pa, pb, container.center, container.radius)
+			for pt in hit_pts:
+				ts.append(clamp((pt - pa).dot(edge) / edge_len_sq, 0.0, 1.0))
+		ts.sort()
+		for k in range(ts.size() - 1):
+			if ts[k + 1] - ts[k] < 1e-6:
+				continue
+			var mid = pa + edge * ((ts[k] + ts[k + 1]) * 0.5)
+			var inside = false
+			if container.shape_type == "poly":
+				inside = Geometry.is_point_in_polygon(mid, container.points)
+			elif container.shape_type == "circle":
+				inside = point_inside_circle(mid, container.center, container.radius)
+			if inside:
+				result.append({"type": "seg", "a": pa + edge * ts[k], "b": pa + edge * ts[k + 1]})
+	return result
+
+## Clip circle arcs keeping only arcs whose midpoint lies INSIDE [container].
+## Mirror of clip_circle_against_shapes — used for the Difference feature.
+## Returns Array of { "type": "arc", "center": Vector2, "radius": float, "from": float, "to": float }.
+static func clip_circle_inside_shape(center: Vector2, r: float, container: Dictionary) -> Array:
+	var intersection_angles = []
+	if container.shape_type == "poly":
+		var pts = container.points
+		var m = pts.size()
+		for j in range(m):
+			var hit_pts = segment_intersects_circle(pts[j], pts[(j + 1) % m], center, r)
+			for pt in hit_pts:
+				intersection_angles.append((pt - center).angle())
+	elif container.shape_type == "circle":
+		var d = container.center.distance_to(center)
+		if d >= 1e-6 and d < r + container.radius - 1e-6 and d > abs(r - container.radius) + 1e-6:
+			var a_val = (r * r - container.radius * container.radius + d * d) / (2.0 * d)
+			var h = sqrt(max(0.0, r * r - a_val * a_val))
+			var dir = (container.center - center).normalized()
+			var perp = Vector2(-dir.y, dir.x)
+			intersection_angles.append(((center + dir * a_val + perp * h) - center).angle())
+			intersection_angles.append(((center + dir * a_val - perp * h) - center).angle())
+	if intersection_angles.empty():
+		var test_pt = center + Vector2(r, 0.0)
+		var inside = false
+		if container.shape_type == "poly":
+			inside = Geometry.is_point_in_polygon(test_pt, container.points)
+		elif container.shape_type == "circle":
+			inside = point_inside_circle(test_pt, container.center, container.radius)
+		if inside:
+			return [{"type": "arc", "center": center, "radius": r, "from": 0.0, "to": TAU}]
+		return []
+	intersection_angles.sort()
+	var result = []
+	var ang_count = intersection_angles.size()
+	for i in range(ang_count):
+		var a_from = intersection_angles[i]
+		var a_to   = intersection_angles[(i + 1) % ang_count]
+		if a_to <= a_from:
+			a_to += TAU
+		var mid_angle = (a_from + a_to) * 0.5
+		var mid_pt = center + Vector2(cos(mid_angle), sin(mid_angle)) * r
+		var inside = false
+		if container.shape_type == "poly":
+			inside = Geometry.is_point_in_polygon(mid_pt, container.points)
+		elif container.shape_type == "circle":
+			inside = point_inside_circle(mid_pt, container.center, container.radius)
+		if inside:
+			result.append({"type": "arc", "center": center, "radius": r, "from": a_from, "to": a_to})
+	return result
+
 ## Clip circle arcs against multiple shapes, keeping only arcs whose midpoint
 ## lies OUTSIDE ALL shapes in [b_shapes].
 ## Returns Array of { "type": "arc", "center": Vector2, "radius": float, "from": float, "to": float }.
@@ -490,3 +581,97 @@ static func clip_circle_against_shapes(center: Vector2, r: float, b_shapes: Arra
 			result.append({"type": "arc", "center": center, "radius": r, "from": a_from, "to": a_to})
 	return result
 
+## Clip an already-split list of {type:"seg"/"arc"} primitives against [shapes],
+## keeping only the sub-portions whose midpoint lies OUTSIDE all shapes.
+## Used to trim fill lines from one Difference op that bleed into holes made
+## by other Difference ops on the same marker.
+static func clip_primitives_against_shapes(primitives: Array, shapes: Array) -> Array:
+	if shapes.empty():
+		return primitives
+	var result = []
+	for prim in primitives:
+		if prim.type == "seg":
+			var a = prim.a
+			var b = prim.b
+			var edge = b - a
+			var edge_len_sq = edge.length_squared()
+			if edge_len_sq < 1e-10:
+				continue
+			var ts = [0.0, 1.0]
+			for shape in shapes:
+				if shape.shape_type == "poly":
+					var pts = shape.points
+					var m = pts.size()
+					for j in range(m):
+						var pt = segment_segment_intersect(a, b, pts[j], pts[(j + 1) % m])
+						if pt != null:
+							ts.append(clamp((pt - a).dot(edge) / edge_len_sq, 0.0, 1.0))
+				elif shape.shape_type == "circle":
+					for pt in segment_intersects_circle(a, b, shape.center, shape.radius):
+						ts.append(clamp((pt - a).dot(edge) / edge_len_sq, 0.0, 1.0))
+			ts.sort()
+			for k in range(ts.size() - 1):
+				if ts[k + 1] - ts[k] < 1e-6:
+					continue
+				var mid = a + edge * ((ts[k] + ts[k + 1]) * 0.5)
+				var outside = true
+				for shape in shapes:
+					if shape.shape_type == "poly" and Geometry.is_point_in_polygon(mid, shape.points):
+						outside = false
+						break
+					elif shape.shape_type == "circle" and point_inside_circle(mid, shape.center, shape.radius):
+						outside = false
+						break
+				if outside:
+					result.append({"type": "seg", "a": a + edge * ts[k], "b": a + edge * ts[k + 1]})
+		elif prim.type == "arc":
+			var center = prim.center
+			var r = prim.radius
+			var a_from = prim.from
+			var a_to   = prim.to
+			var its = [a_from, a_to]
+			for shape in shapes:
+				if shape.shape_type == "poly":
+					var pts = shape.points
+					var m = pts.size()
+					for j in range(m):
+						for pt in segment_intersects_circle(pts[j], pts[(j + 1) % m], center, r):
+							var ang = (pt - center).angle()
+							while ang < a_from:
+								ang += TAU
+							while ang > a_to:
+								ang -= TAU
+							if ang > a_from and ang < a_to:
+								its.append(ang)
+				elif shape.shape_type == "circle":
+					var d = shape.center.distance_to(center)
+					if d >= 1e-6 and d < r + shape.radius - 1e-6 and d > abs(r - shape.radius) + 1e-6:
+						var a_val = (r * r - shape.radius * shape.radius + d * d) / (2.0 * d)
+						var h = sqrt(max(0.0, r * r - a_val * a_val))
+						var dir = (shape.center - center).normalized()
+						var perp = Vector2(-dir.y, dir.x)
+						for offset in [dir * a_val + perp * h, dir * a_val - perp * h]:
+							var ang = offset.angle()
+							while ang < a_from:
+								ang += TAU
+							while ang > a_to:
+								ang -= TAU
+							if ang > a_from and ang < a_to:
+								its.append(ang)
+			its.sort()
+			for k in range(its.size() - 1):
+				if its[k + 1] - its[k] < 1e-6:
+					continue
+				var mid_angle = (its[k] + its[k + 1]) * 0.5
+				var mid_pt = center + Vector2(cos(mid_angle), sin(mid_angle)) * r
+				var outside = true
+				for shape in shapes:
+					if shape.shape_type == "poly" and Geometry.is_point_in_polygon(mid_pt, shape.points):
+						outside = false
+						break
+					elif shape.shape_type == "circle" and point_inside_circle(mid_pt, shape.center, shape.radius):
+						outside = false
+						break
+				if outside:
+					result.append({"type": "arc", "center": center, "radius": r, "from": its[k], "to": its[k + 1]})
+	return result

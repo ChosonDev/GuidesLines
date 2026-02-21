@@ -494,6 +494,9 @@ func save_level(level_data):
 		var markers_data = guides_tool.save_markers()
 		if markers_data.size() > 0:
 			level_data["guide_markers"] = markers_data
+		var diff_ops = guides_tool.save_difference_ops()
+		if diff_ops.size() > 0:
+			level_data["difference_ops"] = diff_ops
 	return level_data
 
 # Load guide markers from map file
@@ -502,3 +505,6 @@ func load_level(level_data):
 	# Load guide markers data
 	if guides_tool and level_data.has("guide_markers"):
 		guides_tool.load_markers(level_data.guide_markers)
+	# Replay difference operations so render_primitives are correctly restored
+	if guides_tool:
+		guides_tool.load_difference_ops(level_data.get("difference_ops", []))

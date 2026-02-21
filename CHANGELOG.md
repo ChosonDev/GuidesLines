@@ -5,6 +5,129 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-02-22
+
+### Fixed — Difference Mode rendering split (outer outline vs. fill lines)
+
+#### Root cause
+
+`clip_circle_against_shapes` returns a full-circle arc (`from:0, to:TAU`) when a
+difference shape is completely inside the target circle (no edge crossings).
+Previously this full arc was concatenated with fill-boundary lines into one
+`render_primitives` list, so the overlay would draw the full original circle
+outline again in addition to any partial arcs from earlier crossing differences.
+
+#### Architecture change — `render_primitives` and `render_fills`
+
+`cached_draw_data` now carries two independent lists:
+
+| Field | Semantics |
+|---|---|
+| `render_primitives` | Replacement outline for the marker edge (`[]` = use full-shape fallback). |
+| `render_fills` | Diff-boundary lines drawn **on top** of the outline, always independently. |
+
+`GuideMarker` API:
+
+- `set_render_primitives(outer: Array, fills: Array = [])` — stores both.
+- `get_render_primitives()` / `get_render_fills()` — accessors.
+- `_recalculate_geometry` saves and restores **both** fields outside the
+  `if cell_size:` block, preventing loss on grid-change or undo.
+
+`MarkerOverlay._draw_custom_marker` now performs two explicit passes:
+1. Draw outline — `render_primitives` if non-empty, full-shape fallback otherwise.
+2. Always draw every item in `render_fills` on top regardless of outline state.
+
+#### All-inside optimisation
+
+When every affecting diff is fully inside the target (none cross its edge),
+`_rebuild_all_diffs_for_marker` now sets `render_primitives = []`. This lets
+the full-shape fallback handle the outline (no redundant full arc in the list),
+while `render_fills` still carries the diff boundary lines correctly.
+
+#### Legacy op migration
+
+`applied_to` tracking was introduced mid-session.  Ops without this field (or
+with an empty list) are now migrated on the fly: `_rebuild_all_diffs_for_marker`
+runs a geometric `_shapes_overlap` check and appends `marker.id` to the op's
+`applied_to` list so subsequent rebuilds are fast.
+
+`load_difference_ops` was updated to detect legacy ops and rebuild **all**
+markers in that case (instead of only those appearing in `applied_to`), giving
+the migration code a chance to run.
+
+#### Files changed
+
+- `scripts/guides/GuideMarker.gd` — `render_fills` field, new two-arg
+  `set_render_primitives`, `get_render_fills`, save/restore both fields.
+- `scripts/tool/GuidesLinesTool.gd` — `DifferenceRecord` snapshot/undo,
+  `_recompute_marker_clip`, `_take_difference_snapshot`,
+  `_rebuild_all_diffs_for_marker` (migration + outer/fill split),
+  `load_difference_ops` (legacy rebuild).
+- `scripts/overlays/MarkerOverlay.gd` — two-pass outline + fills rendering.
+
+---
+
+## [2.1.2] - 2026-02-22
+
+### Added — Difference Mode for Shape markers
+
+A new optional mode **Difference** that permanently subtracts a newly placed
+Shape marker from all Shape markers it overlaps.  The subtracted shape is then
+removed from the canvas; only the "holes" it carved remain.
+
+#### Behaviour
+
+- Enabled via a **Difference** `CheckButton` in the Shape settings panel
+  (mutually exclusive with *Clip Intersecting Shapes* and *Cut Into Existing
+  Shapes*).
+- Mutual exclusion: enabling Difference disables the other two checkboxes and
+  vice-versa.
+- Each subtraction is stored as an **operation record** (`difference_ops`) so
+  it survives save/load and is properly undoable.
+- Undo removes the op and restores the pre-subtraction render state of every
+  affected marker (via snapshots stored in `DifferenceRecord`).
+
+#### New geometry helpers (`GeometryUtils.gd`)
+
+| Function | Description |
+|---|---|
+| `clip_polygon_inside_shape(poly_pts, shape)` | Keeps only sub-segments of a polygon whose midpoint is **inside** the given shape — used to draw the diff boundary inside the target. |
+| `clip_circle_inside_shape(center, r, shape)` | Same for circle arcs. |
+| `clip_primitives_against_shapes(prims, shapes)` | Filters a mixed `seg`/`arc` list to remove portions inside any of the given shapes (used to clean fills after stacked diffs). |
+
+#### New fields and methods
+
+**`GuideMarker.gd`**
+
+- `render_primitives` inside `cached_draw_data` — replaces the former
+  top-level `clip_data` array (unified storage in draw data).
+
+**`GuidesLinesTool.gd`**
+
+| Symbol | Description |
+|---|---|
+| `difference_mode: bool` | Feature flag. |
+| `difference_ops: Array` | Persistent list of applied difference operations. |
+| `DifferenceRecord` (inner class) | `HistoryRecord` subclass; stores diff descriptor, op dict, and per-marker snapshots for undo. |
+| `_take_difference_snapshot()` | Captures pre-subtraction render state of all overlapping markers. |
+| `_do_apply_difference(desc, op)` | Applies one diff op to all overlapping markers, records `applied_to`. |
+| `_rebuild_all_diffs_for_marker(marker, cell_size)` | Recomputes outer + fills for a marker from all its ops (idempotent). |
+| `save_difference_ops()` / `load_difference_ops(ops)` | Serialisation helpers called from `GuidesLines.gd`. |
+| `_desc_from_op(op)` / `_op_from_desc(desc, …)` | Convert between op dicts and shape descriptors. |
+
+**`GuidesLines.gd`**
+
+- `save_level` serialises `difference_ops` into the level data dict.
+- `load_level` deserialises and replays them via `load_difference_ops`.
+
+#### Intersection vs. containment detection
+
+`_shapes_overlap` = `_shapes_intersect` (edge crossings) **or** centroid
+containment via `_point_in_shape`, ensuring fully-inside shapes are correctly
+detected even when no edges cross.
+
+---
+
 ## [2.1.1] - 2026-02-21
 
 ### Added — Shape Clipping Modes

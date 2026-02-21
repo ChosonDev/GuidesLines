@@ -78,6 +78,39 @@ class DeleteAllMarkersRecord:
 	func record_type():
 		return "GuidesLines.DeleteAll"
 
+# History record for applying a Difference operation
+# Uses snapshots to undo, because there is no "diff marker" that could be
+# removed via _remove_shape_clipping.
+class DifferenceRecord:
+	var tool
+	var diff_desc   # in-memory Dictionary (has Vector2 values — not serializable)
+	var diff_op     # serializable Dictionary stored in tool.difference_ops
+	var snapshots   # { marker_id: {"render_primitives":[...], "render_fills":[...], "clipped_by_ids":[...]} }
+
+	func _init(tool_ref, p_desc, p_op, p_snapshots):
+		tool = tool_ref
+		diff_desc = p_desc
+		diff_op   = p_op
+		snapshots = p_snapshots
+
+	func redo():
+		tool._do_apply_difference(diff_desc, diff_op)
+
+	func undo():
+		for id in snapshots:
+			if tool.markers_lookup.has(id):
+				var m = tool.markers_lookup[id]
+				m.set_render_primitives(
+					snapshots[id]["render_primitives"].duplicate(true),
+					snapshots[id]["render_fills"].duplicate(true))
+				m.clipped_by_ids = snapshots[id]["clipped_by_ids"].duplicate()
+		tool.difference_ops.erase(diff_op)
+		if tool.overlay:
+			tool.overlay.update()
+
+	func record_type():
+		return "GuidesLines.Difference"
+
 # ============================================================================
 # VARIABLES
 # ============================================================================
@@ -126,6 +159,8 @@ var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
 var auto_clip_shapes = false  # Clip intersecting shape markers on placement (mutual)
 var cut_existing_shapes = false  # Cut lines of existing markers inside the new shape (one-way)
+var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
+var difference_ops = []  # Array of serializable op dicts; replayed on map load
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -263,6 +298,20 @@ func place_marker(pos):
 	# Special handling for Arrow type
 	if active_marker_type == MARKER_TYPE_ARROW:
 		_handle_arrow_placement(pos)
+		return
+
+	# Difference mode: don't place a marker — instead apply difference to existing shapes
+	if difference_mode and active_marker_type == MARKER_TYPE_SHAPE:
+		var final_pos_diff = pos
+		if parent_mod.Global.Editor.IsSnapping:
+			final_pos_diff = snap_position_to_grid(pos)
+		var diff_desc = _build_shape_descriptor_at(final_pos_diff)
+		if diff_desc.empty():
+			return
+		var diff_op = _op_from_desc(diff_desc)
+		var snap = _take_difference_snapshot(diff_desc)
+		_do_apply_difference(diff_desc, diff_op)
+		_record_history(DifferenceRecord.new(self, diff_desc, diff_op, snap))
 		return
 	
 	# Apply grid snapping if enabled globally
@@ -715,14 +764,24 @@ func _get_grid_cell_size():
 # Build a shape descriptor dict for GeometryUtils clip functions.
 # Returns { shape_type, ... } or {} if not applicable.
 func _get_shape_descriptor(marker, cell_size) -> Dictionary:
-	var dd = marker.get_draw_data(null, cell_size)
-	if not dd.has("shape_type"):
+	marker.get_draw_data(null, cell_size)  # ensure cache is fresh
+	return marker.get_base_descriptor()
+
+## Build a shape descriptor using current tool settings at [pos].
+## Creates a temporary marker (not added to the scene) so we can reuse
+## get_draw_data / _get_shape_descriptor logic.
+func _build_shape_descriptor_at(pos: Vector2) -> Dictionary:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
 		return {}
-	if dd.shape_type == "circle":
-		return {"shape_type": "circle", "center": marker.position, "radius": dd.radius}
-	elif dd.shape_type == "poly":
-		return {"shape_type": "poly", "points": dd.points}
-	return {}
+	var tmp = GuideMarkerClass.new()
+	tmp.position         = pos
+	tmp.marker_type      = MARKER_TYPE_SHAPE
+	tmp.shape_subtype    = active_shape_subtype
+	tmp.shape_radius     = active_shape_radius
+	tmp.shape_angle      = active_shape_angle
+	tmp.shape_sides      = active_shape_sides
+	return _get_shape_descriptor(tmp, cell_size)
 
 # Return true if the outlines of two shape descriptors actually intersect.
 func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
@@ -755,7 +814,41 @@ func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 		return d < desc_a.radius + desc_b.radius and d > abs(desc_a.radius - desc_b.radius)
 	return false
 
-# Recompute clip_data for [marker] using its current clipped_by_ids list.
+# Return true if the two shapes have any overlapping area:
+# edges intersect OR one shape is fully contained inside the other.
+# Used by Difference mode (unlike clip/cut which require actual edge crossings).
+func _shapes_overlap(desc_a: Dictionary, desc_b: Dictionary) -> bool:
+	if _shapes_intersect(desc_a, desc_b):
+		return true
+	# Check containment: one representative point of A inside B or vice-versa
+	var pt_a = _shape_sample_point(desc_a)
+	var pt_b = _shape_sample_point(desc_b)
+	if pt_a != null and _point_in_shape(pt_a, desc_b):
+		return true
+	if pt_b != null and _point_in_shape(pt_b, desc_a):
+		return true
+	return false
+
+# Return a representative interior point for a shape descriptor (centroid).
+func _shape_sample_point(desc: Dictionary):
+	if desc.shape_type == "circle":
+		return desc.center
+	elif desc.shape_type == "poly" and desc.points.size() > 0:
+		var sum = Vector2.ZERO
+		for p in desc.points:
+			sum += p
+		return sum / desc.points.size()
+	return null
+
+# Return true if [pt] is strictly inside [desc] (boundary not counted).
+func _point_in_shape(pt: Vector2, desc: Dictionary) -> bool:
+	if desc.shape_type == "poly":
+		return Geometry.is_point_in_polygon(pt, desc.points)
+	elif desc.shape_type == "circle":
+		return GeometryUtils.point_inside_circle(pt, desc.center, desc.radius)
+	return false
+
+# Recompute render_primitives for [marker] using its current clipped_by_ids list.
 # Call this whenever the set of clippers changes.
 func _recompute_marker_clip(marker, cell_size):
 	if marker.marker_type != MARKER_TYPE_SHAPE:
@@ -774,16 +867,16 @@ func _recompute_marker_clip(marker, cell_size):
 			if not d.empty():
 				b_shapes.append(d)
 	if b_shapes.empty():
-		marker.clip_data = []
+		marker.set_render_primitives([], [])
 		return
 	if self_desc.shape_type == "poly":
-		marker.clip_data = GeometryUtils.clip_polygon_against_shapes(self_desc.points, b_shapes)
+		marker.set_render_primitives(GeometryUtils.clip_polygon_against_shapes(self_desc.points, b_shapes), [])
 	elif self_desc.shape_type == "circle":
-		marker.clip_data = GeometryUtils.clip_circle_against_shapes(self_desc.center, self_desc.radius, b_shapes)
+		marker.set_render_primitives(GeometryUtils.clip_circle_against_shapes(self_desc.center, self_desc.radius, b_shapes), [])
 
 # Apply ONE-WAY cut when [new_marker] is placed: find all intersecting shape markers
 # and register new_marker as their clipper — but NOT vice versa.
-# The new marker itself is left untouched (its clip_data stays empty).
+# The new marker itself is left untouched (its render_primitives stay empty).
 func _apply_cut_to_existing_shapes(new_marker):
 	if not cut_existing_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
 		return
@@ -839,7 +932,7 @@ func _apply_shape_clipping(new_marker):
 		overlay.update()
 
 # Remove clipping contributions of [removed_id] from all remaining markers
-# and recompute their clip_data.
+# and recompute their render_primitives.
 func _remove_shape_clipping(removed_id):
 	var cell_size = _get_grid_cell_size()
 	for marker in markers:
@@ -851,6 +944,178 @@ func _remove_shape_clipping(removed_id):
 			marker.clipped_by_ids.erase(removed_id)
 			_recompute_marker_clip(marker, cell_size)
 
+# ============================================================================
+# DIFFERENCE MODE CORE
+# ============================================================================
+
+## Build in-memory descriptor from a serializable op dict.
+func _desc_from_op(op: Dictionary) -> Dictionary:
+	if op.shape_type == "poly":
+		var pts = []
+		for v in op.points:
+			pts.append(Vector2(v[0], v[1]))
+		return {"shape_type": "poly", "points": pts}
+	else:  # circle
+		return {"shape_type": "circle",
+		        "center": Vector2(op.center[0], op.center[1]),
+		        "radius": op.radius}
+
+## Build serializable op dict from an in-memory descriptor.
+func _op_from_desc(desc: Dictionary) -> Dictionary:
+	if desc.shape_type == "poly":
+		var pts = []
+		for v in desc.points:
+			pts.append([v.x, v.y])
+		return {"shape_type": "poly", "points": pts}
+	else:
+		return {"shape_type": "circle",
+		        "center": [desc.center.x, desc.center.y],
+		        "radius": desc.radius}
+
+## Snapshot clip state of all Shape markers that intersect diff_desc.
+func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
+	var snap = {}
+	var cell_size = _get_grid_cell_size()
+	for marker in markers:
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var desc = _get_shape_descriptor(marker, cell_size)
+		if desc.empty():
+			continue
+		if _shapes_overlap(desc, diff_desc):
+			snap[marker.id] = {
+				"render_primitives": marker.get_render_primitives().duplicate(true),
+				"render_fills":      marker.get_render_fills().duplicate(true),
+				"clipped_by_ids":    marker.clipped_by_ids.duplicate()
+			}
+	return snap
+
+## Rebuild render_primitives for [marker] using only the difference_ops that were
+## explicitly applied to it (tracked via op["applied_to"]).
+## Always starts from the original marker geometry so multiple diffs compound.
+func _rebuild_all_diffs_for_marker(marker, cell_size):
+	var target_desc = _get_shape_descriptor(marker, cell_size)
+	if target_desc.empty():
+		return
+
+	# Collect ops applied to this marker. For backward-compatibility, also
+	# migrate ops whose applied_to is empty by doing a geometric overlap check.
+	var affecting: Array = []
+	for op in difference_ops:
+		if op.get("applied_to", []).has(marker.id):
+			affecting.append(_desc_from_op(op))
+		elif not op.has("applied_to") or op["applied_to"].empty():
+			# Legacy op with no tracking — check geometrically and migrate.
+			var op_desc = _desc_from_op(op)
+			if _shapes_overlap(target_desc, op_desc):
+				if not op.has("applied_to"):
+					op["applied_to"] = []
+				op["applied_to"].append(marker.id)
+				affecting.append(op_desc)
+
+	if affecting.empty():
+		marker.set_render_primitives([], [])
+		return
+
+	# Outer: marker outline OUTSIDE all its diffs simultaneously
+	var outer = []
+	if target_desc.shape_type == "poly":
+		outer = GeometryUtils.clip_polygon_against_shapes(target_desc.points, affecting)
+	elif target_desc.shape_type == "circle":
+		outer = GeometryUtils.clip_circle_against_shapes(target_desc.center, target_desc.radius, affecting)
+
+	# If outer covers the full shape (no actual edge was cut, e.g. all diffs are
+	# inside), leave render_primitives empty so the fallback full-shape path is
+	# used.  This prevents a redundant full-arc primitive from appearing in the
+	# list alongside the fill lines.
+	var all_inside = true
+	for d in affecting:
+		if _shapes_intersect(target_desc, d):
+			all_inside = false
+			break
+	if all_inside:
+		outer = []  # let fallback draw the full shape
+
+	# Fill: each diff's outline INSIDE the marker, clipped against all OTHER diffs
+	# so fill lines from earlier ops don't bleed into holes made by later ops.
+	var fills = []
+	for i in range(affecting.size()):
+		var d = affecting[i]
+		var raw_fill = []
+		if d.shape_type == "poly":
+			raw_fill = GeometryUtils.clip_polygon_inside_shape(d.points, target_desc)
+		elif d.shape_type == "circle":
+			raw_fill = GeometryUtils.clip_circle_inside_shape(d.center, d.radius, target_desc)
+		# Remove portions that fall inside any other diff's hole
+		var other_diffs = []
+		for j in range(affecting.size()):
+			if j != i:
+				other_diffs.append(affecting[j])
+		if not other_diffs.empty():
+			raw_fill = GeometryUtils.clip_primitives_against_shapes(raw_fill, other_diffs)
+		fills += raw_fill
+
+	marker.set_render_primitives(outer, fills)
+
+## Apply a Difference operation. Records which markers were affected in
+## diff_op["applied_to"] so that subsequent rebuilds stay per-marker isolated.
+func _do_apply_difference(diff_desc: Dictionary, diff_op: Dictionary):
+	# Ensure the op has an applied_to list before registering
+	if not diff_op.has("applied_to"):
+		diff_op["applied_to"] = []
+	if not difference_ops.has(diff_op):
+		difference_ops.append(diff_op)
+
+	var cell_size = _get_grid_cell_size()
+	for marker in markers:
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var target_desc = _get_shape_descriptor(marker, cell_size)
+		if target_desc.empty():
+			continue
+		if not _shapes_overlap(target_desc, diff_desc):
+			continue
+		# Tag this marker as affected by this op, then rebuild from all its ops
+		if not diff_op["applied_to"].has(marker.id):
+			diff_op["applied_to"].append(marker.id)
+		_rebuild_all_diffs_for_marker(marker, cell_size)
+
+	if overlay:
+		overlay.update()
+
+## Serialize difference_ops for map save.
+func save_difference_ops() -> Array:
+	return difference_ops.duplicate(true)
+
+## Restore difference_ops on map load and rebuild only the markers each op
+## was applied to (per the saved applied_to lists).
+func load_difference_ops(ops: Array):
+	difference_ops = []
+	for op in ops:
+		difference_ops.append(op.duplicate(true))
+
+	# Rebuild markers.  For legacy ops that have no applied_to tracking we
+	# cannot know which markers were affected, so we fall back to rebuilding
+	# all markers (the migration inside _rebuild_all_diffs_for_marker will
+	# populate applied_to from a geometric check).
+	var cell_size = _get_grid_cell_size()
+	var has_legacy_ops = false
+	var affected_ids    = {}
+	for op in difference_ops:
+		var a = op.get("applied_to", [])
+		if a.empty():
+			has_legacy_ops = true
+		else:
+			for id in a:
+				affected_ids[id] = true
+	for marker in markers:
+		if has_legacy_ops or affected_ids.has(marker.id):
+			_rebuild_all_diffs_for_marker(marker, cell_size)
+
+	if overlay:
+		overlay.update()
+
+# ============================================================================
 # Update tool panel UI with current marker count
 func update_ui():
 	if not tool_panel:
@@ -1238,20 +1503,41 @@ func _on_shape_sides_changed(value):
 func _on_auto_clip_shapes_toggled(enabled):
 	auto_clip_shapes = enabled
 	# Only one clip mode can be active at a time
-	if enabled and cut_existing_shapes:
-		cut_existing_shapes = false
-		_set_shape_checkbox("CutExistingShapesCheckbox", false)
+	if enabled:
+		if cut_existing_shapes:
+			cut_existing_shapes = false
+			_set_shape_checkbox("CutExistingShapesCheckbox", false)
+		if difference_mode:
+			difference_mode = false
+			_set_shape_checkbox("DifferenceModeCheckbox", false)
 	if LOGGER:
 		LOGGER.info("Clip Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
 
 func _on_cut_existing_shapes_toggled(enabled):
 	cut_existing_shapes = enabled
 	# Only one clip mode can be active at a time
-	if enabled and auto_clip_shapes:
-		auto_clip_shapes = false
-		_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+	if enabled:
+		if auto_clip_shapes:
+			auto_clip_shapes = false
+			_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+		if difference_mode:
+			difference_mode = false
+			_set_shape_checkbox("DifferenceModeCheckbox", false)
 	if LOGGER:
 		LOGGER.info("Cut Into Existing Shapes: %s" % ["ON" if enabled else "OFF"])
+
+func _on_difference_mode_toggled(enabled):
+	difference_mode = enabled
+	# Only one mode can be active at a time
+	if enabled:
+		if auto_clip_shapes:
+			auto_clip_shapes = false
+			_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+		if cut_existing_shapes:
+			cut_existing_shapes = false
+			_set_shape_checkbox("CutExistingShapesCheckbox", false)
+	if LOGGER:
+		LOGGER.info("Difference Mode: %s" % ["ON" if enabled else "OFF"])
 
 # Helper: set pressed state on a named CheckButton inside shape_settings_container
 # without triggering its toggled signal (to avoid recursion).
@@ -1503,6 +1789,19 @@ func _create_shape_settings_ui():
 	cut_hint.text = "  (new shape cuts lines of others)"
 	cut_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
 	container.add_child(cut_hint)
+
+	# Difference Mode toggle
+	var diff_check = CheckButton.new()
+	diff_check.text = "Difference Mode"
+	diff_check.pressed = difference_mode
+	diff_check.name = "DifferenceModeCheckbox"
+	diff_check.connect("toggled", self, "_on_difference_mode_toggled")
+	container.add_child(diff_check)
+
+	var diff_hint = Label.new()
+	diff_hint.text = "  (fill overlap into existing shape)"
+	diff_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(diff_hint)
 	
 	return container
 
