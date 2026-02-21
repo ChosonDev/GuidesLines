@@ -20,6 +20,122 @@ static func calculate_polygon_vertices(center, radius, sides, rotation_offset = 
 	
 	return vertices
 
+# Standard polygon rotation offsets for named shape subtypes (radians)
+const SHAPE_ROTATION_OFFSETS = {
+	"Square":   PI / 4.0,
+	"Pentagon": -PI / 2.0,
+	"Hexagon":  0.0,
+	"Octagon":  PI / 8.0,
+}
+
+# Standard polygon side counts for named shape subtypes
+const SHAPE_SIDES = {
+	"Square":   4,
+	"Pentagon": 5,
+	"Hexagon":  6,
+	"Octagon":  8,
+}
+
+# Calculate polygon vertices for a named standard shape subtype.
+# Handles Square, Pentagon, Hexagon, Octagon and Custom (any n-sided polygon).
+# For Circle pass subtype = "Circle" — returns empty Array (use draw_arc instead).
+#
+# center:       Center position in world space
+# radius:       Circumradius in pixels
+# subtype:      One of "Circle", "Square", "Pentagon", "Hexagon", "Octagon", "Custom"
+# angle_rad:    Additional rotation in radians (on top of the subtype base offset)
+# custom_sides: Number of sides; used only when subtype == "Custom"
+static func calculate_shape_vertices(center, radius, subtype: String, angle_rad: float, custom_sides: int = 6):
+	if subtype == "Circle":
+		return []
+	var sides = SHAPE_SIDES.get(subtype, custom_sides)
+	var offset = SHAPE_ROTATION_OFFSETS.get(subtype, 0.0)
+	return calculate_polygon_vertices(center, radius, sides, offset + angle_rad)
+
+## Returns the closest point on segment [a]→[b] to point [p].
+static func closest_point_on_segment(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
+	var ab = b - a
+	var len_sq = ab.length_squared()
+	if len_sq == 0.0:
+		return a
+	return a + ab * clamp((p - a).dot(ab) / len_sq, 0.0, 1.0)
+
+## Returns the distance from [p] to the closest point on segment [a]→[b].
+static func dist_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	return p.distance_to(closest_point_on_segment(p, a, b))
+
+## Returns the perpendicular distance from point [p] to the infinite ray
+## defined by [origin] and normalized [direction].
+static func dist_point_to_ray(p: Vector2, origin: Vector2, direction: Vector2) -> float:
+	var perp = direction.rotated(PI / 2.0)
+	return abs((p - origin).dot(perp))
+
+## Returns the closest point on the circumference of circle ([center], [r]) to [p].
+## If [p] coincides with [center], returns an arbitrary point on the circle.
+static func closest_point_on_circle(p: Vector2, center: Vector2, r: float) -> Vector2:
+	var to_p  = p - center
+	var to_len = to_p.length()
+	if to_len > 1e-10:
+		return center + to_p / to_len * r
+	return center + Vector2(r, 0.0)
+
+## Returns the closest point on any edge of [pts] to [p].
+## When [closed] is true (default) the last edge wraps back to pts[0].
+## When [closed] is false, treats [pts] as an open polyline (n-1 edges).
+## [pts] must have at least 2 elements.
+static func closest_point_on_polygon_edges(p: Vector2, pts: Array, closed: bool = true) -> Vector2:
+	var best_pt = pts[0]
+	var best_dist_sq = INF
+	var edge_count = pts.size() if closed else pts.size() - 1
+	for i in range(edge_count):
+		var pt = closest_point_on_segment(p, pts[i], pts[(i + 1) % pts.size()])
+		var d_sq = p.distance_squared_to(pt)
+		if d_sq < best_dist_sq:
+			best_dist_sq = d_sq
+			best_pt = pt
+	return best_pt
+
+## Returns the vertex in [pts] nearest to [p], or null if [pts] is empty.
+static func nearest_polygon_vertex(p: Vector2, pts: Array):
+	if pts.empty():
+		return null
+	var best_v    = pts[0]
+	var best_d_sq = p.distance_squared_to(pts[0])
+	for i in range(1, pts.size()):
+		var d_sq = p.distance_squared_to(pts[i])
+		if d_sq < best_d_sq:
+			best_d_sq = d_sq
+			best_v    = pts[i]
+	return best_v
+
+## Intersects an infinite line (lp + t*ld, ld must be normalised) with segment
+## [a]→[b].  Returns the intersection Vector2, or null if parallel / no hit.
+static func line_intersect_segment(lp: Vector2, ld: Vector2, a: Vector2, b: Vector2):
+	var ab    = b - a
+	var denom = ab.x * ld.y - ab.y * ld.x   # cross(ab, ld)
+	if abs(denom) < 1e-10:
+		return null  # parallel
+	var diff = lp - a
+	var s    = (diff.x * ld.y - diff.y * ld.x) / denom  # cross(diff, ld) / cross(ab, ld)
+	if s < -1e-6 or s > 1.0 + 1e-6:
+		return null
+	return a + ab * clamp(s, 0.0, 1.0)
+
+## Intersects an infinite line (lp + t*ld, ld must be normalised) with a circle.
+## Returns an Array of 0, 1, or 2 Vector2 intersection points.
+static func line_intersect_circle(lp: Vector2, ld: Vector2, center: Vector2, r: float) -> Array:
+	var to_center  = center - lp
+	var proj       = to_center.dot(ld)
+	var closest    = lp + ld * proj
+	var dist_sq    = (center - closest).length_squared()
+	var r_sq       = r * r
+	if dist_sq > r_sq + 1e-10:
+		return []
+	var half_chord = sqrt(max(0.0, r_sq - dist_sq))
+	if half_chord < 1e-5:
+		return [closest]
+	return [closest - ld * half_chord, closest + ld * half_chord]
+
 # Liang-Barsky line clipping algorithm for a SEGMENT
 # Returns [p1, p2] inside the rect, or empty array [] if outside
 static func clip_line_segment_to_rect(p1, p2, rect):

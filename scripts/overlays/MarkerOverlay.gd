@@ -371,33 +371,13 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 		var cell_size = _get_grid_cell_size()
 		if cell_size:
 			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
-			var angle_rad = deg2rad(tool.active_shape_angle)  # Convert shape rotation angle to radians
-			
-			match tool.active_shape_subtype:
-				"Circle":
-					GuidesLinesRender.draw_circle_outline(self, pos, radius_px, LINE_COLOR, LINE_WIDTH)
-				
-				"Square":
-					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 4, PI/4 + angle_rad)
-					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
-				
-				"Pentagon":
-					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 5, -PI/2 + angle_rad)
-					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
-				
-				"Hexagon":
-					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 6, angle_rad)
-					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
-				
-				"Octagon":
-					var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, 8, PI/8 + angle_rad)
-					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
-				
-				"Custom":
-					var vertices = GeometryUtils.calculate_polygon_vertices(
-						pos, radius_px, tool.active_shape_sides, angle_rad
-					)
-					GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
+			var angle_rad = deg2rad(tool.active_shape_angle)
+
+			if tool.active_shape_subtype == "Circle":
+				GuidesLinesRender.draw_circle_outline(self, pos, radius_px, LINE_COLOR, LINE_WIDTH)
+			else:
+				var vertices = GeometryUtils.calculate_shape_vertices(pos, radius_px, tool.active_shape_subtype, angle_rad, tool.active_shape_sides)
+				GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
 
 	
 	# Draw preview marker

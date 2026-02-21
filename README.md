@@ -1,6 +1,6 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.0.0  
+**Version:** 2.1.0  
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
@@ -8,28 +8,18 @@ Advanced guide system with fully customizable markers for precise map alignment 
 
 ---
 
-## ⚠️ Version 2.0.0 - Breaking Changes
+## ⚠️ v2.0.0 — Breaking Changes (maps from v1.x are incompatible)
 
-**This is a major release with breaking changes. Maps saved with v2.0.0 are NOT compatible with v1.x versions.**
+**Maps saved with v2.0.0+ are NOT compatible with v1.x.  No automatic migration — recreate markers using the new system.**
 
-### What's New in 2.0.0
+## ✨ What's New since 2.0.0
 
-- 🎨 **Complete marker system redesign** - flexible, extensible architecture
-- 🔄 **4 marker types**: Line, Shape, Path, Arrow (vs 3 fixed types in v1.x)
-- 🎯 **Infinite customization** - angles, colors, sizes for each marker
-- 🖱️ **Mouse wheel controls** - adjust parameters in real-time
-- 👁️ **Enhanced previews** - see exactly what you'll get before placing
-- ⚡ **Better performance** - optimized rendering engine
-
-### Migration from v1.x
-
-**⚠️ IMPORTANT: Backup your maps before upgrading!**
-
-1. **Export your v1.x maps** as images/exports before upgrading
-2. **Install v2.0.0** in a fresh Dungeondraft mods folder
-3. **Recreate markers** using the new flexible system (much more powerful!)
-
-There is **no automatic migration** - the data formats are incompatible at the fundamental level.
+- 🔷 **Custom (N-sided) shapes** — place any regular polygon with 3–50 sides
+- 🖱️ **Shape mouse controls** — scroll rotates, Alt+scroll changes radius, RMB rotates +45°
+- ⚙️ **Persistent settings** — preferences saved between sessions (Edit → Preferences → Mods)
+- ⌨️ **Configurable hotkey** — bind a key to the Guide Markers tool (default: `9`)
+- 🔌 **External API** (`GuidesLinesApi`) — other mods can place/delete/query markers programmatically
+- 🏗️ **Geometry centralised** — all math lives in `GeometryUtils.gd`; rendering in `GuidesLinesRender.gd`
 
 ---
 
@@ -44,6 +34,7 @@ There is **no automatic migration** - the data formats are incompatible at the f
   - [Placing Arrow Markers](#placing-arrow-markers)
   - [Managing Markers](#managing-markers)
   - [Overlay Features](#overlay-features)
+  - [External API](#external-api)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Technical Details](#technical-details)
 - [Troubleshooting](#troubleshooting)
@@ -67,11 +58,13 @@ There is **no automatic migration** - the data formats are incompatible at the f
    - Perfect for alignment and perspective guides
 
 2. **Shape Markers**
-   - 5 subtypes: Circle, Square, Pentagon, Hexagon, Octagon
+   - 6 subtypes: Circle, Square, Pentagon, Hexagon, Octagon, **Custom (N-sided)**
+   - Custom subtype: any regular polygon from 3 to 50 sides
    - Radius: 0.5 to 100 grid cells
    - Full rotation support (except circles)
-   - Mouse wheel radius adjustment (0.5 cell increments)
-   - Mouse wheel rotation adjustment (5° increments for shapes)
+   - **Scroll wheel** — rotates shape (5° increments)
+   - **Alt + Scroll wheel** — changes radius (0.1 cell increments)
+   - **Right-click (RMB)** — quick +45° rotation
    - Custom color per marker
    - Ideal for circular rooms, polygonal features, area planning
 
@@ -94,7 +87,10 @@ There is **no automatic migration** - the data formats are incompatible at the f
 
 ### 🖱️ Interactive Controls
 
-- **Mouse Wheel Adjustment**: Scroll to modify angle/radius while hovering
+- **Mouse Wheel** (over Line Angle): Adjust angle ±5°
+- **Mouse Wheel** (over Shape): Rotate shape ±5°
+- **Alt + Mouse Wheel** (over Shape): Adjust radius ±0.1 cells
+- **Right-Click** (Shape, before placement): Quick +45° rotation
 - **Quick Angle Buttons**: 0°, 45°, 90°, 135° presets for common angles
 - **Color Picker**: Independent color for each marker
 - **Real-time Preview**: See exactly what you'll place
@@ -102,13 +98,16 @@ There is **no automatic migration** - the data formats are incompatible at the f
 
 ### 📐 Advanced Features
 
-- **Grid Snapping**: Works with vanilla and custom_snap mod grids
+- **Grid Snapping**: Respects Dungeondraft's global Snap to Grid setting; works with custom_snap mod
 - **Coordinate Display**: Show grid positions on guide lines
 - **Overlay System**:
   - Proximity guides (cross overlays near cursor)
   - Permanent center guides (vertical/horizontal)
   - Coordinate markers on guide lines
 - **Full Undo/Redo**: Every operation is undoable (Ctrl+Z / Ctrl+Y)
+- **Persistent Settings**: Overlay toggles and preferences saved across sessions (Edit → Preferences → Mods → Guides Lines)
+- **Configurable Hotkey**: Bind any key to activate the tool (Edit → Preferences → Shortcuts → Guides Lines; default: `9`)
+- **External API**: Other mods can interact with GuidesLines via `self.Global.API.GuidesLinesApi`
 - **Auto-Updates**: GitHub release notifications via UpdateChecker
 
 ### 💾 Persistence
@@ -139,9 +138,9 @@ There is **no automatic migration** - the data formats are incompatible at the f
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** - should show "Guide Markers v2.0.0"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.1.0"
 3. Create/open a map
-4. Select **Design** category → **Guide Markers** tool
+4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
 
 ---
@@ -159,7 +158,6 @@ There is **no automatic migration** - the data formats are incompatible at the f
    - **Mirror**: Check for symmetrical paired line at 180° offset
    - **Color**: Click to pick custom color
    - **Tip**: Hover over angle spinbox and scroll mouse wheel to adjust in 5° increments
-4. Optional: Enable "Snap to Grid" for precise positioning
 5. Click on map to place marker
 6. Guide lines appear instantly, extending infinitely to map edges
 
@@ -185,21 +183,24 @@ There is **no automatic migration** - the data formats are incompatible at the f
    - Pentagon (5 sides)
    - Hexagon (6 sides)
    - Octagon (8 sides)
+   - **Custom (N-sided)** — any regular polygon from 3 to 50 sides
+     - Extra **Sides** spinbox appears when Custom is selected
 4. Configure settings:
-   - **Radius**: 0.5-100 grid cells
-     - **Tip**: Hover over radius spinbox and scroll mouse wheel (0.5 cell increments)
-   - **Shape Angle**: 0-360° rotation (disabled for circles)
-     - **Tip**: Use quick angle buttons or scroll mouse wheel while hovering (5° increments)
-     - Rotates the entire shape around its center
+   - **Radius**: 0.5–100 grid cells
+     - **Alt + scroll wheel** to adjust in 0.1-cell increments
+   - **Shape Angle**: 0–360° rotation (disabled for circles)
+     - **Scroll wheel** to rotate in 5° increments
+     - **Right-click** for quick +45° snap
+     - Or use quick angle buttons (0°, 45°, 90°, 135°)
    - **Color**: Custom color picker
-5. Optional: Enable "Snap to Grid"
+5. Optionally toggle **Snap to Grid** (follows Dungeondraft global setting)
 6. Click to place marker at shape center
 7. Shape outline appears with specified radius and rotation
 
 **Shape Angle Behavior:**
 - Square: rotates on all 4 corners
-- Pentagon/Hexagon/Octagon: rotates all vertices
-- Circle: angle control disabled (circles have no rotation)
+- Pentagon/Hexagon/Octagon/Custom: rotates all vertices
+- Circle: all rotation controls disabled (circles have no rotation)
 
 ---
 
@@ -301,7 +302,51 @@ Arrow markers use **2-point placement** with automatic completion:
 
 ---
 
-### Overlay Features
+### External API
+
+`GuidesLinesApi` is available to other mods via `self.Global.API.GuidesLinesApi` after a map is loaded.
+
+**Check readiness:**
+```gdscript
+if self.Global.API.has("GuidesLinesApi") and self.Global.API.GuidesLinesApi.is_ready():
+    var gl = self.Global.API.GuidesLinesApi
+```
+
+**Or listen for late registration:**
+```gdscript
+self.Global.API.connect("api_registered", self, "_on_api_registered")
+func _on_api_registered(api_id, _api):
+    if api_id == "GuidesLinesApi":
+        var gl = self.Global.API.GuidesLinesApi
+```
+
+**Placement:**
+```gdscript
+var id = gl.place_line_marker(Vector2(512, 512), 45.0)            # Line at 45°
+var id = gl.place_shape_marker(Vector2(512, 512), "Hexagon", 3.0) # Hexagon r=3
+var id = gl.place_shape_marker(pos, "Custom", 2.0, 0.0, 8)        # Octagon (custom)
+var id = gl.place_path_marker([p1, p2, p3], true)                  # Closed path
+var id = gl.place_arrow_marker(p1, p2, 60.0, 30.0)                # Arrow
+```
+
+**Queries:**
+```gdscript
+var nearest = gl.find_nearest_marker_by_geometry(cursor_pos, 100.0)
+# Returns: { id, marker_type, position, point (closest geometry point), distance, ... }
+
+var hit = gl.find_line_intersection(line_a, line_b, cursor_pos, 80.0)
+# Returns: { point, distance, on_positive, marker_id, marker_type, ... }
+```
+
+**Signals:**
+```gdscript
+gl.connect("marker_placed", self, "_on_marker_placed")  # (marker_id, position)
+gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
+```
+
+---
+
+## Overlay Features
 
 #### Proximity Guides (Cross Overlays)
 
@@ -343,12 +388,14 @@ Arrow markers use **2-point placement** with automatic completion:
 
 | Shortcut | Action |
 |----------|--------|
+| **`9`** (default, configurable) | Activate Guide Markers tool |
 | **ESC** | Cancel path/arrow placement |
-| **Right-Click** | Finish path (open) / Cancel arrow / Delete marker (when not placing) |
+| **Right-Click** | Finish path (open) / Cancel arrow / Delete marker (when not placing) / Shape +45° (before placement) |
 | **Ctrl+Z** | Undo last operation |
 | **Ctrl+Y** / **Ctrl+Shift+Z** | Redo operation |
-| **Mouse Wheel Up/Down** (over Angle) | Adjust angle ±5° |
-| **Mouse Wheel Up/Down** (over Radius) | Adjust radius ±0.5 cells |
+| **Scroll Wheel** (Line, over Angle) | Adjust angle ±5° |
+| **Scroll Wheel** (Shape, in viewport) | Rotate shape ±5° |
+| **Alt + Scroll Wheel** (Shape) | Adjust radius ±0.1 cells |
 
 ---
 
@@ -358,31 +405,47 @@ Arrow markers use **2-point placement** with automatic completion:
 
 **Clean separation of concerns:**
 
-1. **GuidesLines.gd** - Main coordinator
+1. **GuidesLines.gd** — Main coordinator
    - Registers with Dungeondraft and _Lib API
    - Creates tools and manages lifecycle
    - Handles save/load operations
-   - Manages overlay callbacks
+   - Registers `GuidesLinesApi` with `_Lib`'s ApiApi
 
-2. **GuidesLinesTool.gd** - Tool logic
+2. **GuidesLinesTool.gd** — Tool logic
    - Marker creation and storage
    - UI interactions and settings management
    - Path/Arrow placement state machines
    - Custom_snap integration
    - History record creation
+   - Public bridge methods for external API (`api_place_marker`, `api_delete_marker_by_id`)
 
-3. **MarkerOverlay.gd** - Rendering engine
+3. **MarkerOverlay.gd** — Rendering engine
    - Draws all marker types and guide lines
    - Handles preview rendering
    - Path/Arrow interactive previews
-   - Mouse wheel input handling
+   - Mouse wheel / RMB input handling
 
-4. **GuideMarker.gd** - Data model
+4. **GuidesLinesRender.gd** — Drawing primitives
+   - Centralised static helpers for lines, circles, polygons, arrows, text
+   - All overlays delegate drawing calls here
+
+5. **GeometryUtils.gd** — Math library
+   - Polygon/vertex generation, line clipping, ray intersection
+   - Closest-point and line–geometry intersection helpers used by the API
+
+6. **GuideMarker.gd** — Data model
    - Stores marker type and all parameters
    - Serialization for save/load
-   - Single flat structure for all types
+   - Caches computed geometry (invalidated on property change)
 
-5. **CrossOverlay.gd & PermanentOverlay.gd** - Overlay systems
+7. **GuidesLinesApi** — External API
+   - Signals: `marker_placed`, `marker_deleted`, `all_markers_deleted`, `settings_changed`
+   - Placement: `place_line_marker()`, `place_shape_marker()`, `place_path_marker()`, `place_arrow_marker()`
+   - Deletion: `delete_marker()`, `delete_all_markers()`
+   - Queries: `get_markers()`, `get_marker()`, `find_nearest_marker()`, `find_nearest_marker_by_geometry()`, `find_nearest_geometry_point()`, `find_line_intersection()`
+   - Settings: `set_cross_guides()`, `set_permanent_vertical/horizontal()`, `get_settings()`
+
+8. **CrossOverlay.gd & PermanentOverlay.gd** — Overlay systems
    - Proximity-based and permanent guides
    - Coordinate display system
    - Grid compatibility layer
@@ -392,8 +455,11 @@ Arrow markers use **2-point placement** with automatic completion:
 - **_Lib-1.2.0 API**: Modern `self.Global.API` pattern
 - **Logger API**: Professional logging with class-scoped instances
 - **HistoryApi**: Full undo/redo with custom record classes
+- **ModConfigApi**: Persistent settings panel (Edit → Preferences → Mods)
+- **InputMapApi**: Configurable hotkey (Edit → Preferences → Shortcuts)
 - **ModRegistry API**: Enhanced mod detection (custom_snap)
 - **UpdateChecker**: Automatic GitHub release notifications
+- **GuidesLinesApi**: External inter-mod API registered as `self.Global.API.GuidesLinesApi`
 - **custom_snap**: Detects and uses custom grid snapping
 
 ### Save Format
@@ -405,22 +471,23 @@ Markers stored in map file under `guide_markers` key:
   "marker_type": "Line|Shape|Path|Arrow",
   "position": {"x": float, "y": float},
   "color": {"r": float, "g": float, "b": float, "a": float},
-  
+
   // Line-specific
   "angle": float (0-360),
-  "line_range": float,
   "mirror": bool,
-  
+
   // Shape-specific
-  "circle_radius": float,
-  "shape_subtype": "Circle|Square|Pentagon|Hexagon|Octagon",
+  "shape_radius": float,
+  "shape_subtype": "Circle|Square|Pentagon|Hexagon|Octagon|Custom",
   "shape_angle": float (0-360),
-  
+  "shape_sides": int (3-50, used when subtype == "Custom"),
+
   // Path-specific
-  "path_points": [{"x": float, "y": float}, ...],
+  "marker_points": [{"x": float, "y": float}, ...],
   "path_closed": bool,
-  
+
   // Arrow-specific
+  "marker_points": [{"x": float, "y": float}, {"x": float, "y": float}],
   "arrow_head_length": float (10-200),
   "arrow_head_angle": float (10-60)
 }
@@ -491,18 +558,46 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.0.0 (Current) - 2026-02-15
-- 🎉 Complete redesign with flexible marker system
-- 🚀 4 marker types: Line, Shape, Path, Arrow
+### v2.1.0 (Current) — 2026-02-21
+- 🏗️ Geometry centralised into `GeometryUtils.gd` (Phase 3)
+- Internal API helpers extracted; no public signature changes
+
+### v2.0.11 — 2026-02-21
+- 🔌 `GuidesLinesApi` external mod API with signals, placement, deletion, spatial queries
+
+### v2.0.10 — 2026-02-19
+- ➕ Custom (N-sided) shape subtype (3–50 sides)
+
+### v2.0.9 — 2026-02-19
+- 🖱️ Shape mouse controls: scroll = rotate, Alt+scroll = radius, RMB = +45°
+
+### v2.0.8 — 2026-02-19
+- ⚙️ Persistent settings via ModConfigApi; configurable hotkey
+
+### v2.0.7 — 2026-02-17
+- Removed Snap to Grid checkbox; respects Dungeondraft global snap
+
+### v2.0.6 — 2026-02-17
+- Scripts reorganised into subdirectories (`tool/`, `render/`, `overlays/`, `guides/`, `utils/`)
+
+### v2.0.5 — 2026-02-17
+- `GuidesLinesRender.gd` centralises all drawing primitives
+
+### v2.0.4 — 2026-02-17
+- `GeometryUtils.gd` created; polygon, clipping, ray math consolidated
+
+### v2.0.3 — 2026-02-16
+- ⚡ Geometry caching; expensive trig removed from render loop
+
+### v2.0.0 — 2026-02-15
+- 🎉 Complete redesign: Line, Shape, Path, Arrow markers
 - ⚠️ Breaking: v1.x maps incompatible
 
-### v1.0.10 - 2026-02-04
-- UpdateChecker integration
-- Full HistoryApi support
+### v1.0.10 — 2026-02-04
+- UpdateChecker + HistoryApi
 
-### v1.0.9 - 2026-02-03
+### v1.0.9 — 2026-02-03
 - _Lib-1.2.0 compatibility
-- UI consolidation in tool panel
 
 [Full changelog](CHANGELOG.md)
 
@@ -529,7 +624,9 @@ Markers stored in map file under `guide_markers` key:
 - Use circles for room templates
 - Use hexagons for hex-grid overlays
 - Rotate squares to create diamond guides
-- Adjust radius with mouse wheel for fine-tuning
+- **Scroll wheel** to rotate quickly; **Alt+scroll** to resize
+- **Right-click** for instant +45° snap rotation
+- Use **Custom** subtype for any regular polygon (3–50 sides)
 
 ### For Path Markers
 - Place fewer points for smooth curves

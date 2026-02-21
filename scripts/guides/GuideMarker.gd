@@ -111,26 +111,7 @@ func _recalculate_geometry(map_rect, cell_size):
 				cached_draw_data["radius"] = radius_px
 			else:
 				cached_draw_data["shape_type"] = "poly"
-				var sides = 4
-				var rotation = 0.0
-				match shape_subtype:
-					"Square": 
-						sides = 4
-						rotation = PI/4 + angle_rad
-					"Pentagon": 
-						sides = 5
-						rotation = -PI/2 + angle_rad
-					"Hexagon": 
-						sides = 6
-						rotation = angle_rad
-					"Octagon": 
-						sides = 8
-						rotation = PI/8 + angle_rad
-					"Custom":
-						sides = shape_sides
-						rotation = angle_rad
-				
-				cached_draw_data["points"] = GeometryUtils.calculate_polygon_vertices(position, radius_px, sides, rotation)
+				cached_draw_data["points"] = GeometryUtils.calculate_shape_vertices(position, radius_px, shape_subtype, angle_rad, shape_sides)
 	_dirty = false
 
 # Get bounding rectangle for marker selection

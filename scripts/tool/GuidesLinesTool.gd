@@ -243,6 +243,12 @@ func _create_overlay():
 	if LOGGER:
 		LOGGER.info("MarkerOverlay created successfully")
 
+# Helper: record undo/redo action if HistoryApi is available.
+# max_count: maximum number of records kept in history (0 = unlimited)
+func _record_history(record, max_count: int = 100) -> void:
+	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
+		parent_mod.Global.API.HistoryApi.record(record, max_count)
+
 # Place a new marker at the specified position
 # Applies grid snapping and active custom line settings
 func place_marker(pos):
@@ -284,14 +290,9 @@ func place_marker(pos):
 	next_id += 1
 	
 	# Then add to history if available
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		if LOGGER:
-			LOGGER.debug("Adding marker placement to history (id: %d)" % [marker_data["id"]])
-		var record = PlaceMarkerRecord.new(self, marker_data)
-		parent_mod.Global.API.HistoryApi.record(record, 100)
-	else:
-		if LOGGER:
-			LOGGER.info("HistoryApi not available, marker placed without history")
+	if LOGGER:
+		LOGGER.debug("Adding marker placement to history (id: %d)" % [marker_data["id"]])
+	_record_history(PlaceMarkerRecord.new(self, marker_data))
 
 # Handle path marker placement (multi-point)
 func _handle_path_placement(pos):
@@ -347,12 +348,10 @@ func _finalize_path_marker(closed):
 	next_id += 1
 	
 	# Add to history
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		if LOGGER:
-			LOGGER.debug("Adding path marker to history (id: %d)" % [marker_data["id"]])
-		var record = PlaceMarkerRecord.new(self, marker_data)
-		parent_mod.Global.API.HistoryApi.record(record, 100)
-	
+	if LOGGER:
+		LOGGER.debug("Adding path marker to history (id: %d)" % [marker_data["id"]])
+	_record_history(PlaceMarkerRecord.new(self, marker_data))
+
 	# Reset path state
 	_cancel_path_placement()
 
@@ -412,12 +411,10 @@ func _finalize_arrow_marker():
 	next_id += 1
 	
 	# Add to history
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		if LOGGER:
-			LOGGER.debug("Adding arrow marker to history (id: %d)" % [marker_data["id"]])
-		var record = PlaceMarkerRecord.new(self, marker_data)
-		parent_mod.Global.API.HistoryApi.record(record, 100)
-	
+	if LOGGER:
+		LOGGER.debug("Adding arrow marker to history (id: %d)" % [marker_data["id"]])
+	_record_history(PlaceMarkerRecord.new(self, marker_data))
+
 	# Reset arrow state
 	_cancel_arrow_placement()
 
@@ -439,9 +436,7 @@ func _cancel_arrow_placement():
 func api_place_marker(marker_data: Dictionary) -> void:
 	_do_place_marker(marker_data)
 	next_id += 1
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		var record = PlaceMarkerRecord.new(self, marker_data)
-		parent_mod.Global.API.HistoryApi.record(record, 100)
+	_record_history(PlaceMarkerRecord.new(self, marker_data))
 
 # Delete a marker by id from the external API (handles history recording internally)
 # Returns true if the marker was found and deleted
@@ -454,9 +449,7 @@ func api_delete_marker_by_id(marker_id: int) -> bool:
 		return false
 	var marker_data = marker.Save()
 	_do_delete_marker(index)
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		var record = DeleteMarkerRecord.new(self, marker_data, index)
-		parent_mod.Global.API.HistoryApi.record(record, 100)
+	_record_history(DeleteMarkerRecord.new(self, marker_data, index))
 	return true
 
 # Delete all markers from the map
@@ -473,9 +466,7 @@ func delete_all_markers():
 	_do_delete_all()
 	
 	# Then add to history if available
-	if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-		var record = DeleteAllMarkersRecord.new(self, saved_markers)
-		parent_mod.Global.API.HistoryApi.record(record)
+	_record_history(DeleteAllMarkersRecord.new(self, saved_markers))
 
 func _do_delete_all():
 	markers = []
@@ -515,10 +506,7 @@ func delete_marker_at_position(pos, threshold = 20.0):
 			_do_delete_marker(i)
 			
 			# Then add to history if available
-			if parent_mod.Global.API and parent_mod.Global.API.has("HistoryApi"):
-				var record = DeleteMarkerRecord.new(self, marker_data, i)
-				parent_mod.Global.API.HistoryApi.record(record, 100)
-			
+			_record_history(DeleteMarkerRecord.new(self, marker_data, i))
 			return true  # Marker was deleted
 	return false  # No marker found
 
@@ -967,24 +955,22 @@ func _on_reset_pressed():
 	if LOGGER:
 		LOGGER.info("Settings reset to defaults for type: %s" % [active_marker_type])
 
-func _update_angle_spinbox():
+# Helper: set value on a named SpinBox inside the tool panel.
+# node_name: the name used in find_node for the SpinBox
+# value:     float value to assign
+func _set_spinbox_value(node_name: String, value: float) -> void:
 	if not tool_panel:
-		if LOGGER:
-			LOGGER.debug("_update_angle_spinbox: tool_panel is null")
 		return
 	var container = tool_panel.Align.get_child(0)
 	if container:
-		var spinbox = container.find_node("AngleSpinBox", true, false)
+		var spinbox = container.find_node(node_name, true, false)
 		if spinbox:
-			if LOGGER:
-				LOGGER.debug("Updating AngleSpinBox: %.1f° -> %.1f°" % [spinbox.value, active_angle])
-			spinbox.value = active_angle
-		else:
-			if LOGGER:
-				LOGGER.debug("_update_angle_spinbox: AngleSpinBox not found")
-	else:
-		if LOGGER:
-			LOGGER.debug("_update_angle_spinbox: container is null")
+			spinbox.value = value
+
+func _update_angle_spinbox():
+	if LOGGER:
+		LOGGER.debug("Updating AngleSpinBox: %.1f°" % [active_angle])
+	_set_spinbox_value("AngleSpinBox", active_angle)
 
 func _update_color_picker():
 	if not tool_panel:
@@ -1055,13 +1041,7 @@ func _on_shape_angle_changed(value):
 		LOGGER.debug("Shape angle changed to: %.1f°" % [value])
 
 func _update_shape_radius_spinbox():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var spinbox = container.find_node("ShapeRadiusSpinBox", true, false)
-		if spinbox:
-			spinbox.value = active_shape_radius
+	_set_spinbox_value("ShapeRadiusSpinBox", active_shape_radius)
 
 func _update_shape_subtype_selector():
 	if not tool_panel:
@@ -1132,22 +1112,10 @@ func _on_arrow_head_angle_changed(value):
 		LOGGER.debug("Arrow head angle changed to: %.1f°" % [value])
 
 func _update_arrow_head_length_spinbox():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var spinbox = container.find_node("ArrowHeadLengthSpinBox", true, false)
-		if spinbox:
-			spinbox.value = active_arrow_head_length
+	_set_spinbox_value("ArrowHeadLengthSpinBox", active_arrow_head_length)
 
 func _update_arrow_head_angle_spinbox():
-	if not tool_panel:
-		return
-	var container = tool_panel.Align.get_child(0)
-	if container:
-		var spinbox = container.find_node("ArrowHeadAngleSpinBox", true, false)
-		if spinbox:
-			spinbox.value = active_arrow_head_angle
+	_set_spinbox_value("ArrowHeadAngleSpinBox", active_arrow_head_angle)
 
 func _create_spacer(height):
 	var spacer = Control.new()

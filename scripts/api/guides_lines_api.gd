@@ -1,5 +1,7 @@
 extends Reference
 
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
+
 # GuidesLinesApi - External API for the GuidesLines mod
 #
 # Allows other mods to interact with GuidesLines programmatically.
@@ -83,7 +85,7 @@ func _unload():
 func place_line_marker(position: Vector2, angle: float = 0.0, mirror: bool = false, color = null) -> int:
 	if not _has_tool():
 		return -1
-	var tool = _mod.guides_tool
+	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
 		"position": position,
@@ -112,7 +114,7 @@ func place_shape_marker(position: Vector2, subtype: String = "Circle", radius: f
 						angle: float = 0.0, sides: int = 6, color = null) -> int:
 	if not _has_tool():
 		return -1
-	var tool = _mod.guides_tool
+	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
 		"position": position,
@@ -143,7 +145,7 @@ func place_path_marker(points: Array, closed: bool = false, color = null) -> int
 		if LOGGER:
 			LOGGER.warn("API: place_path_marker requires at least 2 points")
 		return -1
-	var tool = _mod.guides_tool
+	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
 		"position": points[0],
@@ -171,7 +173,7 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 						head_length: float = 50.0, head_angle: float = 30.0, color = null) -> int:
 	if not _has_tool():
 		return -1
-	var tool = _mod.guides_tool
+	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
 		"position": from_pos,
@@ -197,7 +199,7 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 func delete_marker(marker_id: int) -> bool:
 	if not _has_tool():
 		return false
-	var result = _mod.guides_tool.api_delete_marker_by_id(marker_id)
+	var result = _tool().api_delete_marker_by_id(marker_id)
 	if not result and LOGGER:
 		LOGGER.warn("API: delete_marker — id %d not found" % [marker_id])
 	return result
@@ -206,7 +208,7 @@ func delete_marker(marker_id: int) -> bool:
 func delete_all_markers() -> void:
 	if not _has_tool():
 		return
-	_mod.guides_tool.delete_all_markers()
+	_tool().delete_all_markers()
 	if LOGGER:
 		LOGGER.debug("API: All markers deleted")
 
@@ -222,11 +224,8 @@ func get_markers() -> Array:
 	if not _has_tool():
 		return []
 	var result = []
-	for marker in _mod.guides_tool.markers:
-		var d = marker.Save()
-		# Convert serialized position back to Vector2 for convenience
-		d["position"] = marker.position
-		result.append(d)
+	for marker in _tool().markers:
+		result.append(_marker_save_with_pos(marker))
 	return result
 
 ## Returns a single marker Dictionary by id, or null if not found.
@@ -234,19 +233,16 @@ func get_markers() -> Array:
 func get_marker(marker_id: int):
 	if not _has_tool():
 		return null
-	var tool = _mod.guides_tool
+	var tool = _tool()
 	if not tool.markers_lookup.has(marker_id):
 		return null
-	var marker = tool.markers_lookup[marker_id]
-	var d = marker.Save()
-	d["position"] = marker.position
-	return d
+	return _marker_save_with_pos(tool.markers_lookup[marker_id])
 
 ## Returns the total number of markers currently on the map.
 func get_marker_count() -> int:
 	if not _has_tool():
 		return 0
-	return _mod.guides_tool.markers.size()
+	return _tool().markers.size()
 
 ## Finds the nearest marker within [radius] world units of [coords].
 ## Searches by marker.position.
@@ -260,7 +256,7 @@ func find_nearest_marker(coords: Vector2, radius: float = 100.0):
 		return null
 	var nearest_marker = null
 	var nearest_dist = radius
-	for marker in _mod.guides_tool.markers:
+	for marker in _tool().markers:
 		var dist = marker.position.distance_to(coords)
 		if dist <= nearest_dist:
 			nearest_dist = dist
@@ -269,8 +265,7 @@ func find_nearest_marker(coords: Vector2, radius: float = 100.0):
 		if LOGGER:
 			LOGGER.debug("API: find_nearest_marker — nothing found within radius %.1f of %s" % [radius, str(coords)])
 		return null
-	var d = nearest_marker.Save()
-	d["position"] = nearest_marker.position
+	var d = _marker_save_with_pos(nearest_marker)
 	d["distance"] = nearest_dist
 	if LOGGER:
 		LOGGER.debug("API: find_nearest_marker — id=%d type=%s dist=%.3f" % [nearest_marker.id, nearest_marker.marker_type, nearest_dist])
@@ -295,14 +290,11 @@ func find_nearest_marker(coords: Vector2, radius: float = 100.0):
 func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 	if not _has_tool():
 		return null
-	var tool = _mod.guides_tool
+	var tool = _tool()
 
-	# Gather map_rect and cell_size needed for Line / Shape draw data
-	var map_rect = null
-	var cell_size = null
-	if tool.cached_world != null:
-		map_rect = tool.cached_world.WorldRect
-		cell_size = tool._get_grid_cell_size()
+	var ctx = _get_map_context(tool)
+	var map_rect  = ctx[0]
+	var cell_size = ctx[1]
 
 	var nearest_marker = null
 	var nearest_dist = radius
@@ -330,55 +322,29 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
 				if draw_data.has("shape_type"):
 					if draw_data["shape_type"] == "circle" and draw_data.has("radius"):
-						# Closest point on circumference
-						var to_marker = coords - marker.position
-						var to_len = to_marker.length()
-						var pt
-						if to_len > 1e-10:
-							pt = marker.position + to_marker / to_len * draw_data["radius"]
-						else:
-							pt = marker.position + Vector2(draw_data["radius"], 0)
+						var pt = GeometryUtils.closest_point_on_circle(coords, marker.position, draw_data["radius"])
 						var d = coords.distance_to(pt)
 						if d < min_dist:
 							min_dist = d
 							min_point = pt
 					elif draw_data["shape_type"] == "poly" and draw_data.has("points"):
 						var pts = draw_data["points"]
-						# Nearest edge point
-						for i in range(pts.size()):
-							var pt = _closest_point_on_segment(coords, pts[i], pts[(i + 1) % pts.size()])
-							var d = coords.distance_to(pt)
-							if d < min_dist:
-								min_dist = d
-								min_point = pt
-						# Nearest vertex
-						var best_vdist = INF
-						for v in pts:
-							var vd = coords.distance_to(v)
-							if vd < best_vdist:
-								best_vdist = vd
-								min_vertex = v
-
-			"Path":
-				var pts = marker.marker_points
-				if pts.size() >= 2:
-					var edge_count = pts.size() - 1
-					if marker.path_closed:
-						edge_count = pts.size()  # last edge wraps back to pts[0]
-					# Nearest edge point
-					for i in range(edge_count):
-						var pt = _closest_point_on_segment(coords, pts[i], pts[(i + 1) % pts.size()])
+						var pt = GeometryUtils.closest_point_on_polygon_edges(coords, pts)
 						var d = coords.distance_to(pt)
 						if d < min_dist:
 							min_dist = d
 							min_point = pt
-					# Nearest vertex
-					var best_vdist = INF
-					for v in pts:
-						var vd = coords.distance_to(v)
-						if vd < best_vdist:
-							best_vdist = vd
-							min_vertex = v
+						min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
+
+			"Path":
+				var pts = marker.marker_points
+				if pts.size() >= 2:
+					var pt = GeometryUtils.closest_point_on_polygon_edges(coords, pts, marker.path_closed)
+					var d = coords.distance_to(pt)
+					if d < min_dist:
+						min_dist = d
+						min_point = pt
+					min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
 
 			"Arrow":
 				if marker.marker_points.size() >= 2:
@@ -399,8 +365,7 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 		if LOGGER:
 			LOGGER.debug("API: find_nearest_marker_by_geometry — nothing found within radius %.1f of %s" % [radius, str(coords)])
 		return null
-	var d = nearest_marker.Save()
-	d["position"] = nearest_marker.position
+	var d = _marker_save_with_pos(nearest_marker)
 	d["point"] = nearest_point
 	d["vertex"] = nearest_vertex
 	d["distance"] = nearest_dist
@@ -441,13 +406,11 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 			LOGGER.warn("API: find_line_intersection — line_from and line_to are identical")
 		return null
 	var line_dir = delta.normalized()
-	var tool = _mod.guides_tool
+	var tool = _tool()
 
-	var map_rect = null
-	var cell_size = null
-	if tool.cached_world != null:
-		map_rect = tool.cached_world.WorldRect
-		cell_size = tool._get_grid_cell_size()
+	var ctx = _get_map_context(tool)
+	var map_rect  = ctx[0]
+	var cell_size = ctx[1]
 
 	var best_point = null
 	var best_dist  = radius
@@ -515,8 +478,7 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 			LOGGER.debug("API: find_line_intersection — no intersection found within radius %.1f of %s" % [radius, str(coords)])
 		return null
 
-	var result = best_marker.Save()
-	result["position"]    = best_marker.position
+	var result = _marker_save_with_pos(best_marker)
 	result["point"]       = best_point
 	result["distance"]    = best_dist
 	result["on_positive"] = (best_point - line_from).dot(line_dir) >= 0.0
@@ -549,13 +511,11 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 	if not _has_tool():
 		return null
-	var tool = _mod.guides_tool
+	var tool = _tool()
 
-	var map_rect = null
-	var cell_size = null
-	if tool.cached_world != null:
-		map_rect = tool.cached_world.WorldRect
-		cell_size = tool._get_grid_cell_size()
+	var ctx = _get_map_context(tool)
+	var map_rect  = ctx[0]
+	var cell_size = ctx[1]
 
 	var best_point  = null
 	var best_dist   = radius
@@ -577,29 +537,16 @@ func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
 				if draw_data.has("shape_type"):
 					if draw_data["shape_type"] == "circle" and draw_data.has("radius"):
-						# Closest point on circumference
-						var to_marker = coords - marker.position
-						var to_len = to_marker.length()
-						if to_len > 1e-10:
-							candidates.append(marker.position + to_marker / to_len * draw_data["radius"])
-						else:
-							# coords is exactly at center — pick arbitrary point on circle
-							candidates.append(marker.position + Vector2(draw_data["radius"], 0))
+						candidates.append(GeometryUtils.closest_point_on_circle(coords, marker.position, draw_data["radius"]))
 					elif draw_data["shape_type"] == "poly" and draw_data.has("points"):
-						var pts = draw_data["points"]
-						for i in range(pts.size()):
-							candidates.append(_closest_point_on_segment(coords, pts[i], pts[(i + 1) % pts.size()]))
+						candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, draw_data["points"]))
 
 			"Path":
 				if marker.position.distance_to(coords) > radius:
 					continue
 				var pts = marker.marker_points
 				if pts.size() >= 2:
-					var edge_count = pts.size() - 1
-					if marker.path_closed:
-						edge_count = pts.size()
-					for i in range(edge_count):
-						candidates.append(_closest_point_on_segment(coords, pts[i], pts[(i + 1) % pts.size()]))
+					candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, pts, marker.path_closed))
 
 			"Arrow":
 				if marker.position.distance_to(coords) > radius:
@@ -619,8 +566,7 @@ func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 			LOGGER.debug("API: find_nearest_geometry_point — nothing found within radius %.1f of %s" % [radius, str(coords)])
 		return null
 
-	var result = best_marker.Save()
-	result["position"]    = best_marker.position
+	var result = _marker_save_with_pos(best_marker)
 	result["point"]       = best_point
 	result["distance"]    = best_dist
 	result["marker_id"]   = best_marker.id
@@ -661,7 +607,7 @@ func set_permanent_horizontal(enabled: bool) -> void:
 func set_show_coordinates(enabled: bool) -> void:
 	_mod.show_coordinates_enabled = enabled
 	if _has_tool():
-		_mod.guides_tool.set_show_coordinates(enabled)
+		_tool().set_show_coordinates(enabled)
 	emit_signal("settings_changed", "show_coordinates", enabled)
 	if LOGGER:
 		LOGGER.debug("API: show_coordinates = %s" % [str(enabled)])
@@ -717,55 +663,50 @@ func _notify_all_markers_deleted() -> void:
 # PRIVATE HELPERS
 # ============================================================================
 
+## Returns [map_rect, cell_size] for the current world, or [null, null] if no world loaded.
+func _get_map_context(t) -> Array:
+	if t.cached_world != null:
+		return [t.cached_world.WorldRect, t._get_grid_cell_size()]
+	return [null, null]
+
+## Silent accessor — returns guides_tool or null without logging.
+## Call only after _has_tool() has confirmed readiness.
+func _tool():
+	return _mod.guides_tool
+
 func _has_tool() -> bool:
-	if _mod.guides_tool == null:
+	if _tool() == null:
 		if LOGGER:
 			LOGGER.warn("API: Tool not ready yet (map not loaded?)")
 		return false
 	return true
 
+## Build a public-facing marker dict from a GuideMarker instance.
+## Equivalent to marker.Save() with position already as Vector2.
+func _marker_save_with_pos(marker) -> Dictionary:
+	var d = marker.Save()
+	d["position"] = marker.position
+	return d
+
+## Returns the perpendicular distance from point [p] to the infinite ray
+## defined by [origin] and normalized [direction].
+func _dist_point_to_ray(p: Vector2, origin: Vector2, direction: Vector2) -> float:
+	return GeometryUtils.dist_point_to_ray(p, origin, direction)
+
 ## Returns the distance from point [p] to the closest point on segment [a]→[b].
 func _dist_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
-	var ab = b - a
-	var len_sq = ab.length_squared()
-	if len_sq == 0.0:
-		return p.distance_to(a)
-	var t = clamp((p - a).dot(ab) / len_sq, 0.0, 1.0)
-	return p.distance_to(a + ab * t)
+	return GeometryUtils.dist_point_to_segment(p, a, b)
 
 ## Returns the closest point on segment [a]→[b] to point [p].
 func _closest_point_on_segment(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
-	var ab = b - a
-	var len_sq = ab.length_squared()
-	if len_sq == 0.0:
-		return a
-	var t = clamp((p - a).dot(ab) / len_sq, 0.0, 1.0)
-	return a + ab * t
+	return GeometryUtils.closest_point_on_segment(p, a, b)
 
 ## Intersects an infinite line (lp + t*ld, ld must be normalised) with segment
 ## [a]→[b].  Returns the intersection Vector2 or null if parallel / miss.
 func _line_intersect_segment(lp: Vector2, ld: Vector2, a: Vector2, b: Vector2):
-	var ab    = b - a
-	var denom = ab.x * ld.y - ab.y * ld.x   # cross(ab, ld)
-	if abs(denom) < 1e-10:
-		return null  # parallel
-	var diff = lp - a
-	var s = (diff.x * ld.y - diff.y * ld.x) / denom  # cross(diff, ld) / cross(ab, ld)
-	if s < -1e-6 or s > 1.0 + 1e-6:
-		return null
-	return a + ab * clamp(s, 0.0, 1.0)
+	return GeometryUtils.line_intersect_segment(lp, ld, a, b)
 
 ## Intersects an infinite line (lp + t*ld, ld must be normalised) with a circle.
 ## Returns an Array of 0, 1, or 2 Vector2 intersection points.
 func _line_intersect_circle(lp: Vector2, ld: Vector2, center: Vector2, r: float) -> Array:
-	var to_center = center - lp
-	var proj      = to_center.dot(ld)
-	var closest   = lp + ld * proj
-	var dist_sq   = (center - closest).length_squared()
-	var r_sq      = r * r
-	if dist_sq > r_sq + 1e-10:
-		return []
-	var half_chord = sqrt(max(0.0, r_sq - dist_sq))
-	if half_chord < 1e-5:
-		return [closest]
-	return [closest - ld * half_chord, closest + ld * half_chord]
+	return GeometryUtils.line_intersect_circle(lp, ld, center, r)

@@ -5,6 +5,49 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-02-21
+
+### Refactoring — Geometry centralisation (Phase 3)
+
+All geometry logic that was still inlined inside `guides_lines_api.gd` has been
+moved into `GeometryUtils.gd` and delegated from thin wrapper methods in the API.
+No public API signatures were changed.
+
+#### `scripts/utils/GeometryUtils.gd` — new static functions
+
+| Function | Description |
+|---|---|
+| `closest_point_on_circle(p, center, r)` | Nearest point on a circle's circumference; handles the degenerate case where `p` lies exactly at the centre. |
+| `closest_point_on_polygon_edges(p, pts, closed=true)` | Nearest point on any edge of a polygon or polyline. `closed=true` (default) wraps the last edge back to `pts[0]`; `closed=false` treats the array as an open polyline. Replaces per-method `for i in range(…)` edge loops. |
+| `nearest_polygon_vertex(p, pts)` | Returns the vertex in `pts` closest to `p`, or `null` for an empty array. |
+| `line_intersect_segment(lp, ld, a, b)` | Intersects an infinite line `(lp + t·ld)` with segment `[a]→[b]`. Returns the intersection `Vector2` or `null` when parallel / out of range. |
+| `line_intersect_circle(lp, ld, center, r)` | Intersects an infinite line with a circle. Returns an `Array` of 0, 1, or 2 `Vector2` intersection points. |
+
+#### `scripts/api/guides_lines_api.gd` — internal simplifications
+
+- **`_get_map_context(t) → Array`** — new private helper that returns `[map_rect, cell_size]`
+  for the current world (or `[null, null]` when no map is loaded). Eliminates the
+  identical 4-line `map_rect`/`cell_size` boilerplate that was duplicated in
+  `find_nearest_marker_by_geometry`, `find_line_intersection`, and
+  `find_nearest_geometry_point`.
+- **`find_nearest_marker_by_geometry`** — inline circle closest-point block (8 lines),
+  polygon edge loop (8 lines), nearest-vertex loop (5 lines), and Path edge/vertex
+  blocks all replaced by single `GeometryUtils.*` calls.
+- **`find_nearest_geometry_point`** — same circle, polygon, and Path blocks replaced by
+  `GeometryUtils.closest_point_on_circle` / `closest_point_on_polygon_edges`.
+- **`_line_intersect_segment`** — body replaced by a single delegation to
+  `GeometryUtils.line_intersect_segment`.
+- **`_line_intersect_circle`** — body replaced by a single delegation to
+  `GeometryUtils.line_intersect_circle`.
+
+#### Bug fixes
+
+- **`GeometryUtils.closest_point_on_circle`**: local variable named `len` conflicted
+  with GDScript's built-in global function of the same name, causing a parse error on
+  load. Renamed to `to_len`.
+- **`guides_lines_api._get_map_context`**: parameter named `tool` is a reserved keyword
+  in GDScript, causing a parse/tokeniser error. Renamed to `t`.
+
 ## [2.0.11] - 2026-02-21
 
 ### Added
