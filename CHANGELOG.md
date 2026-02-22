@@ -5,6 +5,26 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.8] - 2026-02-22
+
+### Changed — Clip mode replaced by Merge mode
+
+The **Clip Intersecting Shapes** mode has been replaced by **Merge Intersecting Shapes**.
+
+#### Behaviour
+
+- **Old (Clip):** placing shape B clipped both A and B at their intersection — two separate markers remained.
+- **New (Merge):** placing shape B merges its outline into every overlapping existing marker A. No new marker is created; A absorbs the union outline and its center moves to the midpoint between the two original centers. Subsequent merges (A+B)+C always operate on the actual current outline of A.
+
+#### Implementation
+
+- **`GeometryUtils.gd`** — added `merge_polygons_outline(pts_a, pts_b)`: returns segments of the outer union of two polygons (handles normal intersection, full containment in either direction, and no-overlap); added `chain_segments_to_polygon(segs)`: chains a flat list of `{type:"seg"}` segments into an ordered `Array[Vector2]` polygon for use in subsequent merge/overlap tests.
+- **`GuidesLinesTool.gd`** — `auto_clip_shapes` → `merge_shapes`; removed `_apply_shape_clipping()`; added `_do_apply_merge(merge_desc, new_pos)` and `_snapshot_potential_merge_targets(merge_desc)`; `place_marker()` has an early-exit Merge branch — if no existing shape overlaps, nothing happens; `_get_shape_descriptor()` now derives the polygon exclusively from current primitives via `chain_segments_to_polygon` (original shape parameters are only used once, on first `get_draw_data()` for a fresh marker).
+- **`GuidesLinesHistory.gd`** — added `MergeShapeRecord`: snapshots primitives + position of every affected marker before the merge; `undo()` restores them, `redo()` replays `_do_apply_merge`.
+- **`GuidesLinesToolUI.gd`** — checkbox renamed to `"Merge Intersecting Shapes"` / node name `MergeIntersectingShapesCheckbox`; hint updated; callback renamed to `_on_merge_shapes_toggled`; mutual-exclusion logic updated for Cut and Difference.
+
+---
+
 ## [2.1.7] - 2026-02-22
 
 ### Refactoring — Code cleanup and bug fixes

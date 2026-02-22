@@ -330,18 +330,18 @@ func _create_shape_settings_ui():
 
 	container.add_child(_create_spacer(10))
 
-	# Clip Intersecting Shapes toggle
-	var clip_check = CheckButton.new()
-	clip_check.text = "Clip Intersecting Shapes"
-	clip_check.pressed = tool.auto_clip_shapes
-	clip_check.name = "ClipIntersectingShapesCheckbox"
-	clip_check.connect("toggled", self, "_on_auto_clip_shapes_toggled")
-	container.add_child(clip_check)
+	# Merge Intersecting Shapes toggle
+	var merge_check = CheckButton.new()
+	merge_check.text = "Merge Intersecting Shapes"
+	merge_check.pressed = tool.merge_shapes
+	merge_check.name = "MergeIntersectingShapesCheckbox"
+	merge_check.connect("toggled", self, "_on_merge_shapes_toggled")
+	container.add_child(merge_check)
 
-	var clip_hint = Label.new()
-	clip_hint.text = "  (new shapes clip each other)"
-	clip_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(clip_hint)
+	var merge_hint = Label.new()
+	merge_hint.text = "  (new shape merges into existing)"
+	merge_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(merge_hint)
 
 	# Cut Into Existing Shapes toggle
 	var cut_check = CheckButton.new()
@@ -584,8 +584,8 @@ func _on_shape_sides_changed(value):
 	if tool.LOGGER:
 		tool.LOGGER.debug("Shape sides changed to: %d" % [tool.active_shape_sides])
 
-func _on_auto_clip_shapes_toggled(enabled):
-	tool.auto_clip_shapes = enabled
+func _on_merge_shapes_toggled(enabled):
+	tool.merge_shapes = enabled
 	# Only one clip mode can be active at a time
 	if enabled:
 		if tool.cut_existing_shapes:
@@ -595,15 +595,15 @@ func _on_auto_clip_shapes_toggled(enabled):
 			tool.difference_mode = false
 			_set_shape_checkbox("DifferenceModeCheckbox", false)
 	if tool.LOGGER:
-		tool.LOGGER.info("Clip Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
+		tool.LOGGER.info("Merge Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
 
 func _on_cut_existing_shapes_toggled(enabled):
 	tool.cut_existing_shapes = enabled
 	# Only one clip mode can be active at a time
 	if enabled:
-		if tool.auto_clip_shapes:
-			tool.auto_clip_shapes = false
-			_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+		if tool.merge_shapes:
+			tool.merge_shapes = false
+			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
 		if tool.difference_mode:
 			tool.difference_mode = false
 			_set_shape_checkbox("DifferenceModeCheckbox", false)
@@ -614,9 +614,9 @@ func _on_difference_mode_toggled(enabled):
 	tool.difference_mode = enabled
 	# Only one mode can be active at a time
 	if enabled:
-		if tool.auto_clip_shapes:
-			tool.auto_clip_shapes = false
-			_set_shape_checkbox("ClipIntersectingShapesCheckbox", false)
+		if tool.merge_shapes:
+			tool.merge_shapes = false
+			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
 		if tool.cut_existing_shapes:
 			tool.cut_existing_shapes = false
 			_set_shape_checkbox("CutExistingShapesCheckbox", false)

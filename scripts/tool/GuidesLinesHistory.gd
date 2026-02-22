@@ -31,7 +31,7 @@ class PlaceMarkerRecord:
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord.redo() called for id: %d" % [marker_data["id"]])
 		# Re-snapshot before redo so that the NEXT undo can restore correctly.
-		if tool.auto_clip_shapes or tool.cut_existing_shapes:
+		if tool.cut_existing_shapes:
 			clip_snapshots = tool._snapshot_potential_clip_targets(marker_data["position"])
 		tool._do_place_marker(marker_data)
 
@@ -123,3 +123,43 @@ class DifferenceRecord:
 
 	func record_type():
 		return "GuidesLines.Difference"
+
+
+# History record for a Merge operation.
+# Merge does NOT create a new marker — instead existing Shape markers that overlap
+# the placed shape have their primitives and position updated.
+# undo() restores each affected marker to its pre-merge state.
+# redo() re-applies _do_apply_merge() with the stored descriptor + center.
+class MergeShapeRecord:
+	var tool
+	var merge_desc   # { shape_type, points } descriptor of the virtual new shape
+	var new_pos      # Vector2 — center of the placed (virtual) shape
+	# { marker_id: { "primitives": [...], "position": Vector2 } }
+	var snapshots
+
+	func _init(tool_ref, p_desc, p_pos, p_snapshots):
+		tool = tool_ref
+		merge_desc = p_desc
+		new_pos = p_pos
+		snapshots = p_snapshots
+		if tool.LOGGER:
+			tool.LOGGER.debug("MergeShapeRecord created at %s" % [str(p_pos)])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("MergeShapeRecord.redo() called")
+		tool._do_apply_merge(merge_desc, new_pos)
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("MergeShapeRecord.undo() called — restoring %d markers" % [snapshots.size()])
+		for id in snapshots:
+			if tool.markers_lookup.has(id):
+				var m = tool.markers_lookup[id]
+				m.set_primitives(snapshots[id]["primitives"].duplicate(true))
+				m.position = snapshots[id]["position"]
+		if tool.overlay:
+			tool.overlay.update()
+
+	func record_type():
+		return "GuidesLines.MergeShape"

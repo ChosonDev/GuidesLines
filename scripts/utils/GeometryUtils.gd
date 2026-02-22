@@ -436,3 +436,99 @@ static func clip_primitives_against_shapes(primitives: Array, shapes: Array) -> 
 				if outside:
 					result.append({"type": "seg", "a": a + edge * ts[k], "b": a + edge * ts[k + 1]})
 	return result
+# ============================================================================
+# SHAPE MERGE UTILITIES
+# Used for "Merge Intersecting Shapes" feature
+# ============================================================================
+
+## Returns the outer union outline of two closed polygons A and B:
+## segments of A whose midpoint is OUTSIDE B,
+## plus segments of B whose midpoint is OUTSIDE A.
+##
+## Special cases:
+##   - Edges intersect (normal merge)  → outer union outline
+##   - A fully inside B                → B's full outline
+##   - B fully inside A                → A's full outline
+##   - No overlap at all               → empty array (caller falls through to normal placement)
+##
+## Returns Array of { "type": "seg", "a": Vector2, "b": Vector2 }.
+static func merge_polygons_outline(pts_a: Array, pts_b: Array) -> Array:
+	if pts_a.empty() or pts_b.empty():
+		return []
+
+	var shape_a = {"shape_type": "poly", "points": pts_a}
+	var shape_b = {"shape_type": "poly", "points": pts_b}
+
+	# Check whether the outlines actually cross each other.
+	var edges_intersect = false
+	var na = pts_a.size()
+	var nb = pts_b.size()
+	for i in range(na):
+		for j in range(nb):
+			if segment_segment_intersect(pts_a[i], pts_a[(i + 1) % na],
+										 pts_b[j], pts_b[(j + 1) % nb]) != null:
+				edges_intersect = true
+				break
+		if edges_intersect:
+			break
+
+	if not edges_intersect:
+		# Check containment using a single representative vertex from each polygon.
+		var a_in_b = Geometry.is_point_in_polygon(pts_a[0], pts_b)
+		var b_in_a = Geometry.is_point_in_polygon(pts_b[0], pts_a)
+		if a_in_b:
+			return points_to_segs(pts_b)  # A absorbed by B → keep B outline
+		if b_in_a:
+			return points_to_segs(pts_a)  # B absorbed by A → keep A outline
+		# Completely separate shapes — no merge.
+		return []
+
+	# Normal intersection: keep the outer ring of each polygon.
+	var segs_a = clip_polygon_against_shapes(pts_a, [shape_b])
+	var segs_b = clip_polygon_against_shapes(pts_b, [shape_a])
+	return segs_a + segs_b
+
+## Chain a flat list of {type:"seg", a:V2, b:V2} segments into a single ordered
+## polygon vertex array.  Endpoints are matched within [eps] tolerance.
+## The segments must form (approximately) one closed boundary — any gaps
+## larger than [eps] stop the chain early.
+## Returns Array[Vector2] suitable for Geometry.is_point_in_polygon() etc.,
+## or an empty array if the input is empty.
+static func chain_segments_to_polygon(segs: Array, eps: float = 0.5) -> Array:
+	if segs.empty():
+		return []
+
+	# Copy segment endpoints into a mutable list of [a, b, used] triplets.
+	var edges = []
+	for s in segs:
+		if s.get("type", "") == "seg":
+			edges.append({"a": s.a, "b": s.b, "used": false})
+	if edges.empty():
+		return []
+
+	# Start the chain from the first edge.
+	var poly = [edges[0].a, edges[0].b]
+	edges[0].used = true
+
+	var max_iter = edges.size() + 2
+	for _i in range(max_iter):
+		var tail = poly[poly.size() - 1]
+		var found = -1
+		var rev = false
+		for i in range(edges.size()):
+			if edges[i].used:
+				continue
+			if tail.distance_to(edges[i].a) < eps:
+				found = i; rev = false; break
+			if tail.distance_to(edges[i].b) < eps:
+				found = i; rev = true; break
+		if found == -1:
+			break
+		edges[found].used = true
+		poly.append(edges[found].b if not rev else edges[found].a)
+
+	# Drop the closing duplicate if the last point coincides with the first.
+	if poly.size() > 1 and poly[0].distance_to(poly[poly.size() - 1]) < eps:
+		poly.pop_back()
+
+	return poly
