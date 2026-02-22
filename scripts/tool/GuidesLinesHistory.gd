@@ -101,26 +101,23 @@ class DeleteAllMarkersRecord:
 # Uses snapshots to undo, because there is no "diff marker" that could be removed.
 class DifferenceRecord:
 	var tool
-	var diff_desc   # in-memory Dictionary (has Vector2 values — not serializable)
-	var diff_op     # serializable Dictionary stored in tool.difference_ops
+	var diff_desc   # in-memory Dictionary (has Vector2 values)
 	# { marker_id: {"primitives":[...]} }
 	var snapshots
 
-	func _init(tool_ref, p_desc, p_op, p_snapshots):
+	func _init(tool_ref, p_desc, p_snapshots):
 		tool = tool_ref
 		diff_desc = p_desc
-		diff_op   = p_op
 		snapshots = p_snapshots
 
 	func redo():
-		tool._do_apply_difference(diff_desc, diff_op)
+		tool._do_apply_difference(diff_desc)
 
 	func undo():
 		for id in snapshots:
 			if tool.markers_lookup.has(id):
 				tool.markers_lookup[id].set_primitives(
 					snapshots[id]["primitives"].duplicate(true))
-		tool.difference_ops.erase(diff_op)
 		if tool.overlay:
 			tool.overlay.update()
 

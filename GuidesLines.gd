@@ -3,10 +3,17 @@
 #
 # File Structure:
 #   - GuidesLines.gd: Main mod file (this file)
-#   - scripts/guides/GuideMarker.gd: Placeable marker with guide lines (multi-type support)
+#   - scripts/guides/GuideMarker.gd: Placeable marker data class (Line/Shape/Path)
 #   - scripts/tool/GuidesLinesTool.gd: Tool for placing and managing markers
+#   - scripts/tool/GuidesLinesToolUI.gd: UI panel and controls for the tool
+#   - scripts/tool/GuidesLinesHistory.gd: Undo/redo history record classes
+#   - scripts/tool/GuidesLinesPlacement.gd: Multi-point placement state machine
+#   - scripts/overlays/MarkerOverlay.gd: Drawing and input overlay node
 #   - scripts/overlays/CrossOverlay.gd: Proximity-based guide overlay
 #   - scripts/overlays/PermanentOverlay.gd: Permanent guide overlay
+#   - scripts/api/guides_lines_api.gd: External API for intermod communication
+#   - scripts/utils/GeometryUtils.gd: Geometry helper functions
+#   - scripts/render/GuidesLinesRender.gd: Rendering helper functions
 
 var script_class = "tool"
 
@@ -70,7 +77,7 @@ var guides_lines_api = null
 
 # Cached custom_snap mod reference (checked once after map load)
 var cached_snappy_mod = null
-var snappy_mod_checked = false  # Flag to check snappy_mod only once
+var snappy_mod_checked = false
 
 # Proximity and permanent guide settings
 var cross_guides_enabled = true  # Enabled by default
@@ -97,7 +104,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.1.0")
+			LOGGER.info("Mod starting - version 2.1.7")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -125,38 +132,45 @@ func start():
 	
 	# Verify self.Global.Root exists
 	if not self.Global or not self.Global.has("Root"):
-		print("GuidesLines: ERROR - self.Global.Root not available!")
+		if LOGGER: LOGGER.error("self.Global.Root not available!")
+		else: print("GuidesLines: ERROR - self.Global.Root not available!")
 		return
 	
 	# Load classes (without cache flag to avoid potential issues)
 	GuideMarkerClass = ResourceLoader.load(self.Global.Root + "scripts/guides/GuideMarker.gd", "GDScript", false)
 	if not GuideMarkerClass:
-		print("GuidesLines: ERROR - Failed to load GuideMarker.gd")
+		if LOGGER: LOGGER.error("Failed to load GuideMarker.gd")
+		else: print("GuidesLines: ERROR - Failed to load GuideMarker.gd")
 		return
 	
 	GuidesLinesToolClass = ResourceLoader.load(self.Global.Root + "scripts/tool/GuidesLinesTool.gd", "GDScript", false)
 	if not GuidesLinesToolClass:
-		print("GuidesLines: ERROR - Failed to load GuidesLinesTool.gd")
+		if LOGGER: LOGGER.error("Failed to load GuidesLinesTool.gd")
+		else: print("GuidesLines: ERROR - Failed to load GuidesLinesTool.gd")
 		return
 	
 	MarkerOverlayClass = ResourceLoader.load(self.Global.Root + "scripts/overlays/MarkerOverlay.gd", "GDScript", false)
 	if not MarkerOverlayClass:
-		print("GuidesLines: ERROR - Failed to load MarkerOverlay.gd")
+		if LOGGER: LOGGER.error("Failed to load MarkerOverlay.gd")
+		else: print("GuidesLines: ERROR - Failed to load MarkerOverlay.gd")
 		return
 	
 	CrossOverlay = ResourceLoader.load(self.Global.Root + "scripts/overlays/CrossOverlay.gd", "GDScript", false)
 	if not CrossOverlay:
-		print("GuidesLines: ERROR - Failed to load CrossOverlay.gd")
+		if LOGGER: LOGGER.error("Failed to load CrossOverlay.gd")
+		else: print("GuidesLines: ERROR - Failed to load CrossOverlay.gd")
 		return
 	
 	PermanentOverlay = ResourceLoader.load(self.Global.Root + "scripts/overlays/PermanentOverlay.gd", "GDScript", false)
 	if not PermanentOverlay:
-		print("GuidesLines: ERROR - Failed to load PermanentOverlay.gd")
+		if LOGGER: LOGGER.error("Failed to load PermanentOverlay.gd")
+		else: print("GuidesLines: ERROR - Failed to load PermanentOverlay.gd")
 		return
 	
 	GuidesLinesApiClass = ResourceLoader.load(self.Global.Root + "scripts/api/guides_lines_api.gd", "GDScript", false)
 	if not GuidesLinesApiClass:
-		print("GuidesLines: ERROR - Failed to load guides_lines_api.gd")
+		if LOGGER: LOGGER.warn("Failed to load guides_lines_api.gd — external API unavailable")
+		else: print("GuidesLines: WARNING - Failed to load guides_lines_api.gd")
 		# Non-fatal: continue without external API
 	
 	if LOGGER:
@@ -482,29 +496,4 @@ func update_cross_guides():
 		cross_show_h = nh
 		cross_overlay.update()
 
-# ============================================================================
-# SAVE/LOAD
-# ============================================================================
 
-# Save guide markers to map file
-# Called by Dungeondraft when saving the map
-func save_level(level_data):
-	# Save guide markers data
-	if guides_tool:
-		var markers_data = guides_tool.save_markers()
-		if markers_data.size() > 0:
-			level_data["guide_markers"] = markers_data
-		var diff_ops = guides_tool.save_difference_ops()
-		if diff_ops.size() > 0:
-			level_data["difference_ops"] = diff_ops
-	return level_data
-
-# Load guide markers from map file
-# Called by Dungeondraft when loading a map
-func load_level(level_data):
-	# Load guide markers data
-	if guides_tool and level_data.has("guide_markers"):
-		guides_tool.load_markers(level_data.guide_markers)
-	# Replay difference operations so render_primitives are correctly restored
-	if guides_tool:
-		guides_tool.load_difference_ops(level_data.get("difference_ops", []))

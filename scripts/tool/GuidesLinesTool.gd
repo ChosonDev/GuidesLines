@@ -34,7 +34,7 @@ const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
 
-# Shape preset labels (UI-only вЂ” used to set initial sides/angle when a preset is selected)
+# Shape preset labels (UI-only — used to set initial sides/angle when a preset is selected)
 const SHAPE_CIRCLE = "Circle"
 const SHAPE_SQUARE = "Square"
 const SHAPE_PENTAGON = "Pentagon"
@@ -48,7 +48,7 @@ var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 var active_angle = 0.0
 var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
 var active_shape_angle = 0.0  # Shape rotation angle in degrees
-var active_shape_sides = 64  # Number of polygon sides (default: Circle = 64)
+var active_shape_sides = 64  # Number of polygon sides (64 = Circle approximation on start)
 var active_path_end_arrow = false  # Draw arrowhead at last point of path
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
@@ -56,8 +56,7 @@ var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
 var auto_clip_shapes = false  # Clip intersecting shape markers on placement (mutual)
 var cut_existing_shapes = false  # Cut lines of existing markers inside the new shape (one-way)
-var difference_mode = false  # Difference mode вЂ” don't place new shape; fill overlap into existing markers
-var difference_ops = []  # Array of serializable op dicts; replayed on map load
+var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -81,9 +80,7 @@ var type_settings = {
 const DEFAULT_ANGLE = 0.0
 const DEFAULT_SHAPE_RADIUS = 1.0
 const DEFAULT_SHAPE_ANGLE = 0.0
-const DEFAULT_SHAPE_SIDES = 6
-const DEFAULT_ARROW_HEAD_LENGTH = 50.0
-const DEFAULT_ARROW_HEAD_ANGLE = 30.0
+const DEFAULT_SHAPE_SIDES = 6  # Fallback for missing "sides" key in saved/loaded marker data
 const DEFAULT_COLOR = Color(0, 0.7, 1, 1)
 const DEFAULT_MIRROR = false
 
@@ -116,8 +113,6 @@ func Enable():
 	is_enabled = true
 	if LOGGER:
 		LOGGER.info("Guide Markers tool ENABLED")
-	else:
-		print("GuidesLinesTool: Tool enabled but LOGGER is null!")
 
 # Disable tool when deselected
 func Disable():
@@ -125,25 +120,8 @@ func Disable():
 	if LOGGER:
 		LOGGER.info("Guide Markers tool DISABLED")
 
-var last_log_time = 0.0  # Use time instead of frame counter
-var first_update_logged = false
-const LOG_INTERVAL = 5.0  # Log every 5 seconds
-
 # Main update loop - manages overlay and drawing
-func Update(delta):
-	# Debug: Check LOGGER status on first update
-	if not first_update_logged:
-		first_update_logged = true
-		if LOGGER:
-			LOGGER.info("GuidesLinesTool.Update() first call - LOGGER is available")
-	
-	# Log status every 5 seconds
-	if LOGGER and is_enabled:
-		last_log_time += delta
-		if last_log_time >= LOG_INTERVAL:
-			last_log_time = 0.0
-			LOGGER.debug("Tool active: overlay=%s, markers=%d" % [str(overlay != null), markers.size()])
-	
+func Update(_delta):
 	if not is_enabled:
 		# Still ensure overlay exists for API-placed markers
 		if not overlay and cached_worldui:
@@ -182,7 +160,7 @@ func place_marker(pos):
 		_handle_path_placement(pos)
 		return
 
-	# Difference mode: don't place a marker вЂ” instead apply difference to existing shapes
+	# Difference mode: don't place a marker — instead apply difference to existing shapes
 	if difference_mode and active_marker_type == MARKER_TYPE_SHAPE:
 		var final_pos_diff = pos
 		if parent_mod.Global.Editor.IsSnapping:
@@ -190,10 +168,9 @@ func place_marker(pos):
 		var diff_desc = _build_shape_descriptor_at(final_pos_diff)
 		if diff_desc.empty():
 			return
-		var diff_op = _op_from_desc(diff_desc)
 		var snap = _take_difference_snapshot(diff_desc)
-		_do_apply_difference(diff_desc, diff_op)
-		_record_history(GuidesLinesHistory.DifferenceRecord.new(self, diff_desc, diff_op, snap))
+		_do_apply_difference(diff_desc)
+		_record_history(GuidesLinesHistory.DifferenceRecord.new(self, diff_desc, snap))
 		return
 	
 	# Apply grid snapping if enabled globally
@@ -380,12 +357,6 @@ func _do_place_marker(marker_data):
 		marker.set_property("shape_radius", marker_data["shape_radius"])
 		marker.set_property("shape_angle", marker_data.get("shape_angle", 0.0))
 		marker.set_property("shape_sides", marker_data.get("shape_sides", DEFAULT_SHAPE_SIDES))
-		# Generate marker_points for Shape (vertices) - GuideMarker handles this via cache now
-		# But if we need to store them for save/load, we might still want to generate them?
-		# The old code did: marker.marker_points = _generate_shape_vertices(...)
-		# We should let GuideMarker handle vertices. Marker points are mainly for custom paths/arrows
-		# and potentially for saved Shapes if we want to freeze them?
-		pass 
 	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
 		marker.set_property("marker_points", marker_data["marker_points"].duplicate())
 		marker.set_property("path_closed", marker_data["path_closed"])
@@ -407,7 +378,7 @@ func _do_place_marker(marker_data):
 		overlay.update()
 	if LOGGER:
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
-			LOGGER.debug("Line marker placed at %s (angle: %.1fВ°, mirror: %s)" % [
+			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
 				str(marker_data["position"]),
 				marker_data.get("angle", 0.0),
 				str(marker_data.get("mirror", false))
@@ -434,7 +405,7 @@ func _undo_place_marker(marker_id):
 		var marker = markers_lookup[marker_id]
 		# Clean up clipping relationships contributed by this marker
 		_remove_shape_clipping(marker_id)
-		markers.erase(marker) # Godot optimizes erase by value, but still O(n) for array search internally
+		markers.erase(marker) # O(n) linear search — acceptable since markers_lookup O(1) already found it
 		markers_lookup.erase(marker_id) # O(1)
 		
 		update_ui()
@@ -448,8 +419,7 @@ func _undo_place_marker(marker_id):
 
 # Enable/disable coordinate display on new markers
 func set_show_coordinates(enabled):
-	# Coordinates require snapping, but we now rely on global snap.
-	# We can just set the value.
+	# Sets coordinate display flag for new Line markers.
 	show_coordinates = enabled
 	
 	# Update UI
@@ -505,7 +475,7 @@ func _get_grid_cell_size():
 # ============================================================================
 
 # Build a shape descriptor dict for GeometryUtils clip functions.
-# Computes polygon vertices directly from marker parameters вЂ” does NOT rely on
+# Computes polygon vertices directly from marker parameters — does NOT rely on
 # cached_draw_data["points"] (which is no longer stored).
 # Also calls get_draw_data() to ensure the marker's primitives are initialised.
 # Returns { shape_type, points } or {} if not applicable.
@@ -585,7 +555,7 @@ func _point_in_shape(pt: Vector2, desc: Dictionary) -> bool:
 
 
 # Apply ONE-WAY cut when [new_marker] is placed: clip the primitives of every
-# intersecting Shape marker using new_markerвЂ™s shape boundary.
+# intersecting Shape marker using new_marker's shape boundary.
 # The new marker itself keeps its full unclipped outline.
 func _apply_cut_to_existing_shapes(new_marker):
 	if not cut_existing_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
@@ -612,7 +582,7 @@ func _apply_cut_to_existing_shapes(new_marker):
 		overlay.update()
 
 # Apply mutual clipping when [new_marker] is placed: clip each intersecting
-# Shape markerвЂ™s current primitives against the otherвЂ™s boundary.
+# Shape marker's current primitives against the other's boundary.
 func _apply_shape_clipping(new_marker):
 	if not auto_clip_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
 		return
@@ -650,20 +620,6 @@ func _remove_shape_clipping(_removed_id):
 # DIFFERENCE MODE CORE
 # ============================================================================
 
-## Build in-memory descriptor from a serializable op dict.
-func _desc_from_op(op: Dictionary) -> Dictionary:
-	var pts = []
-	for v in op.points:
-		pts.append(Vector2(v[0], v[1]))
-	return {"shape_type": "poly", "points": pts}
-
-## Build serializable op dict from an in-memory descriptor.
-func _op_from_desc(desc: Dictionary) -> Dictionary:
-	var pts = []
-	for v in desc.points:
-		pts.append([v.x, v.y])
-	return {"shape_type": "poly", "points": pts}
-
 ## Snapshot primitives of all Shape markers that intersect diff_desc.
 func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
 	var snap = {}
@@ -683,12 +639,7 @@ func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
 ## Apply a Difference operation directly to each affected marker's current
 ## primitives (no rebuild from original polygon).
 ## Outline segments inside the diff area are replaced by the diff boundary.
-func _do_apply_difference(diff_desc: Dictionary, diff_op: Dictionary):
-	if not diff_op.has("applied_to"):
-		diff_op["applied_to"] = []
-	if not difference_ops.has(diff_op):
-		difference_ops.append(diff_op)
-
+func _do_apply_difference(diff_desc: Dictionary):
 	var cell_size = _get_grid_cell_size()
 	for marker in markers:
 		if marker.marker_type != MARKER_TYPE_SHAPE:
@@ -698,10 +649,6 @@ func _do_apply_difference(diff_desc: Dictionary, diff_op: Dictionary):
 			continue
 		if not _shapes_overlap(target_desc, diff_desc):
 			continue
-
-		# Record which marker this op was applied to.
-		if not diff_op["applied_to"].has(marker.id):
-			diff_op["applied_to"].append(marker.id)
 
 		# Clip the current outline: keep segments OUTSIDE the diff shape.
 		# Append the diff boundary (inside the marker) to the same list.
@@ -737,6 +684,9 @@ func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 
 
 # ============================================================================
+# UI STATE
+# ============================================================================
+
 # Update tool panel UI with current state
 func update_ui():
 	if ui:

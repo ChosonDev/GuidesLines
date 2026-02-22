@@ -160,6 +160,8 @@ func place_path_marker(points: Array, closed: bool = false, color = null) -> int
 	return marker_id
 
 ## Places an Arrow marker from [from_pos] to [to_pos].
+## Internally creates a Path marker with path_end_arrow = true
+## (Arrow type was merged into Path in v2.1.6; this function remains for API compatibility).
 ## Returns the integer id of the created marker, or -1 on failure.
 ## Parameters:
 ##   from_pos    — start world-space Vector2
@@ -320,14 +322,20 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 
 			"Shape":
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
-					var pts = draw_data["points"]
-					var pt = GeometryUtils.closest_point_on_polygon_edges(coords, pts)
-					var d = coords.distance_to(pt)
-					if d < min_dist:
-						min_dist = d
-						min_point = pt
-					min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
+				if draw_data.has("primitives"):
+					for prim in draw_data["primitives"]:
+						if prim.type == "seg":
+							var pt = _closest_point_on_segment(coords, prim.a, prim.b)
+							var d = coords.distance_to(pt)
+							if d < min_dist:
+								min_dist = d
+								min_point = pt
+					var vert_pts = []
+					for prim in draw_data["primitives"]:
+						if prim.type == "seg" and not vert_pts.has(prim.a):
+							vert_pts.append(prim.a)
+					if vert_pts.size() > 0:
+						min_vertex = GeometryUtils.nearest_polygon_vertex(coords, vert_pts)
 
 			"Path":
 				var pts = marker.marker_points
@@ -417,12 +425,12 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 				if marker.position.distance_to(coords) > radius:
 					continue
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
-					var pts = draw_data["points"]
-					for i in range(pts.size()):
-						var pt = _line_intersect_segment(line_from, line_dir, pts[i], pts[(i + 1) % pts.size()])
-						if pt != null:
-							candidates.append(pt)
+				if draw_data.has("primitives"):
+					for prim in draw_data["primitives"]:
+						if prim.type == "seg":
+							var pt = _line_intersect_segment(line_from, line_dir, prim.a, prim.b)
+							if pt != null:
+								candidates.append(pt)
 
 			"Path":
 				if marker.position.distance_to(coords) > radius:
@@ -507,8 +515,10 @@ func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 				if marker.position.distance_to(coords) > radius:
 					continue
 				var draw_data = marker.get_draw_data(map_rect, cell_size)
-				if draw_data.has("shape_type") and draw_data["shape_type"] == "poly" and draw_data.has("points"):
-					candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, draw_data["points"]))
+				if draw_data.has("primitives"):
+					for prim in draw_data["primitives"]:
+						if prim.type == "seg":
+							candidates.append(_closest_point_on_segment(coords, prim.a, prim.b))
 
 			"Path":
 				if marker.position.distance_to(coords) > radius:

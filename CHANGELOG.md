@@ -5,6 +5,16 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.7] - 2026-02-22
+
+### Refactoring — Code cleanup and bug fixes
+
+- **`GuidesLinesToolUI.gd`** — Fixed bug where path placement was not cancelled when switching away from the Path type; arrow head length/angle callbacks now immediately sync `type_settings["Path"]`; removed excessive per-frame debug logging in wheel/rotate methods; removed duplicate Guide Overlays panel block (handled by ModConfigApi).
+- **`GuidesLinesTool.gd`** — Fixed encoding artifact (`В°` → `°`) in debug log strings; corrected stale comments (`set_show_coordinates`, `markers.erase`); removed misleading `print()` fallback in `Enable()`; added missing section separator for `# UI STATE`.
+- **`GuidesLines.gd`** — Fixed `print()` on `Global.Root` guard to use `LOGGER` pattern; removed redundant inline comment on `snappy_mod_checked`.
+
+---
+
 ## [2.1.6] - 2026-02-22
 
 ### Refactoring — Arrow type merged into Path

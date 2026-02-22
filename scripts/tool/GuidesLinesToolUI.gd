@@ -19,15 +19,10 @@ const SHAPE_HEXAGON = "Hexagon"
 const SHAPE_OCTAGON = "Octagon"
 const SHAPE_CUSTOM = "Custom"
 
-# Default values (mirrored from GuidesLinesTool)
-const DEFAULT_ANGLE = 0.0
-const DEFAULT_SHAPE_RADIUS = 1.0
-const DEFAULT_SHAPE_ANGLE = 0.0
+# Default values used for type-switching fallbacks
 const DEFAULT_SHAPE_SIDES = 6
 const DEFAULT_ARROW_HEAD_LENGTH = 50.0
 const DEFAULT_ARROW_HEAD_ANGLE = 30.0
-const DEFAULT_COLOR = Color(0, 0.7, 1, 1)
-const DEFAULT_MIRROR = false
 
 var tool = null  # Reference to GuidesLinesTool
 
@@ -163,42 +158,6 @@ func create_ui_panel():
 	delete_all_btn.text = "Delete All Markers"
 	delete_all_btn.connect("pressed", tool.parent_mod, "_on_delete_all_markers", [tool])
 	container.add_child(delete_all_btn)
-
-	container.add_child(_create_spacer(20))
-
-	# === GUIDE OVERLAYS ===
-	var overlays_label = Label.new()
-	overlays_label.text = "Guide Overlays:"
-	overlays_label.align = Label.ALIGN_CENTER
-	container.add_child(overlays_label)
-
-	var cross_check = CheckButton.new()
-	cross_check.text = "Cross Guides (proximity)"
-	cross_check.pressed = tool.parent_mod.cross_guides_enabled
-	cross_check.name = "CrossGuidesCheckbox"
-	cross_check.connect("toggled", tool.parent_mod, "_on_cross_guides_toggled")
-	container.add_child(cross_check)
-
-	var perm_vert_check = CheckButton.new()
-	perm_vert_check.text = "Vertical Center Line"
-	perm_vert_check.pressed = tool.parent_mod.perm_vertical_enabled
-	perm_vert_check.name = "PermVerticalCheckbox"
-	perm_vert_check.connect("toggled", tool.parent_mod, "_on_perm_vertical_toggled")
-	container.add_child(perm_vert_check)
-
-	var perm_horiz_check = CheckButton.new()
-	perm_horiz_check.text = "Horizontal Center Line"
-	perm_horiz_check.pressed = tool.parent_mod.perm_horizontal_enabled
-	perm_horiz_check.name = "PermHorizontalCheckbox"
-	perm_horiz_check.connect("toggled", tool.parent_mod, "_on_perm_horizontal_toggled")
-	container.add_child(perm_horiz_check)
-
-	var perm_coords_check = CheckButton.new()
-	perm_coords_check.text = "Show Grid Coordinates"
-	perm_coords_check.pressed = tool.parent_mod.show_coordinates_enabled
-	perm_coords_check.name = "PermCoordinatesCheckbox"
-	perm_coords_check.connect("toggled", tool.parent_mod, "_on_perm_coordinates_toggled")
-	container.add_child(perm_coords_check)
 
 	tool.tool_panel.Align.add_child(container)
 
@@ -483,7 +442,7 @@ func _create_path_settings_ui():
 
 	return container
 
-# Create common settings UI (Color, Reset)
+# Create common settings UI (Color picker)
 func _create_common_settings_ui():
 	var container = VBoxContainer.new()
 
@@ -508,13 +467,6 @@ func _create_common_settings_ui():
 	color_picker.connect("color_changed", self, "_on_color_changed")
 	color_hbox.add_child(color_picker)
 	container.add_child(color_hbox)
-
-	# Reset Button
-	var reset_btn = Button.new()
-	reset_btn.text = "Reset to Defaults"
-	reset_btn.name = "ResetButton"
-	reset_btn.connect("pressed", self, "_on_reset_pressed")
-	container.add_child(reset_btn)
 
 	return container
 
@@ -553,56 +505,6 @@ func _on_mirror_toggled(enabled):
 		tool.overlay.update()
 	if tool.LOGGER:
 		tool.LOGGER.debug("Mirror toggled: %s" % [str(enabled)])
-
-func _on_reset_pressed():
-	# Reset type-specific settings
-	if tool.active_marker_type == MARKER_TYPE_LINE:
-		tool.active_angle = DEFAULT_ANGLE
-		tool.active_mirror = DEFAULT_MIRROR
-
-		tool.type_settings[MARKER_TYPE_LINE]["angle"] = DEFAULT_ANGLE
-		tool.type_settings[MARKER_TYPE_LINE]["mirror"] = DEFAULT_MIRROR
-
-		_update_angle_spinbox()
-		_update_mirror_checkbox()
-
-	# Reset Shape type settings
-	elif tool.active_marker_type == MARKER_TYPE_SHAPE:
-		tool.active_shape_radius = DEFAULT_SHAPE_RADIUS
-		tool.active_shape_angle = DEFAULT_SHAPE_ANGLE
-		tool.active_shape_sides = DEFAULT_SHAPE_SIDES
-
-		tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = DEFAULT_SHAPE_RADIUS
-		tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = DEFAULT_SHAPE_ANGLE
-		tool.type_settings[MARKER_TYPE_SHAPE]["sides"] = DEFAULT_SHAPE_SIDES
-
-		_update_shape_radius_spinbox()
-		_update_shape_angle_spinbox()
-		_update_shape_sides_spinbox()
-
-	# Reset Path arrow settings
-	elif tool.active_marker_type == MARKER_TYPE_PATH:
-		tool.active_path_end_arrow = false
-		tool.active_arrow_head_length = DEFAULT_ARROW_HEAD_LENGTH
-		tool.active_arrow_head_angle = DEFAULT_ARROW_HEAD_ANGLE
-
-		tool.type_settings[MARKER_TYPE_PATH]["end_arrow"] = false
-		tool.type_settings[MARKER_TYPE_PATH]["head_length"] = DEFAULT_ARROW_HEAD_LENGTH
-		tool.type_settings[MARKER_TYPE_PATH]["head_angle"] = DEFAULT_ARROW_HEAD_ANGLE
-
-		_update_path_end_arrow_checkbox()
-		_update_path_arrow_head_length_spinbox()
-		_update_path_arrow_head_angle_spinbox()
-
-	# Reset common settings (always)
-	tool.active_color = DEFAULT_COLOR
-	_update_color_picker()
-
-	if tool.overlay:
-		tool.overlay.update()
-
-	if tool.LOGGER:
-		tool.LOGGER.info("Settings reset to defaults for type: %s" % [tool.active_marker_type])
 
 # ============================================================================
 # UI CALLBACKS — SHAPE SETTINGS
@@ -742,6 +644,7 @@ func _on_path_arrow_head_length_changed(value):
 	if value < 10.0:
 		value = 10.0
 	tool.active_arrow_head_length = value
+	tool.type_settings[MARKER_TYPE_PATH]["head_length"] = value
 	_update_path_arrow_head_length_spinbox()
 	if tool.overlay:
 		tool.overlay.update()
@@ -750,6 +653,7 @@ func _on_path_arrow_head_length_changed(value):
 
 func _on_path_arrow_head_angle_changed(value):
 	tool.active_arrow_head_angle = value
+	tool.type_settings[MARKER_TYPE_PATH]["head_angle"] = value
 	if tool.overlay:
 		tool.overlay.update()
 	if tool.LOGGER:
@@ -765,6 +669,10 @@ func _on_marker_type_changed(type_index):
 
 	# Save current type settings before switching
 	_save_current_type_settings()
+
+	# Cancel path placement if switching away from Path
+	if tool.active_marker_type == MARKER_TYPE_PATH and selected_type != MARKER_TYPE_PATH:
+		tool._cancel_path_placement()
 
 	# Switch to new type
 	tool.active_marker_type = selected_type
@@ -783,10 +691,6 @@ func _on_marker_type_changed(type_index):
 
 # Switch visible type-specific UI container
 func _switch_type_ui(marker_type):
-	# Cancel path placement if switching away from Path
-	if tool.active_marker_type == MARKER_TYPE_PATH and marker_type != MARKER_TYPE_PATH:
-		tool._cancel_path_placement()
-
 	# Hide all type-specific containers
 	for child in type_specific_container.get_children():
 		child.visible = false
@@ -858,12 +762,7 @@ func _save_current_type_settings():
 # Adjust angle using mouse wheel (only for Line type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
 func adjust_angle_with_wheel(direction):
-	if tool.LOGGER:
-		tool.LOGGER.debug("adjust_angle_with_wheel called: direction=%d, current_type=%s, current_angle=%.1f" % [direction, tool.active_marker_type, tool.active_angle])
-
 	if tool.active_marker_type != MARKER_TYPE_LINE:
-		if tool.LOGGER:
-			tool.LOGGER.debug("Wheel adjustment ignored - not Line type")
 		return
 
 	var angle_step = 1.0
@@ -874,9 +773,6 @@ func adjust_angle_with_wheel(direction):
 	elif new_angle >= 360:
 		new_angle -= 360
 
-	if tool.LOGGER:
-		tool.LOGGER.debug("Angle changing: %.1f° -> %.1f°" % [tool.active_angle, new_angle])
-
 	tool.active_angle = new_angle
 	tool.type_settings[MARKER_TYPE_LINE]["angle"] = tool.active_angle
 	_update_angle_spinbox()
@@ -885,17 +781,12 @@ func adjust_angle_with_wheel(direction):
 		tool.overlay.update()
 
 	if tool.LOGGER:
-		tool.LOGGER.info("Angle adjusted via mouse wheel: %.1f°" % [tool.active_angle])
+		tool.LOGGER.debug("Angle adjusted via mouse wheel: %.1f°" % [tool.active_angle])
 
 # Adjust shape radius using mouse wheel (only for Shape type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
 func adjust_shape_radius_with_wheel(direction):
-	if tool.LOGGER:
-		tool.LOGGER.debug("adjust_shape_radius_with_wheel called: direction=%d, current_type=%s, current_radius=%.1f" % [direction, tool.active_marker_type, tool.active_shape_radius])
-
 	if tool.active_marker_type != MARKER_TYPE_SHAPE:
-		if tool.LOGGER:
-			tool.LOGGER.debug("Wheel adjustment ignored - not Shape type")
 		return
 
 	var radius_step = 0.1
@@ -903,9 +794,6 @@ func adjust_shape_radius_with_wheel(direction):
 
 	if new_radius < 0.1:
 		new_radius = 0.1
-
-	if tool.LOGGER:
-		tool.LOGGER.debug("Radius changing: %.1f cells -> %.1f cells" % [tool.active_shape_radius, new_radius])
 
 	tool.active_shape_radius = new_radius
 	tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = tool.active_shape_radius
@@ -915,17 +803,12 @@ func adjust_shape_radius_with_wheel(direction):
 		tool.overlay.update()
 
 	if tool.LOGGER:
-		tool.LOGGER.info("Shape radius adjusted via mouse wheel: %.1f cells" % [tool.active_shape_radius])
+		tool.LOGGER.debug("Shape radius adjusted via mouse wheel: %.1f cells" % [tool.active_shape_radius])
 
 # Adjust shape angle using mouse wheel (only for Shape type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
 func adjust_shape_angle_with_wheel(direction):
-	if tool.LOGGER:
-		tool.LOGGER.debug("adjust_shape_angle_with_wheel called: direction=%d, current_type=%s, current_angle=%.1f" % [direction, tool.active_marker_type, tool.active_shape_angle])
-
 	if tool.active_marker_type != MARKER_TYPE_SHAPE:
-		if tool.LOGGER:
-			tool.LOGGER.debug("Wheel angle adjustment ignored - not Shape type")
 		return
 
 	var angle_step = 5.0
@@ -933,9 +816,6 @@ func adjust_shape_angle_with_wheel(direction):
 	if new_angle < 0:
 		new_angle += 360.0
 
-	if tool.LOGGER:
-		tool.LOGGER.debug("Shape angle changing: %.1f° -> %.1f°" % [tool.active_shape_angle, new_angle])
-
 	tool.active_shape_angle = new_angle
 	tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = tool.active_shape_angle
 	_update_shape_angle_spinbox()
@@ -944,23 +824,15 @@ func adjust_shape_angle_with_wheel(direction):
 		tool.overlay.update()
 
 	if tool.LOGGER:
-		tool.LOGGER.info("Shape angle adjusted via mouse wheel: %.1f°" % [tool.active_shape_angle])
+		tool.LOGGER.debug("Shape angle adjusted via mouse wheel: %.1f°" % [tool.active_shape_angle])
 
 # Rotate shape by 45 degrees via RMB shortcut
 func rotate_shape_45():
-	if tool.LOGGER:
-		tool.LOGGER.debug("rotate_shape_45 called: current_type=%s, current_angle=%.1f" % [tool.active_marker_type, tool.active_shape_angle])
-
 	if tool.active_marker_type != MARKER_TYPE_SHAPE:
-		if tool.LOGGER:
-			tool.LOGGER.debug("rotate_shape_45 ignored - not Shape type")
 		return
 
 	var new_angle = fmod(tool.active_shape_angle + 45.0, 360.0)
 
-	if tool.LOGGER:
-		tool.LOGGER.debug("Shape angle rotating 45°: %.1f° -> %.1f°" % [tool.active_shape_angle, new_angle])
-
 	tool.active_shape_angle = new_angle
 	tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = tool.active_shape_angle
 	_update_shape_angle_spinbox()
@@ -969,7 +841,7 @@ func rotate_shape_45():
 		tool.overlay.update()
 
 	if tool.LOGGER:
-		tool.LOGGER.info("Shape rotated 45° via RMB: %.1f°" % [tool.active_shape_angle])
+		tool.LOGGER.debug("Shape rotated 45° via RMB: %.1f°" % [tool.active_shape_angle])
 
 # ============================================================================
 # WIDGET VALUE HELPERS
@@ -986,8 +858,6 @@ func _set_spinbox_value(node_name: String, value: float) -> void:
 			spinbox.value = value
 
 func _update_angle_spinbox():
-	if tool.LOGGER:
-		tool.LOGGER.debug("Updating AngleSpinBox: %.1f°" % [tool.active_angle])
 	_set_spinbox_value("AngleSpinBox", tool.active_angle)
 
 func _update_color_picker():
