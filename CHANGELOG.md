@@ -5,6 +5,25 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-02-23
+
+### Added — Marker visibility toggle and opacity control in tool panel
+
+Two new display controls are now available directly in the **Guide Markers** tool panel under a new **"Map Display"** section (below the Color picker). They affect all placed markers in real time and are not in Preferences.
+
+- **Show Markers** (`CheckButton`) — instantly hides or shows all placed markers on the map without deleting them. Preview markers shown during placement are unaffected.
+- **Opacity (%)** (`SpinBox`, 0–100, step 5) — sets a global transparency level for all placed markers (lines, shapes, paths, arrowheads, and center dots). 100 = fully opaque, 0 = fully transparent.
+
+Both settings are also exposed through `GuidesLinesApi` for inter-mod use.
+
+#### Files changed
+- **`GuidesLines.gd`** — added `markers_visible: bool` and `markers_opacity: float` state variables.
+- **`GuidesLinesToolUI.gd`** — extended `_create_common_settings_ui()` with "Map Display" section; added callbacks `_on_markers_visible_toggled`, `_on_markers_opacity_changed`; added sync helpers `_update_markers_visible_checkbox`, `_update_markers_opacity_spinbox`.
+- **`MarkerOverlay.gd`** — `_draw()` skips the marker loop when `markers_visible` is `false`; `_draw_custom_marker()` applies `markers_opacity` to every `draw_line`, `draw_circle`, `draw_arc`, and `draw_arrow` call.
+- **`guides_lines_api.gd`** — added `set_markers_visible()`, `get_markers_visible()`, `set_markers_opacity()`, `get_markers_opacity()`; `get_settings()` extended with `markers_visible` and `markers_opacity` keys.
+
+---
+
 ## [2.1.10] - 2026-02-23
 
 ### Changed — Inline hint labels replaced with tooltips

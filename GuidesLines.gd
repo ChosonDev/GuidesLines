@@ -85,6 +85,10 @@ var perm_vertical_enabled = false
 var perm_horizontal_enabled = false
 var show_coordinates_enabled = false  # Show grid coordinates
 
+# Marker display settings (controlled via tool UI, not Preferences)
+var markers_visible = true   # Show/hide all placed markers
+var markers_opacity = 1.0    # Global opacity for all markers (0.0–1.0)
+
 # Cross guides state
 var cross_show_v = false
 var cross_show_h = false
@@ -104,7 +108,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.1.7")
+			LOGGER.info("Mod starting - version 2.2.0")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications

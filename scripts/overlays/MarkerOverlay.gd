@@ -204,12 +204,13 @@ func _draw():
 	var world_top = cam_pos.y - world_height * 0.5
 	var world_bottom = cam_pos.y + world_height * 0.5
 	
-	# Draw all markers
-	for marker in tool.markers:
-		if not marker:
-			continue
-		
-		_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom)
+	# Draw all markers (hidden when markers_visible is false)
+	if not tool.parent_mod or tool.parent_mod.markers_visible:
+		for marker in tool.markers:
+			if not marker:
+				continue
+			
+			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom)
 	
 	# Draw preview marker at cursor (only when tool is active and NOT in delete mode)
 	if tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
@@ -227,8 +228,12 @@ func _draw():
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):
 	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(marker.MARKER_SIZE, cam_zoom)
-	var MARKER_COLOR = marker.MARKER_COLOR
 	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(marker.LINE_WIDTH, cam_zoom)
+	
+	# Apply global opacity from parent_mod
+	var _opacity: float = tool.parent_mod.markers_opacity if tool.parent_mod else 1.0
+	var line_color  = Color(marker.color.r, marker.color.g, marker.color.b, marker.color.a * _opacity)
+	var MARKER_COLOR = Color(marker.MARKER_COLOR.r, marker.MARKER_COLOR.g, marker.MARKER_COLOR.b, marker.MARKER_COLOR.a * _opacity)
 	
 	var map_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top) # Fallback
 	if tool.cached_world:
@@ -243,7 +248,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	if marker.marker_type == "Line":
 		if draw_data.has("segments"):
 			for segment in draw_data.segments:
-				draw_line(segment[0], segment[1], marker.color, LINE_WIDTH)
+				draw_line(segment[0], segment[1], line_color, LINE_WIDTH)
 	
 	elif marker.marker_type == "Shape":
 		if draw_data.has("type") and draw_data.type == "shape":
@@ -252,7 +257,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			var primitives = draw_data.get("primitives", [])
 			for item in primitives:
 				if item.type == "seg":
-					draw_line(item.a, item.b, marker.color, LINE_WIDTH)
+					draw_line(item.a, item.b, line_color, LINE_WIDTH)
 
 
 	
@@ -263,7 +268,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 				draw_line(
 					marker.marker_points[i],
 					marker.marker_points[i + 1],
-					marker.color,
+					line_color,
 					LINE_WIDTH
 				)
 			
@@ -272,7 +277,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 				draw_line(
 					marker.marker_points[marker.marker_points.size() - 1],
 					marker.marker_points[0],
-					marker.color,
+					line_color,
 					LINE_WIDTH
 				)
 			
@@ -282,7 +287,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 				var arrow_to = marker.marker_points[marker.marker_points.size() - 1]
 				var arrow_length = GuidesLinesRender.get_adaptive_width(marker.arrow_head_length, cam_zoom)
 				var head_points = GeometryUtils.calculate_arrowhead_points(arrow_to, arrow_from, arrow_length, marker.arrow_head_angle)
-				GuidesLinesRender.draw_arrow(self, arrow_from, arrow_to, head_points, marker.color, LINE_WIDTH)
+				GuidesLinesRender.draw_arrow(self, arrow_from, arrow_to, head_points, line_color, LINE_WIDTH)
 
 
 	
@@ -294,7 +299,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	
 	if is_marker_visible:
 		draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
-		draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 1), 2)
+		draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, _opacity), 2)
 	
 	# Draw coordinates if enabled for this marker
 	if marker.show_coordinates:

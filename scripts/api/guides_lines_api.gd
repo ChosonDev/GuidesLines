@@ -39,8 +39,9 @@ signal all_markers_deleted()
 
 # Emitted when an overlay setting changes.
 # setting_name: String — one of "cross_guides", "perm_vertical",
-#                        "perm_horizontal", "show_coordinates"
-# value: bool
+#                        "perm_horizontal", "show_coordinates",
+#                        "markers_visible", "markers_opacity"
+# value: bool | float
 signal settings_changed(setting_name, value)
 
 # ============================================================================
@@ -585,14 +586,43 @@ func set_show_coordinates(enabled: bool) -> void:
 	if LOGGER:
 		LOGGER.debug("API: show_coordinates = %s" % [str(enabled)])
 
+## Shows or hides all placed markers on the map.
+func set_markers_visible(enabled: bool) -> void:
+	_mod.markers_visible = enabled
+	if _has_tool() and _tool().overlay:
+		_tool().overlay.update()
+	emit_signal("settings_changed", "markers_visible", enabled)
+	if LOGGER:
+		LOGGER.debug("API: markers_visible = %s" % [str(enabled)])
+
+## Returns true if placed markers are currently visible.
+func get_markers_visible() -> bool:
+	return _mod.markers_visible
+
+## Sets the global opacity for all placed markers (0.0 = fully transparent, 1.0 = fully opaque).
+func set_markers_opacity(value: float) -> void:
+	_mod.markers_opacity = clamp(value, 0.0, 1.0)
+	if _has_tool() and _tool().overlay:
+		_tool().overlay.update()
+	emit_signal("settings_changed", "markers_opacity", _mod.markers_opacity)
+	if LOGGER:
+		LOGGER.debug("API: markers_opacity = %.2f" % [_mod.markers_opacity])
+
+## Returns the current global opacity of all placed markers (0.0–1.0).
+func get_markers_opacity() -> float:
+	return _mod.markers_opacity
+
 ## Returns a snapshot of all current overlay/display settings.
-## Dict keys: "cross_guides", "perm_vertical", "perm_horizontal", "show_coordinates"
+## Dict keys: "cross_guides", "perm_vertical", "perm_horizontal",
+##            "show_coordinates", "markers_visible", "markers_opacity"
 func get_settings() -> Dictionary:
 	return {
 		"cross_guides": _mod.cross_guides_enabled,
 		"perm_vertical": _mod.perm_vertical_enabled,
 		"perm_horizontal": _mod.perm_horizontal_enabled,
 		"show_coordinates": _mod.show_coordinates_enabled,
+		"markers_visible": _mod.markers_visible,
+		"markers_opacity": _mod.markers_opacity,
 	}
 
 # ============================================================================

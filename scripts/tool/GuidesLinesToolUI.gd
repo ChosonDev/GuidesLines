@@ -435,7 +435,7 @@ func _create_path_settings_ui():
 
 	return container
 
-# Create common settings UI (Color picker)
+# Create common settings UI (Color picker + Map Display controls)
 func _create_common_settings_ui():
 	var container = VBoxContainer.new()
 
@@ -460,6 +460,42 @@ func _create_common_settings_ui():
 	color_picker.connect("color_changed", self, "_on_color_changed")
 	color_hbox.add_child(color_picker)
 	container.add_child(color_hbox)
+
+	container.add_child(_create_spacer(10))
+
+	# === MAP DISPLAY ===
+	var display_label = Label.new()
+	display_label.text = "Map Display:"
+	display_label.align = Label.ALIGN_CENTER
+	container.add_child(display_label)
+
+	container.add_child(_create_spacer(5))
+
+	# Show Markers toggle
+	var visible_check = CheckButton.new()
+	visible_check.text = "Show Markers"
+	visible_check.pressed = tool.parent_mod.markers_visible
+	visible_check.name = "MarkersVisibleCheckbox"
+	visible_check.connect("toggled", self, "_on_markers_visible_toggled")
+	container.add_child(visible_check)
+
+	# Opacity row
+	var opacity_hbox = HBoxContainer.new()
+	var opacity_label = Label.new()
+	opacity_label.text = "Opacity (%):"
+	opacity_label.rect_min_size = Vector2(80, 0)
+	opacity_hbox.add_child(opacity_label)
+
+	var opacity_spin = SpinBox.new()
+	opacity_spin.min_value = 0
+	opacity_spin.max_value = 100
+	opacity_spin.step = 5
+	opacity_spin.value = int(tool.parent_mod.markers_opacity * 100.0)
+	opacity_spin.name = "MarkersOpacitySpinBox"
+	opacity_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	opacity_spin.connect("value_changed", self, "_on_markers_opacity_changed")
+	opacity_hbox.add_child(opacity_spin)
+	container.add_child(opacity_hbox)
 
 	return container
 
@@ -491,6 +527,20 @@ func _on_color_changed(new_color):
 		tool.overlay.update()
 	if tool.LOGGER:
 		tool.LOGGER.debug("Color changed to: %s" % [new_color.to_html()])
+
+func _on_markers_visible_toggled(enabled):
+	tool.parent_mod.markers_visible = enabled
+	if tool.overlay:
+		tool.overlay.update()
+	if tool.LOGGER:
+		tool.LOGGER.debug("Markers visible: %s" % [str(enabled)])
+
+func _on_markers_opacity_changed(value):
+	tool.parent_mod.markers_opacity = value / 100.0
+	if tool.overlay:
+		tool.overlay.update()
+	if tool.LOGGER:
+		tool.LOGGER.debug("Markers opacity: %.0f%%" % [value])
 
 func _on_mirror_toggled(enabled):
 	tool.active_mirror = enabled
@@ -886,6 +936,20 @@ func _update_color_picker():
 		var picker = container.find_node("ColorPicker", true, false)
 		if picker:
 			picker.color = tool.active_color
+
+func _update_markers_visible_checkbox():
+	if not tool.tool_panel:
+		return
+	var container = tool.tool_panel.Align.get_child(0)
+	if container:
+		var checkbox = container.find_node("MarkersVisibleCheckbox", true, false)
+		if checkbox:
+			checkbox.set_block_signals(true)
+			checkbox.pressed = tool.parent_mod.markers_visible
+			checkbox.set_block_signals(false)
+
+func _update_markers_opacity_spinbox():
+	_set_spinbox_value("MarkersOpacitySpinBox", int(tool.parent_mod.markers_opacity * 100.0))
 
 func _update_mirror_checkbox():
 	if not tool.tool_panel:
