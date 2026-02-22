@@ -343,18 +343,31 @@ func _create_shape_settings_ui():
 	merge_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
 	container.add_child(merge_hint)
 
-	# Cut Into Existing Shapes toggle
-	var cut_check = CheckButton.new()
-	cut_check.text = "Cut Into Existing Shapes"
-	cut_check.pressed = tool.cut_existing_shapes
-	cut_check.name = "CutExistingShapesCheckbox"
-	cut_check.connect("toggled", self, "_on_cut_existing_shapes_toggled")
-	container.add_child(cut_check)
+	# Conforming Mode toggle
+	var conforming_check = CheckButton.new()
+	conforming_check.text = "Conforming Mode"
+	conforming_check.pressed = tool.conforming_mode
+	conforming_check.name = "ConformingModeCheckbox"
+	conforming_check.connect("toggled", self, "_on_conforming_mode_toggled")
+	container.add_child(conforming_check)
 
-	var cut_hint = Label.new()
-	cut_hint.text = "  (new shape cuts lines of others)"
-	cut_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(cut_hint)
+	var conforming_hint = Label.new()
+	conforming_hint.text = "  (new shape dents existing outlines)"
+	conforming_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(conforming_hint)
+
+	# Wrapping Mode toggle
+	var wrapping_check = CheckButton.new()
+	wrapping_check.text = "Wrapping Mode"
+	wrapping_check.pressed = tool.wrapping_mode
+	wrapping_check.name = "WrappingModeCheckbox"
+	wrapping_check.connect("toggled", self, "_on_wrapping_mode_toggled")
+	container.add_child(wrapping_check)
+
+	var wrapping_hint = Label.new()
+	wrapping_hint.text = "  (new shape wraps around existing outlines)"
+	wrapping_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	container.add_child(wrapping_hint)
 
 	# Difference Mode toggle
 	var diff_check = CheckButton.new()
@@ -588,27 +601,49 @@ func _on_merge_shapes_toggled(enabled):
 	tool.merge_shapes = enabled
 	# Only one clip mode can be active at a time
 	if enabled:
-		if tool.cut_existing_shapes:
-			tool.cut_existing_shapes = false
-			_set_shape_checkbox("CutExistingShapesCheckbox", false)
+		if tool.conforming_mode:
+			tool.conforming_mode = false
+			_set_shape_checkbox("ConformingModeCheckbox", false)
+		if tool.wrapping_mode:
+			tool.wrapping_mode = false
+			_set_shape_checkbox("WrappingModeCheckbox", false)
 		if tool.difference_mode:
 			tool.difference_mode = false
 			_set_shape_checkbox("DifferenceModeCheckbox", false)
 	if tool.LOGGER:
 		tool.LOGGER.info("Merge Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
 
-func _on_cut_existing_shapes_toggled(enabled):
-	tool.cut_existing_shapes = enabled
+func _on_conforming_mode_toggled(enabled):
+	tool.conforming_mode = enabled
 	# Only one clip mode can be active at a time
 	if enabled:
 		if tool.merge_shapes:
 			tool.merge_shapes = false
 			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
+		if tool.wrapping_mode:
+			tool.wrapping_mode = false
+			_set_shape_checkbox("WrappingModeCheckbox", false)
 		if tool.difference_mode:
 			tool.difference_mode = false
 			_set_shape_checkbox("DifferenceModeCheckbox", false)
 	if tool.LOGGER:
-		tool.LOGGER.info("Cut Into Existing Shapes: %s" % ["ON" if enabled else "OFF"])
+		tool.LOGGER.info("Conforming Mode: %s" % ["ON" if enabled else "OFF"])
+
+func _on_wrapping_mode_toggled(enabled):
+	tool.wrapping_mode = enabled
+	# Only one clip mode can be active at a time
+	if enabled:
+		if tool.merge_shapes:
+			tool.merge_shapes = false
+			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
+		if tool.conforming_mode:
+			tool.conforming_mode = false
+			_set_shape_checkbox("ConformingModeCheckbox", false)
+		if tool.difference_mode:
+			tool.difference_mode = false
+			_set_shape_checkbox("DifferenceModeCheckbox", false)
+	if tool.LOGGER:
+		tool.LOGGER.info("Wrapping Mode: %s" % ["ON" if enabled else "OFF"])
 
 func _on_difference_mode_toggled(enabled):
 	tool.difference_mode = enabled
@@ -617,9 +652,12 @@ func _on_difference_mode_toggled(enabled):
 		if tool.merge_shapes:
 			tool.merge_shapes = false
 			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
-		if tool.cut_existing_shapes:
-			tool.cut_existing_shapes = false
-			_set_shape_checkbox("CutExistingShapesCheckbox", false)
+		if tool.conforming_mode:
+			tool.conforming_mode = false
+			_set_shape_checkbox("ConformingModeCheckbox", false)
+		if tool.wrapping_mode:
+			tool.wrapping_mode = false
+			_set_shape_checkbox("WrappingModeCheckbox", false)
 	if tool.LOGGER:
 		tool.LOGGER.info("Difference Mode: %s" % ["ON" if enabled else "OFF"])
 

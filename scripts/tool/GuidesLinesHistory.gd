@@ -11,9 +11,9 @@ extends Reference
 # ============================================================================
 
 # History record for placing a marker.
-# clip_snapshots stores the primitives of every marker that was clipped as a
-# side-effect of this placement (auto_clip / cut modes).
-# undo() removes the placed marker AND restores those clipped markers.
+# clip_snapshots stores the primitives of every marker that was modified as a
+# side-effect of this placement (conforming mode).
+# undo() removes the placed marker AND restores those modified markers.
 class PlaceMarkerRecord:
 	var tool
 	var marker_data
@@ -31,7 +31,7 @@ class PlaceMarkerRecord:
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord.redo() called for id: %d" % [marker_data["id"]])
 		# Re-snapshot before redo so that the NEXT undo can restore correctly.
-		if tool.cut_existing_shapes:
+		if tool.conforming_mode:
 			clip_snapshots = tool._snapshot_potential_clip_targets(marker_data["position"])
 		tool._do_place_marker(marker_data)
 

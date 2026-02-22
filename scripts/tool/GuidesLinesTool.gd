@@ -55,7 +55,8 @@ var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
 var active_mirror = false
 var merge_shapes = false       # Merge intersecting shape markers on placement (union outline)
-var cut_existing_shapes = false  # Cut lines of existing markers inside the new shape (one-way)
+var conforming_mode = false  # Conforming mode — new shape dents existing shapes' outlines (Difference applied to others + place B)
+var wrapping_mode = false    # Wrapping mode — new shape is dented by existing shapes (Difference applied to new shape + place B)
 var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
 
 # Type-specific settings storage (each type stores its own parameters)
@@ -212,10 +213,10 @@ func place_marker(pos):
 		marker_data["shape_angle"] = active_shape_angle
 		marker_data["shape_sides"] = active_shape_sides
 	
-	# Snapshot primitives of markers that would be cut BEFORE placement,
+	# Snapshot primitives of markers that would be modified BEFORE placement,
 	# so PlaceMarkerRecord can restore them on undo.
 	var clip_snaps = {}
-	if active_marker_type == MARKER_TYPE_SHAPE and cut_existing_shapes:
+	if active_marker_type == MARKER_TYPE_SHAPE and conforming_mode:
 		clip_snaps = _snapshot_potential_clip_targets(final_pos)
 
 	# Execute the action first
@@ -244,7 +245,7 @@ func _cancel_path_placement(): placement.cancel_path_placement()
 # Place a marker from the external API (handles history recording internally)
 func api_place_marker(marker_data: Dictionary) -> void:
 	var clip_snaps = {}
-	if marker_data.get("marker_type") == MARKER_TYPE_SHAPE and cut_existing_shapes:
+	if marker_data.get("marker_type") == MARKER_TYPE_SHAPE and conforming_mode:
 		clip_snaps = _snapshot_potential_clip_targets(marker_data["position"])
 	_do_place_marker(marker_data)
 	next_id += 1
@@ -346,9 +347,12 @@ func _undo_delete_marker(marker_data, index):
 	markers_lookup[marker.id] = marker # Add to lookup
 	if marker.id >= next_id:
 		next_id = marker.id + 1
-	# Reapply cut relationship if the feature is enabled
-	if cut_existing_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
-		_apply_cut_to_existing_shapes(marker)
+	# Reapply conforming relationship if the feature is enabled
+	if conforming_mode and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_conforming_to_existing_shapes(marker)
+	# Reapply wrapping dent to the restored marker if the feature is enabled
+	if wrapping_mode and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_wrapping_to_new_shape(marker)
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -382,9 +386,12 @@ func _do_place_marker(marker_data):
 	
 	markers.append(marker)
 	markers_lookup[marker.id] = marker # Add to lookup
-	# Apply one-way cut to existing markers if the feature is enabled
-	if cut_existing_shapes and marker.marker_type == MARKER_TYPE_SHAPE:
-		_apply_cut_to_existing_shapes(marker)
+	# Apply conforming dent to existing markers if the feature is enabled
+	if conforming_mode and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_conforming_to_existing_shapes(marker)
+	# Apply wrapping dent to the new marker itself if the feature is enabled
+	if wrapping_mode and marker.marker_type == MARKER_TYPE_SHAPE:
+		_apply_wrapping_to_new_shape(marker)
 	update_ui()
 	if overlay:
 		overlay.update()
@@ -567,11 +574,13 @@ func _point_in_shape(pt: Vector2, desc: Dictionary) -> bool:
 	return false
 
 
-# Apply ONE-WAY cut when [new_marker] is placed: clip the primitives of every
-# intersecting Shape marker using new_marker's shape boundary.
+# Apply CONFORMING when [new_marker] is placed: for every existing Shape marker
+# that overlaps new_marker, dent its outline to the boundary of new_marker.
+# This is identical to Difference applied to the existing marker, but the new
+# marker is still placed normally.
 # The new marker itself keeps its full unclipped outline.
-func _apply_cut_to_existing_shapes(new_marker):
-	if not cut_existing_shapes or new_marker.marker_type != MARKER_TYPE_SHAPE:
+func _apply_conforming_to_existing_shapes(new_marker):
+	if not conforming_mode or new_marker.marker_type != MARKER_TYPE_SHAPE:
 		return
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null:
@@ -585,12 +594,49 @@ func _apply_cut_to_existing_shapes(new_marker):
 		var other_desc = _get_shape_descriptor(other, cell_size)
 		if other_desc.empty():
 			continue
-		if not _shapes_intersect(new_desc, other_desc):
+		if not _shapes_overlap(new_desc, other_desc):
 			continue
-		# Apply cut directly to other's current outline.
+		# Keep segments of other that are OUTSIDE new_marker,
+		# then append the new_marker boundary where it runs inside other.
+		var diff_boundary = GeometryUtils.clip_polygon_inside_shape(
+			new_desc.points, other_desc)
 		other.set_primitives(
 			GeometryUtils.clip_primitives_against_shapes(
-				other.get_primitives(), [new_desc]))
+				other.get_primitives(), [new_desc]) + diff_boundary)
+	if overlay:
+		overlay.update()
+
+# Apply WRAPPING when [new_marker] is placed: for every existing Shape marker
+# that overlaps new_marker, dent new_marker's own outline to the boundary of
+# that existing shape. Existing markers are left completely unchanged.
+# Multiple overlapping shapes are applied sequentially, each time re-deriving
+# new_marker's current outline so the clips chain correctly.
+func _apply_wrapping_to_new_shape(new_marker):
+	if not wrapping_mode or new_marker.marker_type != MARKER_TYPE_SHAPE:
+		return
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return
+	for other in markers:
+		if other.id == new_marker.id or other.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var other_desc = _get_shape_descriptor(other, cell_size)
+		if other_desc.empty():
+			continue
+		# Re-derive new_marker's current descriptor each iteration so that
+		# sequential clips from multiple existing shapes chain correctly.
+		var new_desc = _get_shape_descriptor(new_marker, cell_size)
+		if new_desc.empty():
+			break
+		if not _shapes_overlap(other_desc, new_desc):
+			continue
+		# Keep segments of new_marker that are OUTSIDE other,
+		# then append other's boundary where it runs inside new_marker.
+		var diff_boundary = GeometryUtils.clip_polygon_inside_shape(
+			other_desc.points, new_desc)
+		new_marker.set_primitives(
+			GeometryUtils.clip_primitives_against_shapes(
+				new_marker.get_primitives(), [other_desc]) + diff_boundary)
 	if overlay:
 		overlay.update()
 
@@ -701,8 +747,10 @@ func _do_apply_difference(diff_desc: Dictionary):
 		overlay.update()
 
 ## Snapshot primitives of all Shape markers that would be affected
-## by a new Clip / Cut shape placed at [pos] with the current active settings.
-## Call this BEFORE _do_place_marker so the snapshot captures pre-clip state.
+## by a new Conforming shape placed at [pos] with the current active settings.
+## Uses _shapes_overlap (not just intersect) so that fully-contained shapes
+## are captured too.
+## Call this BEFORE _do_place_marker so the snapshot captures the pre-op state.
 func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 	var snap = {}
 	var cell_size = _get_grid_cell_size()
@@ -715,7 +763,7 @@ func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 		if marker.marker_type != MARKER_TYPE_SHAPE:
 			continue
 		var other_desc = _get_shape_descriptor(marker, cell_size)
-		if _shapes_intersect(new_desc, other_desc):
+		if _shapes_overlap(new_desc, other_desc):
 			snap[marker.id] = {
 				"primitives": marker.get_primitives().duplicate(true)
 			}

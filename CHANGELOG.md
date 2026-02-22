@@ -5,6 +5,24 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.9] - 2026-02-23
+
+### Added — Conforming Mode and Wrapping Mode (replace Cut mode)
+
+The **Cut Into Existing Shapes** mode has been replaced by two new complementary modes.
+
+- **Conforming Mode** — when placing shape B over existing shape A, A's outline is dented to match B's contour (Difference applied to A; B is placed normally).
+- **Wrapping Mode** — inverse of Conforming: B's own outline is dented by every existing shape A it overlaps (Difference applied to B; A is left unchanged). Multiple overlapping shapes chain correctly.
+
+Both modes are mutually exclusive with each other, Merge, and Difference. Undo/Redo fully supported via the existing `PlaceMarkerRecord` snapshot mechanism.
+
+#### Files changed
+- **`GuidesLinesTool.gd`** — `cut_existing_shapes` → `conforming_mode`; `_apply_cut_to_existing_shapes` → `_apply_conforming_to_existing_shapes` (now uses `_shapes_overlap` + appends diff boundary); added `wrapping_mode` and `_apply_wrapping_to_new_shape()`; `_snapshot_potential_clip_targets` updated to use `_shapes_overlap`.
+- **`GuidesLinesToolUI.gd`** — checkboxes `ConformingModeCheckbox` and `WrappingModeCheckbox`; callbacks `_on_conforming_mode_toggled` / `_on_wrapping_mode_toggled`; mutual exclusion updated across all four mode toggles.
+- **`GuidesLinesHistory.gd`** — `PlaceMarkerRecord.redo()` guard updated to `conforming_mode`.
+
+---
+
 ## [2.1.8] - 2026-02-22
 
 ### Changed — Clip mode replaced by Merge mode
