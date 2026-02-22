@@ -275,12 +275,8 @@ func _create_shape_settings_ui():
 	radius_spin.allow_greater = true
 	radius_spin.allow_lesser = false
 	radius_hbox.add_child(radius_spin)
+	radius_hbox.hint_tooltip = "Radius in grid cells (circumradius — distance from center to vertex)"
 	container.add_child(radius_hbox)
-
-	var radius_hint = Label.new()
-	radius_hint.text = "  (grid cells, circumradius)"
-	radius_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(radius_hint)
 
 	container.add_child(_create_spacer(5))
 
@@ -335,52 +331,36 @@ func _create_shape_settings_ui():
 	merge_check.text = "Merge Intersecting Shapes"
 	merge_check.pressed = tool.merge_shapes
 	merge_check.name = "MergeIntersectingShapesCheckbox"
+	merge_check.hint_tooltip = "New shape is merged (union) into any intersecting existing shapes"
 	merge_check.connect("toggled", self, "_on_merge_shapes_toggled")
 	container.add_child(merge_check)
-
-	var merge_hint = Label.new()
-	merge_hint.text = "  (new shape merges into existing)"
-	merge_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(merge_hint)
 
 	# Conforming Mode toggle
 	var conforming_check = CheckButton.new()
 	conforming_check.text = "Conforming Mode"
 	conforming_check.pressed = tool.conforming_mode
 	conforming_check.name = "ConformingModeCheckbox"
+	conforming_check.hint_tooltip = "New shape dents the outlines of existing shapes (difference applied to existing)"
 	conforming_check.connect("toggled", self, "_on_conforming_mode_toggled")
 	container.add_child(conforming_check)
-
-	var conforming_hint = Label.new()
-	conforming_hint.text = "  (new shape dents existing outlines)"
-	conforming_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(conforming_hint)
 
 	# Wrapping Mode toggle
 	var wrapping_check = CheckButton.new()
 	wrapping_check.text = "Wrapping Mode"
 	wrapping_check.pressed = tool.wrapping_mode
 	wrapping_check.name = "WrappingModeCheckbox"
+	wrapping_check.hint_tooltip = "New shape is dented by existing shapes' outlines (difference applied to new shape)"
 	wrapping_check.connect("toggled", self, "_on_wrapping_mode_toggled")
 	container.add_child(wrapping_check)
-
-	var wrapping_hint = Label.new()
-	wrapping_hint.text = "  (new shape wraps around existing outlines)"
-	wrapping_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(wrapping_hint)
 
 	# Difference Mode toggle
 	var diff_check = CheckButton.new()
 	diff_check.text = "Difference Mode"
 	diff_check.pressed = tool.difference_mode
 	diff_check.name = "DifferenceModeCheckbox"
+	diff_check.hint_tooltip = "Fills the overlapping area into existing shapes without placing a new shape"
 	diff_check.connect("toggled", self, "_on_difference_mode_toggled")
 	container.add_child(diff_check)
-
-	var diff_hint = Label.new()
-	diff_hint.text = "  (fill overlap into existing shape)"
-	diff_hint.add_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
-	container.add_child(diff_hint)
 
 	return container
 

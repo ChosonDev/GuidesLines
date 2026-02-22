@@ -5,6 +5,17 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.10] - 2026-02-23
+
+### Changed — Inline hint labels replaced with tooltips
+
+Removed the small grey hint `Label` nodes that appeared below certain controls in the Shape settings panel. Their text is now set as `hint_tooltip` directly on the corresponding control, so descriptions appear on hover instead of cluttering the panel layout.
+
+#### Files changed
+- **`GuidesLinesToolUI.gd`** — `radius_hbox.hint_tooltip` (circumradius note); `merge_check.hint_tooltip`, `conforming_check.hint_tooltip`, `wrapping_check.hint_tooltip`, `diff_check.hint_tooltip`; all four corresponding `Label` nodes and their `container.add_child` calls removed.
+
+---
+
 ## [2.1.9] - 2026-02-23
 
 ### Added — Conforming Mode and Wrapping Mode (replace Cut mode)
