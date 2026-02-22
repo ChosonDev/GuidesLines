@@ -33,7 +33,6 @@ var delete_mode = false  # Delete mode - click to remove markers
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
-const MARKER_TYPE_ARROW = "Arrow"
 
 # Shape preset labels (UI-only вЂ” used to set initial sides/angle when a preset is selected)
 const SHAPE_CIRCLE = "Circle"
@@ -50,6 +49,7 @@ var active_angle = 0.0
 var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
 var active_shape_angle = 0.0  # Shape rotation angle in degrees
 var active_shape_sides = 64  # Number of polygon sides (default: Circle = 64)
+var active_path_end_arrow = false  # Draw arrowhead at last point of path
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
 var active_color = Color(0, 0.7, 1, 1)
@@ -71,9 +71,7 @@ var type_settings = {
 		"sides": 64
 	},
 	"Path": {
-		# Path has no persistent settings, it's point-based
-	},
-	"Arrow": {
+		"end_arrow": false,
 		"head_length": 50.0,
 		"head_angle": 30.0
 	}
@@ -105,10 +103,6 @@ var path_placement_active = false  # Whether we're in path placement mode
 var path_temp_points = []  # Temporary storage for points being placed
 var path_preview_point = null  # Current mouse position for line preview
 
-# Arrow placement state (similar to path but auto-finishes at 2 points)
-var arrow_placement_active = false  # Whether we're in arrow placement mode
-var arrow_temp_points = []  # Temporary storage for arrow points (max 2)
-var arrow_preview_point = null  # Current mouse position for arrow preview
 
 # Initialize tool with reference to parent mod
 func _init(mod):
@@ -187,11 +181,6 @@ func place_marker(pos):
 	if active_marker_type == MARKER_TYPE_PATH:
 		_handle_path_placement(pos)
 		return
-	
-	# Special handling for Arrow type
-	if active_marker_type == MARKER_TYPE_ARROW:
-		_handle_arrow_placement(pos)
-		return
 
 	# Difference mode: don't place a marker вЂ” instead apply difference to existing shapes
 	if difference_mode and active_marker_type == MARKER_TYPE_SHAPE:
@@ -252,9 +241,6 @@ func place_marker(pos):
 func _handle_path_placement(pos): placement.handle_path_placement(pos)
 func _finalize_path_marker(closed): placement.finalize_path_marker(closed)
 func _cancel_path_placement(): placement.cancel_path_placement()
-func _handle_arrow_placement(pos): placement.handle_arrow_placement(pos)
-func _finalize_arrow_marker(): placement.finalize_arrow_marker()
-func _cancel_arrow_placement(): placement.cancel_arrow_placement()
 
 # ============================================================================
 # API BRIDGE METHODS
@@ -403,10 +389,10 @@ func _do_place_marker(marker_data):
 	elif marker_data["marker_type"] == MARKER_TYPE_PATH:
 		marker.set_property("marker_points", marker_data["marker_points"].duplicate())
 		marker.set_property("path_closed", marker_data["path_closed"])
-	elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
-		marker.set_property("marker_points", marker_data["marker_points"].duplicate())
-		marker.set_property("arrow_head_length", marker_data["arrow_head_length"])
-		marker.set_property("arrow_head_angle", marker_data["arrow_head_angle"])
+		marker.set_property("path_end_arrow", marker_data.get("path_end_arrow", false))
+		if marker_data.get("path_end_arrow", false):
+			marker.set_property("arrow_head_length", marker_data.get("arrow_head_length", 50.0))
+			marker.set_property("arrow_head_angle", marker_data.get("arrow_head_angle", 30.0))
 	
 	markers.append(marker)
 	markers_lookup[marker.id] = marker # Add to lookup
@@ -433,14 +419,10 @@ func _do_place_marker(marker_data):
 				marker_data["shape_radius"]
 			])
 		elif marker_data["marker_type"] == MARKER_TYPE_PATH:
-			LOGGER.debug("Path marker placed with %d points (closed: %s)" % [
+			LOGGER.debug("Path marker placed with %d points (closed: %s, end_arrow: %s)" % [
 				marker_data["marker_points"].size(),
-				str(marker_data["path_closed"])
-			])
-		elif marker_data["marker_type"] == MARKER_TYPE_ARROW:
-			LOGGER.debug("Arrow marker placed with 2 points (head: %.1fpx at %.1fВ°)" % [
-				marker_data["arrow_head_length"],
-				marker_data["arrow_head_angle"]
+				str(marker_data["path_closed"]),
+				str(marker_data.get("path_end_arrow", false))
 			])
 	# Notify external API listeners
 	if parent_mod.guides_lines_api:

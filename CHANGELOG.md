@@ -5,6 +5,23 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.6] - 2026-02-22
+
+### Refactoring — Arrow type merged into Path
+
+The `Arrow` marker type has been removed. Its functionality is now part of the `Path` type via a new **"End with Arrow"** checkbox in the Path settings panel.
+
+#### Changes
+
+- **`GuideMarker.gd`** — added `path_end_arrow`, `arrow_head_length`, `arrow_head_angle` fields to Path markers; `Save`/`Load` updated accordingly; `Arrow` branches removed.
+- **`GuidesLinesTool.gd`** — removed `MARKER_TYPE_ARROW` constant and all Arrow placement state (`arrow_placement_active`, `arrow_temp_points`, `arrow_preview_point`); added `active_path_end_arrow`; `type_settings["Path"]` now stores `end_arrow`/`head_length`/`head_angle`; Arrow delegate methods removed.
+- **`GuidesLinesPlacement.gd`** — Arrow placement state machine removed; `finalize_path_marker()` now passes `path_end_arrow`, `arrow_head_length`, `arrow_head_angle` in marker data.
+- **`GuidesLinesToolUI.gd`** — Arrow item removed from type selector; `_create_arrow_settings_ui()` removed; `_create_path_settings_ui()` extended with "End with Arrow" `CheckButton` and collapsible Head Length / Head Angle spinboxes.
+- **`MarkerOverlay.gd`** — Arrow rendering and `_draw_arrow_preview()` removed; Path rendering draws arrowhead at last point when `path_end_arrow` is true; path preview shows semi-transparent arrow to cursor when option is active.
+- **`guides_lines_api.gd`** — `place_arrow_marker()` now creates a Path marker with `path_end_arrow = true` (API remains compatible); `"Arrow"` match cases removed from geometry query functions.
+
+---
+
 ## [2.1.5] - 2026-02-22
 
 ### Refactoring — GuidesLinesTool decomposition + Show Coordinates scoped to Line

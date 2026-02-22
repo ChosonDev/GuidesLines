@@ -175,17 +175,19 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 	var marker_id = tool.next_id
 	var marker_data = {
 		"position": from_pos,
-		"marker_type": "Arrow",
+		"marker_type": "Path",
 		"color": color if color != null else tool.active_color,
 		"coordinates": tool.show_coordinates,
 		"id": marker_id,
 		"marker_points": [from_pos, to_pos],
+		"path_closed": false,
+		"path_end_arrow": true,
 		"arrow_head_length": head_length,
 		"arrow_head_angle": head_angle,
 	}
 	tool.api_place_marker(marker_data)
 	if LOGGER:
-		LOGGER.debug("API: Arrow marker placed id=%d from=%s to=%s" % [marker_id, str(from_pos), str(to_pos)])
+		LOGGER.debug("API: Arrow(Path) marker placed id=%d from=%s to=%s" % [marker_id, str(from_pos), str(to_pos)])
 	return marker_id
 
 # ============================================================================
@@ -337,15 +339,6 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 						min_point = pt
 					min_vertex = GeometryUtils.nearest_polygon_vertex(coords, pts)
 
-			"Arrow":
-				if marker.marker_points.size() >= 2:
-					# Primary shaft: from → to
-					var pt = _closest_point_on_segment(coords, marker.marker_points[0], marker.marker_points[1])
-					var d = coords.distance_to(pt)
-					if d < min_dist:
-						min_dist = d
-						min_point = pt
-
 		if min_dist <= nearest_dist:
 			nearest_dist = min_dist
 			nearest_point = min_point
@@ -444,14 +437,6 @@ func find_line_intersection(line_from: Vector2, line_to: Vector2, coords: Vector
 						if pt != null:
 							candidates.append(pt)
 
-			"Arrow":
-				if marker.position.distance_to(coords) > radius:
-					continue
-				if marker.marker_points.size() >= 2:
-					var pt = _line_intersect_segment(line_from, line_dir, marker.marker_points[0], marker.marker_points[1])
-					if pt != null:
-						candidates.append(pt)
-
 		# Keep only candidates within radius of coords; pick nearest to coords
 		for pt in candidates:
 			var dist = coords.distance_to(pt)
@@ -531,12 +516,6 @@ func find_nearest_geometry_point(coords: Vector2, radius: float = 100.0):
 				var pts = marker.marker_points
 				if pts.size() >= 2:
 					candidates.append(GeometryUtils.closest_point_on_polygon_edges(coords, pts, marker.path_closed))
-
-			"Arrow":
-				if marker.position.distance_to(coords) > radius:
-					continue
-				if marker.marker_points.size() >= 2:
-					candidates.append(_closest_point_on_segment(coords, marker.marker_points[0], marker.marker_points[1]))
 
 		for pt in candidates:
 			var dist = coords.distance_to(pt)

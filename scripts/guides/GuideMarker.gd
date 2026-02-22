@@ -6,15 +6,16 @@ const GeometryUtils = preload("../utils/GeometryUtils.gd")
 # Stored and managed by GuidesLinesTool
 
 var position = Vector2.ZERO
-var marker_type = "Line"  # Type of marker (Line, Shape, Path, Arrow)
+var marker_type = "Line"  # Type of marker (Line, Shape, Path)
 var angle = 0.0  # Line angle in degrees (0-360) [Line only]
 var shape_radius = 1.0  # Shape radius in grid cells (circumradius) [Shape only]
 var shape_angle = 0.0  # Shape rotation angle in degrees (0-360) [Shape only]
 var shape_sides = 6  # Number of polygon sides [Shape only]
-var marker_points = []  # Array of Vector2 points [Shape vertices/Path/Arrow points]
+var marker_points = []  # Array of Vector2 points [Shape vertices/Path points]
 var path_closed = false  # Whether path is closed (loop) [Path only]
-var arrow_head_length = 50.0  # Arrowhead length in pixels [Arrow only]
-var arrow_head_angle = 30.0  # Arrowhead angle in degrees [Arrow only]
+var path_end_arrow = false  # Draw arrowhead at the last path point [Path only]
+var arrow_head_length = 50.0  # Arrowhead length in pixels [Path only, when path_end_arrow]
+var arrow_head_angle = 30.0  # Arrowhead angle in degrees [Path only, when path_end_arrow]
 var color = Color(0, 0.7, 1, 1)  # Line/Shape/Path/Arrow color
 var mirror = false  # Mirror line at 180 degrees [Line only]
 var id = -1  # Unique identifier
@@ -74,6 +75,8 @@ func set_property(prop, value):
 			if arrow_head_length != value: arrow_head_length = value; changed = true
 		"arrow_head_angle":
 			if arrow_head_angle != value: arrow_head_angle = value; changed = true
+		"path_end_arrow":
+			if path_end_arrow != value: path_end_arrow = value; changed = true
 		"show_coordinates":
 			if show_coordinates != value: show_coordinates = value; changed = true
 		"marker_points":
@@ -180,14 +183,10 @@ func Save():
 			points_data.append([point.x, point.y])
 		data["marker_points"] = points_data
 		data["path_closed"] = path_closed
-	elif marker_type == "Arrow":
-		# Serialize arrow points (always 2 points)
-		var points_data = []
-		for point in marker_points:
-			points_data.append([point.x, point.y])
-		data["marker_points"] = points_data
-		data["arrow_head_length"] = arrow_head_length
-		data["arrow_head_angle"] = arrow_head_angle
+		data["path_end_arrow"] = path_end_arrow
+		if path_end_arrow:
+			data["arrow_head_length"] = arrow_head_length
+			data["arrow_head_angle"] = arrow_head_angle
 	
 	return data
 
@@ -226,27 +225,11 @@ func Load(data):
 		else:
 			marker_points = []
 		
-		if data.has("path_closed"):
-			path_closed = data.path_closed
-		else:
-			path_closed = false
-	elif marker_type == "Arrow":
-		if data.has("marker_points"):
-			marker_points = []
-			for point_data in data.marker_points:
-				marker_points.append(Vector2(point_data[0], point_data[1]))
-		else:
-			marker_points = []
-		
-		if data.has("arrow_head_length"):
-			arrow_head_length = data.arrow_head_length
-		else:
-			arrow_head_length = 50.0
-		
-		if data.has("arrow_head_angle"):
-			arrow_head_angle = data.arrow_head_angle
-		else:
-			arrow_head_angle = 30.0
+		path_closed = data.get("path_closed", false)
+		path_end_arrow = data.get("path_end_arrow", false)
+		if path_end_arrow:
+			arrow_head_length = data.get("arrow_head_length", 50.0)
+			arrow_head_angle = data.get("arrow_head_angle", 30.0)
 	
 	# Common parameters
 	if data.has("color"):

@@ -12,7 +12,6 @@ var _last_camera_pos = Vector2.ZERO
 var _last_camera_zoom = Vector2.ONE
 var _last_marker_count = 0
 var _last_path_active = false
-var _last_arrow_active = false
 var _last_mouse_pos = Vector2.ZERO  # Track mouse position for preview updates
 var _mouse_in_ui = false  # Track if cursor is in UI area
 
@@ -39,11 +38,6 @@ func _process(_delta):
 	if tool and tool.path_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		tool.path_preview_point = tool.cached_worldui.MousePosition
 		needs_update = true  # Always update during path placement
-	
-	# Track mouse position for arrow preview
-	if tool and tool.arrow_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
-		tool.arrow_preview_point = tool.cached_worldui.MousePosition
-		needs_update = true  # Always update during arrow placement
 	
 	# Track mouse position for preview marker (when tool is enabled and not in delete mode)
 	if tool and tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
@@ -87,11 +81,9 @@ func _process(_delta):
 	# Check if placement mode changed
 	if tool:
 		var path_active = tool.path_placement_active
-		var arrow_active = tool.arrow_placement_active
 		
-		if path_active != _last_path_active or arrow_active != _last_arrow_active:
+		if path_active != _last_path_active:
 			_last_path_active = path_active
-			_last_arrow_active = arrow_active
 			needs_update = true
 	
 	# Only update when necessary
@@ -109,11 +101,6 @@ func _input(event):
 			tool._finalize_path_marker(false)  # Finish as open path
 			get_tree().set_input_as_handled()
 			return
-		# Cancel arrow placement if first point is placed
-		if tool.arrow_placement_active and event.pressed:
-			tool._cancel_arrow_placement()
-			get_tree().set_input_as_handled()
-			return
 		# Shape type: RMB rotates by 45 degrees (not in delete mode)
 		if tool.active_marker_type == tool.MARKER_TYPE_SHAPE and event.pressed and not tool.delete_mode:
 			tool.rotate_shape_45()
@@ -124,11 +111,6 @@ func _input(event):
 	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
 		if tool.path_placement_active:
 			tool._cancel_path_placement()
-			get_tree().set_input_as_handled()
-			return
-		# Handle ESC key for Arrow cancellation
-		if tool.arrow_placement_active:
-			tool._cancel_arrow_placement()
 			get_tree().set_input_as_handled()
 			return
 	
@@ -238,9 +220,6 @@ func _draw():
 		# Special preview for Path type
 		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
 			_draw_path_preview(world_left, world_right, world_top, world_bottom)
-		# Special preview for Arrow type
-		elif tool.active_marker_type == tool.MARKER_TYPE_ARROW:
-			_draw_arrow_preview(world_left, world_right, world_top, world_bottom)
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
 			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
@@ -296,17 +275,14 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 					marker.color,
 					LINE_WIDTH
 				)
-	
-	elif marker.marker_type == "Arrow":
-		# Draw arrow (always 2 points)
-		if marker.marker_points.size() == 2:
-			var start = marker.marker_points[0]
-			var end = marker.marker_points[1]
 			
-			var arrow_length = GuidesLinesRender.get_adaptive_width(marker.arrow_head_length, cam_zoom)
-			var head_points = GeometryUtils.calculate_arrowhead_points(end, start, arrow_length, marker.arrow_head_angle)
-			
-			GuidesLinesRender.draw_arrow(self, start, end, head_points, marker.color, LINE_WIDTH)
+			# Draw arrowhead at last point if enabled
+			if marker.path_end_arrow:
+				var arrow_from = marker.marker_points[marker.marker_points.size() - 2]
+				var arrow_to = marker.marker_points[marker.marker_points.size() - 1]
+				var arrow_length = GuidesLinesRender.get_adaptive_width(marker.arrow_head_length, cam_zoom)
+				var head_points = GeometryUtils.calculate_arrowhead_points(arrow_to, arrow_from, arrow_length, marker.arrow_head_angle)
+				GuidesLinesRender.draw_arrow(self, arrow_from, arrow_to, head_points, marker.color, LINE_WIDTH)
 
 
 	
@@ -430,6 +406,14 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 		
 		# Draw cursor preview circle
 		draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
+		
+		# Draw arrow preview at cursor if path_end_arrow is enabled
+		if tool.active_path_end_arrow:
+			var arrow_length = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
+			var head_points = GeometryUtils.calculate_arrowhead_points(
+				tool.path_preview_point, last_point, arrow_length, tool.active_arrow_head_angle)
+			GuidesLinesRender.draw_arrow(self, last_point, tool.path_preview_point, head_points,
+				Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.5), LINE_WIDTH * 0.7)
 	
 	# Draw "close path" indicator if near first point
 	if tool.path_temp_points.size() >= 3 and tool.path_preview_point != null:
@@ -438,37 +422,6 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 			# Draw pulsing circle around first point
 			var pulse = sin(OS.get_ticks_msec() * 0.005) * 0.5 + 0.5
 			draw_arc(first_point, MARKER_SIZE, 0, TAU, 32, Color(0, 1, 0, 0.5 + pulse * 0.3), 4)
-
-# Draw preview for Arrow type (temp points + line to cursor with arrowhead)
-func _draw_arrow_preview(world_left, world_right, world_top, world_bottom):
-	if not tool.arrow_placement_active or tool.arrow_temp_points.size() == 0:
-		return
-	
-	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
-	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
-	
-	# Get camera zoom for adaptive line width and marker size
-	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
-	
-	# Draw start point (green, larger)
-	var start_point = tool.arrow_temp_points[0]
-	draw_circle(start_point, MARKER_SIZE / 1.5, Color(0, 1, 0, 0.6))  # Green first point
-	draw_arc(start_point, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
-	
-	# If we have 1 point and cursor preview, draw preview arrow
-	if tool.arrow_temp_points.size() == 1 and tool.arrow_preview_point != null:
-		var preview_end = tool.arrow_preview_point
-		
-		var arrow_length = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
-		var head_points = GeometryUtils.calculate_arrowhead_points(preview_end, start_point, arrow_length, tool.active_arrow_head_angle)
-		
-		GuidesLinesRender.draw_arrow(self, start_point, preview_end, head_points, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
-		
-		# Draw cursor preview circle
-		draw_circle(preview_end, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
 
 # Calculate line endpoints - always draws to map boundaries
 func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom, map_rect):

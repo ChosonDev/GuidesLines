@@ -10,7 +10,6 @@ const CLASS_NAME = "GuidesLinesToolUI"
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
-const MARKER_TYPE_ARROW = "Arrow"
 
 # Shape preset labels
 const SHAPE_CIRCLE = "Circle"
@@ -38,7 +37,6 @@ var type_specific_container = null    # Container for type-specific settings
 var line_settings_container = null    # Settings for Line type
 var shape_settings_container = null   # Settings for Shape type
 var path_settings_container = null    # Settings for Path type
-var arrow_settings_container = null   # Settings for Arrow type
 
 func _init(tool_ref):
 	tool = tool_ref
@@ -115,8 +113,6 @@ func create_ui_panel():
 	type_selector.set_item_metadata(1, MARKER_TYPE_SHAPE)
 	type_selector.add_item("Path")
 	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
-	type_selector.add_item("Arrow")
-	type_selector.set_item_metadata(3, MARKER_TYPE_ARROW)
 	type_selector.selected = 0
 	type_selector.name = "TypeSelector"
 	type_selector.connect("item_selected", self, "_on_marker_type_changed")
@@ -144,12 +140,6 @@ func create_ui_panel():
 	path_settings_container.name = "PathSettings"
 	path_settings_container.visible = false
 	type_specific_container.add_child(path_settings_container)
-
-	# Create Arrow settings UI
-	arrow_settings_container = _create_arrow_settings_ui()
-	arrow_settings_container.name = "ArrowSettings"
-	arrow_settings_container.visible = false
-	type_specific_container.add_child(arrow_settings_container)
 
 	container.add_child(type_specific_container)
 
@@ -434,13 +424,22 @@ func _create_path_settings_ui():
 	cancel_btn.visible = false
 	container.add_child(cancel_btn)
 
-	return container
+	container.add_child(_create_spacer(5))
 
-# Create UI for Arrow marker type
-func _create_arrow_settings_ui():
-	var container = VBoxContainer.new()
+	# End with Arrow checkbox
+	var end_arrow_check = CheckButton.new()
+	end_arrow_check.text = "End with Arrow"
+	end_arrow_check.pressed = tool.active_path_end_arrow
+	end_arrow_check.name = "PathEndArrowCheckbox"
+	end_arrow_check.connect("toggled", self, "_on_path_end_arrow_toggled")
+	container.add_child(end_arrow_check)
 
-	# Arrow head length SpinBox
+	# Arrow head settings container (only visible when checkbox is active)
+	var arrow_settings = VBoxContainer.new()
+	arrow_settings.name = "PathArrowSettings"
+	arrow_settings.visible = tool.active_path_end_arrow
+
+	# Head Length SpinBox
 	var head_length_hbox = HBoxContainer.new()
 	var head_length_label = Label.new()
 	head_length_label.text = "Head Length:"
@@ -452,17 +451,17 @@ func _create_arrow_settings_ui():
 	head_length_spin.max_value = 200.0
 	head_length_spin.step = 5.0
 	head_length_spin.value = tool.active_arrow_head_length
-	head_length_spin.name = "ArrowHeadLengthSpinBox"
+	head_length_spin.name = "PathArrowHeadLengthSpinBox"
 	head_length_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_length_spin.connect("value_changed", self, "_on_arrow_head_length_changed")
+	head_length_spin.connect("value_changed", self, "_on_path_arrow_head_length_changed")
 	head_length_spin.allow_greater = true
 	head_length_spin.allow_lesser = false
 	head_length_hbox.add_child(head_length_spin)
-	container.add_child(head_length_hbox)
+	arrow_settings.add_child(head_length_hbox)
 
-	container.add_child(_create_spacer(5))
+	arrow_settings.add_child(_create_spacer(5))
 
-	# Arrow head angle SpinBox
+	# Head Angle SpinBox
 	var head_angle_hbox = HBoxContainer.new()
 	var head_angle_label = Label.new()
 	head_angle_label.text = "Head Angle:"
@@ -474,11 +473,13 @@ func _create_arrow_settings_ui():
 	head_angle_spin.max_value = 60.0
 	head_angle_spin.step = 5.0
 	head_angle_spin.value = tool.active_arrow_head_angle
-	head_angle_spin.name = "ArrowHeadAngleSpinBox"
+	head_angle_spin.name = "PathArrowHeadAngleSpinBox"
 	head_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_angle_spin.connect("value_changed", self, "_on_arrow_head_angle_changed")
+	head_angle_spin.connect("value_changed", self, "_on_path_arrow_head_angle_changed")
 	head_angle_hbox.add_child(head_angle_spin)
-	container.add_child(head_angle_hbox)
+	arrow_settings.add_child(head_angle_hbox)
+
+	container.add_child(arrow_settings)
 
 	return container
 
@@ -579,16 +580,19 @@ func _on_reset_pressed():
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
 
-	# Reset Arrow type settings
-	elif tool.active_marker_type == MARKER_TYPE_ARROW:
+	# Reset Path arrow settings
+	elif tool.active_marker_type == MARKER_TYPE_PATH:
+		tool.active_path_end_arrow = false
 		tool.active_arrow_head_length = DEFAULT_ARROW_HEAD_LENGTH
 		tool.active_arrow_head_angle = DEFAULT_ARROW_HEAD_ANGLE
 
-		tool.type_settings[MARKER_TYPE_ARROW]["head_length"] = DEFAULT_ARROW_HEAD_LENGTH
-		tool.type_settings[MARKER_TYPE_ARROW]["head_angle"] = DEFAULT_ARROW_HEAD_ANGLE
+		tool.type_settings[MARKER_TYPE_PATH]["end_arrow"] = false
+		tool.type_settings[MARKER_TYPE_PATH]["head_length"] = DEFAULT_ARROW_HEAD_LENGTH
+		tool.type_settings[MARKER_TYPE_PATH]["head_angle"] = DEFAULT_ARROW_HEAD_ANGLE
 
-		_update_arrow_head_length_spinbox()
-		_update_arrow_head_angle_spinbox()
+		_update_path_end_arrow_checkbox()
+		_update_path_arrow_head_length_spinbox()
+		_update_path_arrow_head_angle_spinbox()
 
 	# Reset common settings (always)
 	tool.active_color = DEFAULT_COLOR
@@ -718,25 +722,38 @@ func _on_difference_mode_toggled(enabled):
 		tool.LOGGER.info("Difference Mode: %s" % ["ON" if enabled else "OFF"])
 
 # ============================================================================
-# UI CALLBACKS — ARROW SETTINGS
+# UI CALLBACKS — PATH ARROW SETTINGS
 # ============================================================================
 
-func _on_arrow_head_length_changed(value):
-	if value < 10.0:
-		value = 10.0
-	tool.active_arrow_head_length = value
-	_update_arrow_head_length_spinbox()
+func _on_path_end_arrow_toggled(enabled):
+	tool.active_path_end_arrow = enabled
+	tool.type_settings[MARKER_TYPE_PATH]["end_arrow"] = enabled
+	# Show/hide arrow head settings
+	if path_settings_container:
+		var arrow_settings = path_settings_container.find_node("PathArrowSettings", true, false)
+		if arrow_settings:
+			arrow_settings.visible = enabled
 	if tool.overlay:
 		tool.overlay.update()
 	if tool.LOGGER:
-		tool.LOGGER.debug("Arrow head length changed to: %.1f px" % [value])
+		tool.LOGGER.debug("Path end_arrow toggled: %s" % [str(enabled)])
 
-func _on_arrow_head_angle_changed(value):
+func _on_path_arrow_head_length_changed(value):
+	if value < 10.0:
+		value = 10.0
+	tool.active_arrow_head_length = value
+	_update_path_arrow_head_length_spinbox()
+	if tool.overlay:
+		tool.overlay.update()
+	if tool.LOGGER:
+		tool.LOGGER.debug("Path arrow head length changed to: %.1f px" % [value])
+
+func _on_path_arrow_head_angle_changed(value):
 	tool.active_arrow_head_angle = value
 	if tool.overlay:
 		tool.overlay.update()
 	if tool.LOGGER:
-		tool.LOGGER.debug("Arrow head angle changed to: %.1f°" % [value])
+		tool.LOGGER.debug("Path arrow head angle changed to: %.1f°" % [value])
 
 # ============================================================================
 # MARKER TYPE SWITCHING
@@ -770,10 +787,6 @@ func _switch_type_ui(marker_type):
 	if tool.active_marker_type == MARKER_TYPE_PATH and marker_type != MARKER_TYPE_PATH:
 		tool._cancel_path_placement()
 
-	# Cancel arrow placement if switching away from Arrow
-	if tool.active_marker_type == MARKER_TYPE_ARROW and marker_type != MARKER_TYPE_ARROW:
-		tool._cancel_arrow_placement()
-
 	# Hide all type-specific containers
 	for child in type_specific_container.get_children():
 		child.visible = false
@@ -789,9 +802,6 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_PATH:
 			if path_settings_container:
 				path_settings_container.visible = true
-		MARKER_TYPE_ARROW:
-			if arrow_settings_container:
-				arrow_settings_container.visible = true
 
 # Load settings for specific marker type
 func _load_type_settings(marker_type):
@@ -814,11 +824,13 @@ func _load_type_settings(marker_type):
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
 
-	elif marker_type == MARKER_TYPE_ARROW:
-		tool.active_arrow_head_length = settings["head_length"]
-		tool.active_arrow_head_angle = settings["head_angle"]
-		_update_arrow_head_length_spinbox()
-		_update_arrow_head_angle_spinbox()
+	elif marker_type == MARKER_TYPE_PATH:
+		tool.active_path_end_arrow = settings.get("end_arrow", false)
+		tool.active_arrow_head_length = settings.get("head_length", DEFAULT_ARROW_HEAD_LENGTH)
+		tool.active_arrow_head_angle = settings.get("head_angle", DEFAULT_ARROW_HEAD_ANGLE)
+		_update_path_end_arrow_checkbox()
+		_update_path_arrow_head_length_spinbox()
+		_update_path_arrow_head_angle_spinbox()
 
 # Save current type settings before switching
 func _save_current_type_settings():
@@ -834,9 +846,10 @@ func _save_current_type_settings():
 		tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = tool.active_shape_angle
 		tool.type_settings[MARKER_TYPE_SHAPE]["sides"] = tool.active_shape_sides
 
-	elif tool.active_marker_type == MARKER_TYPE_ARROW:
-		tool.type_settings[MARKER_TYPE_ARROW]["head_length"] = tool.active_arrow_head_length
-		tool.type_settings[MARKER_TYPE_ARROW]["head_angle"] = tool.active_arrow_head_angle
+	elif tool.active_marker_type == MARKER_TYPE_PATH:
+		tool.type_settings[MARKER_TYPE_PATH]["end_arrow"] = tool.active_path_end_arrow
+		tool.type_settings[MARKER_TYPE_PATH]["head_length"] = tool.active_arrow_head_length
+		tool.type_settings[MARKER_TYPE_PATH]["head_angle"] = tool.active_arrow_head_angle
 
 # ============================================================================
 # MOUSE WHEEL PARAMETER ADJUSTMENT
@@ -1016,11 +1029,21 @@ func _update_shape_sides_spinbox():
 		if spinbox:
 			spinbox.value = tool.active_shape_sides
 
-func _update_arrow_head_length_spinbox():
-	_set_spinbox_value("ArrowHeadLengthSpinBox", tool.active_arrow_head_length)
+func _update_path_end_arrow_checkbox():
+	if not path_settings_container:
+		return
+	var checkbox = path_settings_container.find_node("PathEndArrowCheckbox", true, false)
+	if checkbox:
+		checkbox.pressed = tool.active_path_end_arrow
+	var arrow_settings = path_settings_container.find_node("PathArrowSettings", true, false)
+	if arrow_settings:
+		arrow_settings.visible = tool.active_path_end_arrow
 
-func _update_arrow_head_angle_spinbox():
-	_set_spinbox_value("ArrowHeadAngleSpinBox", tool.active_arrow_head_angle)
+func _update_path_arrow_head_length_spinbox():
+	_set_spinbox_value("PathArrowHeadLengthSpinBox", tool.active_arrow_head_length)
+
+func _update_path_arrow_head_angle_spinbox():
+	_set_spinbox_value("PathArrowHeadAngleSpinBox", tool.active_arrow_head_angle)
 
 # Helper: set pressed state on a named CheckButton inside shape_settings_container
 # without triggering its toggled signal (to avoid recursion).
