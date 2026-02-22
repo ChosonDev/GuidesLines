@@ -5,6 +5,50 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.5] - 2026-02-22
+
+### Refactoring — GuidesLinesTool decomposition + Show Coordinates scoped to Line
+
+#### Tool decomposition
+
+`GuidesLinesTool.gd` (1 998 → 791 lines) split into three focused files:
+
+- **`GuidesLinesHistory.gd`** — Undo/Redo record classes (`PlaceMarkerRecord`, `DeleteMarkerRecord`, `DeleteAllMarkersRecord`, `DifferenceRecord`).
+- **`GuidesLinesToolUI.gd`** — Full UI panel creation, widget callbacks, type switching, mouse-wheel helpers.
+- **`GuidesLinesPlacement.gd`** — Path and Arrow multi-point placement state machines.
+
+`GuidesLinesTool` retains core marker state and delegates to the three helpers via thin wrapper methods.
+
+#### Show Coordinates — Line markers only
+
+- `CoordinatesCheckbox` moved from the common panel section into `_create_line_settings_ui()`; it now appears and disappears with the Line-type container.
+- `place_marker()`: `"coordinates"` key is `show_coordinates` for Line, `false` for all other types.
+- `_draw_marker_coordinates()` in `MarkerOverlay` simplified: early-exit for non-Line types; removed `_draw_coordinates_on_shape()` and `_draw_coordinates_on_path()`.
+
+#### Removed save / load (to be redesigned)
+
+`save_markers()`, `load_markers()`, `save_difference_ops()`, `load_difference_ops()` deleted from `GuidesLinesTool`.
+
+#### Bug fix — Show Coordinates never applied on placement
+
+`GuideMarker.set_property()` was missing a `"show_coordinates"` branch in its `match` block, so `show_coordinates` was always left `false` after `_do_place_marker`. Branch added.
+
+#### GeometryUtils — `points_to_segs` moved from GuideMarker
+
+`static func _points_to_segs` extracted from `GuideMarker` into `GeometryUtils.points_to_segs` (public, consistent with the seg-dict format used throughout clipping functions). Call site in `GuideMarker._recalculate_geometry` updated.
+
+#### Files changed
+
+- `scripts/tool/GuidesLinesHistory.gd` — **new**
+- `scripts/tool/GuidesLinesToolUI.gd` — **new**
+- `scripts/tool/GuidesLinesPlacement.gd` — **new**
+- `scripts/tool/GuidesLinesTool.gd` — decomposed, save/load removed
+- `scripts/guides/GuideMarker.gd` — `set_property` fix, `_points_to_segs` removed
+- `scripts/utils/GeometryUtils.gd` — `points_to_segs` added
+- `scripts/overlays/MarkerOverlay.gd` — coordinates rendering scoped to Line
+
+---
+
 ## [2.1.4] - 2026-02-22
 
 ### Refactoring — Single primitives array, direct in-place modification

@@ -74,6 +74,8 @@ func set_property(prop, value):
 			if arrow_head_length != value: arrow_head_length = value; changed = true
 		"arrow_head_angle":
 			if arrow_head_angle != value: arrow_head_angle = value; changed = true
+		"show_coordinates":
+			if show_coordinates != value: show_coordinates = value; changed = true
 		"marker_points":
 			# Arrays are passed by reference, so we assume it changed if set
 			marker_points = value; changed = true
@@ -137,19 +139,11 @@ func _recalculate_geometry(map_rect, cell_size):
 				var radius_px = shape_radius * min(cell_size.x, cell_size.y)
 				var angle_rad = deg2rad(shape_angle)
 				var pts = GeometryUtils.calculate_shape_vertices(position, radius_px, shape_sides, angle_rad)
-				cached_draw_data["primitives"] = _points_to_segs(pts)
+				cached_draw_data["primitives"] = GeometryUtils.points_to_segs(pts)
 		else:
 			# cell_size unavailable — preserve whatever state existed.
 			cached_draw_data["primitives"] = saved_primitives
 	_dirty = false
-
-# Convert a polygon vertex array to an array of seg items representing its full outline.
-static func _points_to_segs(pts: Array) -> Array:
-	var segs = []
-	var n = pts.size()
-	for i in range(n):
-		segs.append({"type": "seg", "a": pts[i], "b": pts[(i + 1) % n]})
-	return segs
 
 # Get bounding rectangle for marker selection
 func get_rect():

@@ -489,52 +489,27 @@ func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world
 	else:
 		return viewport_points
 
-# Draw grid coordinates along marker's guide lines or circle
+# Draw grid coordinates along Line marker's guide lines
 func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom):
 	if not tool or not tool.cached_world:
 		return
+	if marker.marker_type != "Line":
+		return
 	
 	var marker_pos = marker.position
+	var angles = [marker.angle]
+	if marker.mirror:
+		angles.append(fmod(marker.angle + 180.0, 360.0))
 	
-	# Draw coordinates based on marker type
-	if marker.marker_type == "Line":
-		var angles = [marker.angle]
-		if marker.mirror:
-			angles.append(fmod(marker.angle + 180.0, 360.0))
-		
-		for angle in angles:
-			_draw_coordinates_along_line(
-				marker_pos,
-				angle,
-				cam_zoom,
-				world_left,
-				world_right,
-				world_top,
-				world_bottom,
-				marker.color
-			)
-	
-	elif marker.marker_type == "Shape":
-		_draw_coordinates_on_shape(
-			marker.position,
-			marker.shape_radius,
+	for angle in angles:
+		_draw_coordinates_along_line(
+			marker_pos,
+			angle,
 			cam_zoom,
-			marker.color
-		)
-	
-	elif marker.marker_type == "Path":
-		# Draw coordinates at each path point
-		_draw_coordinates_on_path(
-			marker.marker_points,
-			cam_zoom,
-			marker.color
-		)
-	
-	elif marker.marker_type == "Arrow":
-		# Draw coordinates at arrow start and end points
-		_draw_coordinates_on_path(
-			marker.marker_points,
-			cam_zoom,
+			world_left,
+			world_right,
+			world_top,
+			world_bottom,
 			marker.color
 		)
 
@@ -672,59 +647,3 @@ func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_rig
 func _draw_text_with_outline(text, position, color):
 	GuidesLinesRender.draw_text_with_outline(self, text, position, color, _cached_font)
 
-# Draw coordinates on shape (only at center)
-func _draw_coordinates_on_shape(center, radius_cells, cam_zoom, shape_color):
-	var cell_size = _get_grid_cell_size()
-	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
-		return
-	
-	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
-	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
-	var marker_color = shape_color
-	var text_color = shape_color
-	
-	# Draw single marker at center
-	draw_circle(center, marker_size, marker_color)
-	
-	# Draw text with radius
-	var text = " R=" + ("%.1f" % radius_cells)
-	var text_pos = center + Vector2(0, -text_offset)  # Above center
-	_draw_text_with_outline(text, text_pos, text_color)
-
-# Draw coordinates on path points
-func _draw_coordinates_on_path(points, cam_zoom, path_color):
-	if points.size() < 2:
-		return
-	
-	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
-	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
-	var marker_color = path_color
-	var text_color = path_color
-
-	
-	# Get cell size for distance calculation
-	var cell_size = _get_grid_cell_size()
-	if not cell_size or cell_size.x <= 0 or cell_size.y <= 0:
-		return
-	
-	# Draw marker and distance at each point
-	var total_distance = 0.0
-	
-	for i in range(points.size()):
-		var point = points[i]
-		
-		# Draw marker
-		draw_circle(point, marker_size, marker_color)
-		
-		# Calculate distance from start (in grid cells)
-		if i > 0:
-			var prev_point = points[i - 1]
-			var segment_length = point.distance_to(prev_point)
-			
-			var cell_dist = segment_length / min(cell_size.x, cell_size.y)
-			total_distance += cell_dist
-		
-		# Draw text with total distance
-		var text = str(int(total_distance))
-		var text_pos = point + Vector2(text_offset, -text_offset)
-		_draw_text_with_outline(text, text_pos, text_color)

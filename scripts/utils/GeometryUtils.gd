@@ -299,6 +299,16 @@ static func calculate_thick_line_poly(start, end, width):
 # Used for "Clip Intersecting Shapes" feature
 # ============================================================================
 
+## Convert a polygon vertex array into the canonical segment format used by
+## clipping functions: Array[{"type":"seg","a":Vector2,"b":Vector2}].
+## The last vertex is connected back to the first (closed polygon).
+static func points_to_segs(pts: Array) -> Array:
+	var segs = []
+	var n = pts.size()
+	for i in range(n):
+		segs.append({"type": "seg", "a": pts[i], "b": pts[(i + 1) % n]})
+	return segs
+
 ## Returns the intersection point of segment [a1]→[a2] with segment [b1]→[b2],
 ## or null if they don't intersect (includes parallel case).
 static func segment_segment_intersect(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2):
