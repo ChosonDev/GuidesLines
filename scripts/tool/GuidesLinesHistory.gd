@@ -163,3 +163,59 @@ class MergeShapeRecord:
 
 	func record_type():
 		return "GuidesLines.MergeShape"
+
+
+# ============================================================================
+# HISTORY RECORDS FOR FILL MODE
+# ============================================================================
+
+# History record for placing a single fill region.
+# undo() removes the fill; redo() re-adds it.
+class PlaceFillRecord:
+	var tool
+	var fill_data: Dictionary  # Serialised FillMarker (from FillMarker.Save())
+
+	func _init(tool_ref, data: Dictionary):
+		tool = tool_ref
+		fill_data = data
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceFillRecord created for fill id: %d" % [data["id"]])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceFillRecord.redo() for fill id: %d" % [fill_data["id"]])
+		tool._do_place_fill(fill_data)
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceFillRecord.undo() for fill id: %d" % [fill_data["id"]])
+		tool._undo_place_fill(fill_data["id"])
+
+	func record_type():
+		return "GuidesLines.PlaceFill"
+
+
+# History record for deleting all fill regions at once.
+# undo() restores every previously deleted fill; redo() deletes them all again.
+class DeleteAllFillsRecord:
+	var tool
+	var saved_fills: Array  # Array of serialised FillMarker dicts
+
+	func _init(tool_ref, fills_data: Array):
+		tool = tool_ref
+		saved_fills = fills_data
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteAllFillsRecord created (%d fills saved)" % [fills_data.size()])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteAllFillsRecord.redo() — deleting all fills")
+		tool._do_delete_all_fills()
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("DeleteAllFillsRecord.undo() — restoring %d fills" % [saved_fills.size()])
+		tool._undo_delete_all_fills(saved_fills)
+
+	func record_type():
+		return "GuidesLines.DeleteAllFills"

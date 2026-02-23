@@ -8,6 +8,7 @@ const GeometryUtils = preload("../utils/GeometryUtils.gd")
 const GuidesLinesHistory = preload("GuidesLinesHistory.gd")
 const GuidesLinesToolUI = preload("GuidesLinesToolUI.gd")
 const GuidesLinesPlacement = preload("GuidesLinesPlacement.gd")
+const GuidesLinesFill = preload("GuidesLinesFill.gd")
 
 # ============================================================================
 # VARIABLES
@@ -28,11 +29,13 @@ var cached_snappy_mod = null  # Custom_snap mod reference (if available)
 var is_enabled = false
 var show_coordinates = false  # Show grid coordinates on new markers
 var delete_mode = false  # Delete mode - click to remove markers
+# fill mode is active when active_marker_type == MARKER_TYPE_FILL
 
 # Marker type system
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
+const MARKER_TYPE_FILL = "Fill"
 
 # Shape preset labels (UI-only — used to set initial sides/angle when a preset is selected)
 const SHAPE_CIRCLE = "Circle"
@@ -90,11 +93,18 @@ var markers = []  # Array of GuideMarker instances
 var markers_lookup = {} # Dictionary { id: GuideMarker } for O(1) access
 var next_id = 0
 
+# Fill storage (Fill Mode)
+var fills = []          # Array of FillMarker instances
+var fills_lookup = {}   # Dictionary { id: FillMarker } for O(1) access
+var next_fill_id = 0
+var FillMarkerClass = null  # Injected by GuidesLines.gd after start()
+
 # UI References
 var tool_panel = null
 var overlay = null  # Node2D for drawing
 var ui = null  # GuidesLinesToolUI instance
 var placement = null  # GuidesLinesPlacement instance
+var _fill_handler = null  # GuidesLinesFill instance
 
 # Path placement state
 var path_placement_active = false  # Whether we're in path placement mode
@@ -108,6 +118,7 @@ func _init(mod):
 	# Note: LOGGER will be set by parent mod after initialization
 	ui = GuidesLinesToolUI.new(self)
 	placement = GuidesLinesPlacement.new(self)
+	_fill_handler = GuidesLinesFill.new(self)
 
 # Enable tool when selected in Dungeondraft
 func Enable():
@@ -449,10 +460,102 @@ func set_show_coordinates(enabled):
 
 func set_delete_mode(enabled):
 	delete_mode = enabled
+	# Delete mode and Fill type are mutually exclusive — reset dropdown to Line.
+	if enabled and active_marker_type == MARKER_TYPE_FILL:
+		active_marker_type = MARKER_TYPE_LINE
+		if ui:
+			ui.sync_type_selector_to_active_type()
 	update_ui_checkboxes_state()
 	# Force overlay update to hide/show preview
 	if overlay:
 		overlay.update()
+
+# ============================================================================
+# FILL MODE — ENTRY POINT (called from MarkerOverlay)
+# ============================================================================
+
+# Handle a fill click at [pos] (world-space).
+# Delegates polygon computation to GuidesLinesFill, then stores the result
+# and records it in the undo/redo history.
+func handle_fill_click(pos: Vector2) -> void:
+	if active_marker_type != MARKER_TYPE_FILL:
+		return
+	if not FillMarkerClass:
+		if LOGGER:
+			LOGGER.error("handle_fill_click: FillMarkerClass not injected")
+		return
+
+	var fill_data = _fill_handler.handle_fill_click(pos)
+	if fill_data.empty():
+		return
+
+	_do_place_fill(fill_data)
+	next_fill_id += 1
+	_record_history(GuidesLinesHistory.PlaceFillRecord.new(self, fill_data))
+
+# ============================================================================
+# FILL MODE — CRUD HELPERS
+# ============================================================================
+
+# Place a fill from serialised data (used by handle_fill_click and redo).
+func _do_place_fill(fill_data: Dictionary) -> void:
+	var fill = FillMarkerClass.new()
+	fill.Load(fill_data)
+	fills.append(fill)
+	fills_lookup[fill.id] = fill
+	if fill.id >= next_fill_id:
+		next_fill_id = fill.id + 1
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Fill placed (id=%d, %d vertices)" % [fill.id, fill.polygon.size()])
+
+# Remove a placed fill (used by undo of PlaceFillRecord).
+func _undo_place_fill(fill_id: int) -> void:
+	if not fills_lookup.has(fill_id):
+		if LOGGER:
+			LOGGER.warn("_undo_place_fill: fill id %d not found" % fill_id)
+		return
+	var fill = fills_lookup[fill_id]
+	fills.erase(fill)
+	fills_lookup.erase(fill_id)
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Fill placement undone (id=%d)" % fill_id)
+
+# Delete ALL fills (action — called from UI button).
+func delete_all_fills() -> void:
+	if fills.empty():
+		return
+	var saved = []
+	for fill in fills:
+		saved.append(fill.Save())
+	_do_delete_all_fills()
+	_record_history(GuidesLinesHistory.DeleteAllFillsRecord.new(self, saved))
+
+# Execute delete-all-fills (also used by redo).
+func _do_delete_all_fills() -> void:
+	fills = []
+	fills_lookup = {}
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("All fills deleted")
+
+# Restore fills from saved data (undo of DeleteAllFillsRecord).
+func _undo_delete_all_fills(saved_fills: Array) -> void:
+	for fill_data in saved_fills:
+		var fill = FillMarkerClass.new()
+		fill.Load(fill_data)
+		fills.append(fill)
+		fills_lookup[fill.id] = fill
+		if fill.id >= next_fill_id:
+			next_fill_id = fill.id + 1
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Restored %d fills" % [saved_fills.size()])
 
 
 # Update all UI checkboxes based on delete mode

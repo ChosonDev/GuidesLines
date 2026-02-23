@@ -11,6 +11,7 @@ var tool = null
 var _last_camera_pos = Vector2.ZERO
 var _last_camera_zoom = Vector2.ONE
 var _last_marker_count = 0
+var _last_fill_count = 0
 var _last_path_active = false
 var _last_mouse_pos = Vector2.ZERO  # Track mouse position for preview updates
 var _mouse_in_ui = false  # Track if cursor is in UI area
@@ -76,6 +77,11 @@ func _process(_delta):
 	# Check if markers changed
 	if tool and tool.markers.size() != _last_marker_count:
 		_last_marker_count = tool.markers.size()
+		needs_update = true
+	
+	# Check if fills changed
+	if tool and tool.fills.size() != _last_fill_count:
+		_last_fill_count = tool.fills.size()
 		needs_update = true
 	
 	# Check if placement mode changed
@@ -172,7 +178,13 @@ func _input(event):
 				var pos = tool.cached_worldui.MousePosition
 				
 				if tool.LOGGER:
-					tool.LOGGER.debug("MarkerOverlay: Mouse clicked at %s, delete_mode: %s" % [pos, str(tool.delete_mode)])
+					tool.LOGGER.debug("MarkerOverlay: Mouse clicked at %s, delete_mode: %s, fill_mode: %s" % [pos, str(tool.delete_mode), str(tool.active_marker_type == tool.MARKER_TYPE_FILL)])
+				
+				# Fill mode: click fills the region under the cursor inside a Shape polygon
+				if tool.active_marker_type == tool.MARKER_TYPE_FILL:
+					tool.handle_fill_click(pos)
+					update()
+					return
 				
 				# If in delete mode, try to delete marker
 				if tool.delete_mode:
@@ -204,6 +216,9 @@ func _draw():
 	var world_top = cam_pos.y - world_height * 0.5
 	var world_bottom = cam_pos.y + world_height * 0.5
 	
+	# Draw fill regions under marker outlines (respects markers_opacity)
+	_draw_fills()
+
 	# Draw all markers (hidden when markers_visible is false)
 	if not tool.parent_mod or tool.parent_mod.markers_visible:
 		for marker in tool.markers:
@@ -212,8 +227,8 @@ func _draw():
 			
 			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom)
 	
-	# Draw preview marker at cursor (only when tool is active and NOT in delete mode)
-	if tool.is_enabled and not tool.delete_mode and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+	# Draw preview marker at cursor (disabled in delete mode AND in fill mode)
+	if tool.is_enabled and not tool.delete_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		# Don't draw preview if mouse is in UI area
 		if _mouse_in_ui:
 			return
@@ -224,6 +239,18 @@ func _draw():
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
 			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
+
+# Draw all fill regions stored in the tool.
+# Fills are drawn below marker outlines and respect the global markers_opacity.
+func _draw_fills() -> void:
+	if not tool or tool.fills.empty():
+		return
+	var opacity: float = tool.parent_mod.markers_opacity if tool.parent_mod else 1.0
+	for fill in tool.fills:
+		if fill.polygon.size() < 3:
+			continue
+		var draw_color = Color(fill.color.r, fill.color.g, fill.color.b, fill.color.a * opacity)
+		draw_colored_polygon(PoolVector2Array(fill.polygon), draw_color)
 
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):

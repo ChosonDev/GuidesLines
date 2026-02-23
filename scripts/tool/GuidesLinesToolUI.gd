@@ -10,6 +10,7 @@ const CLASS_NAME = "GuidesLinesToolUI"
 const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
+const MARKER_TYPE_FILL = "Fill"
 
 # Shape preset labels
 const SHAPE_CIRCLE = "Circle"
@@ -32,6 +33,7 @@ var type_specific_container = null    # Container for type-specific settings
 var line_settings_container = null    # Settings for Line type
 var shape_settings_container = null   # Settings for Shape type
 var path_settings_container = null    # Settings for Path type
+var fill_settings_container = null    # Settings for Fill type
 
 func _init(tool_ref):
 	tool = tool_ref
@@ -108,6 +110,8 @@ func create_ui_panel():
 	type_selector.set_item_metadata(1, MARKER_TYPE_SHAPE)
 	type_selector.add_item("Path")
 	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
+	type_selector.add_item("Fill")
+	type_selector.set_item_metadata(3, MARKER_TYPE_FILL)
 	type_selector.selected = 0
 	type_selector.name = "TypeSelector"
 	type_selector.connect("item_selected", self, "_on_marker_type_changed")
@@ -135,6 +139,12 @@ func create_ui_panel():
 	path_settings_container.name = "PathSettings"
 	path_settings_container.visible = false
 	type_specific_container.add_child(path_settings_container)
+
+	# Create Fill settings UI
+	fill_settings_container = _create_fill_settings_ui()
+	fill_settings_container.name = "FillSettings"
+	fill_settings_container.visible = false
+	type_specific_container.add_child(fill_settings_container)
 
 	container.add_child(type_specific_container)
 
@@ -364,6 +374,24 @@ func _create_shape_settings_ui():
 
 	return container
 
+# Create UI for Fill type (shown when Fill is selected in the type dropdown)
+func _create_fill_settings_ui():
+	var container = VBoxContainer.new()
+
+	var hint = Label.new()
+	hint.text = "Click inside a Shape to fill\nthe region with the active color."
+	hint.autowrap = true
+	container.add_child(hint)
+
+	container.add_child(_create_spacer(8))
+
+	var delete_fills_btn = Button.new()
+	delete_fills_btn.text = "Delete All Fills"
+	delete_fills_btn.connect("pressed", self, "_on_delete_all_fills")
+	container.add_child(delete_fills_btn)
+
+	return container
+
 # Create UI for Path marker type
 func _create_path_settings_ui():
 	var container = VBoxContainer.new()
@@ -548,6 +576,13 @@ func _on_mirror_toggled(enabled):
 		tool.overlay.update()
 	if tool.LOGGER:
 		tool.LOGGER.debug("Mirror toggled: %s" % [str(enabled)])
+
+# ============================================================================
+# UI CALLBACKS — FILL MODE
+# ============================================================================
+
+func _on_delete_all_fills() -> void:
+	tool.delete_all_fills()
 
 # ============================================================================
 # UI CALLBACKS — SHAPE SETTINGS
@@ -735,8 +770,9 @@ func _on_path_arrow_head_angle_changed(value):
 func _on_marker_type_changed(type_index):
 	var selected_type = type_selector.get_item_metadata(type_index)
 
-	# Save current type settings before switching
-	_save_current_type_settings()
+	# Save current type settings before switching (not applicable for Fill)
+	if tool.active_marker_type != MARKER_TYPE_FILL:
+		_save_current_type_settings()
 
 	# Cancel path placement if switching away from Path
 	if tool.active_marker_type == MARKER_TYPE_PATH and selected_type != MARKER_TYPE_PATH:
@@ -745,8 +781,9 @@ func _on_marker_type_changed(type_index):
 	# Switch to new type
 	tool.active_marker_type = selected_type
 
-	# Load settings for new type
-	_load_type_settings(selected_type)
+	# Load settings for new type (not applicable for Fill)
+	if selected_type != MARKER_TYPE_FILL:
+		_load_type_settings(selected_type)
 
 	# Switch visible UI container
 	_switch_type_ui(selected_type)
@@ -756,6 +793,18 @@ func _on_marker_type_changed(type_index):
 
 	if tool.LOGGER:
 		tool.LOGGER.debug("Marker type changed to: %s" % [selected_type])
+
+# Sync the type_selector dropdown to match tool.active_marker_type.
+# Called by the tool when it changes active_marker_type externally
+# (e.g. when Delete Mode forces a reset away from Fill).
+func sync_type_selector_to_active_type() -> void:
+	if not type_selector:
+		return
+	for i in range(type_selector.get_item_count()):
+		if type_selector.get_item_metadata(i) == tool.active_marker_type:
+			type_selector.selected = i
+			_switch_type_ui(tool.active_marker_type)
+			break
 
 # Switch visible type-specific UI container
 func _switch_type_ui(marker_type):
@@ -774,6 +823,9 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_PATH:
 			if path_settings_container:
 				path_settings_container.visible = true
+		MARKER_TYPE_FILL:
+			if fill_settings_container:
+				fill_settings_container.visible = true
 
 # Load settings for specific marker type
 func _load_type_settings(marker_type):

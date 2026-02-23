@@ -36,6 +36,7 @@ const TOOL_ICON_PATH = "icons/guides_lines_icon.png"
 # ============================================================================
 
 var GuideMarkerClass = null
+var FillMarkerClass = null
 var GuidesLinesToolClass = null
 var GuidesLinesApiClass = null
 var MarkerOverlayClass = null
@@ -145,6 +146,12 @@ func start():
 	if not GuideMarkerClass:
 		if LOGGER: LOGGER.error("Failed to load GuideMarker.gd")
 		else: print("GuidesLines: ERROR - Failed to load GuideMarker.gd")
+		return
+	
+	FillMarkerClass = ResourceLoader.load(self.Global.Root + "scripts/guides/FillMarker.gd", "GDScript", false)
+	if not FillMarkerClass:
+		if LOGGER: LOGGER.error("Failed to load FillMarker.gd")
+		else: print("GuidesLines: ERROR - Failed to load FillMarker.gd")
 		return
 	
 	GuidesLinesToolClass = ResourceLoader.load(self.Global.Root + "scripts/tool/GuidesLinesTool.gd", "GDScript", false)
@@ -386,6 +393,7 @@ func create_tool():
 	# Create tool instance
 	guides_tool = GuidesLinesToolClass.new(self)
 	guides_tool.GuideMarkerClass = GuideMarkerClass
+	guides_tool.FillMarkerClass = FillMarkerClass
 	guides_tool.MarkerOverlayClass = MarkerOverlayClass
 	
 	# Create ClassInstancedLogger for GuidesLinesTool

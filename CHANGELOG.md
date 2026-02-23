@@ -5,6 +5,23 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-02-23
+
+### Changed — Fill Mode moved into Marker Type dropdown
+
+**Fill Mode** is no longer a standalone `CheckButton` in the tool panel. It is now a first-class marker type in the **"Marker Type:"** `OptionButton` dropdown, sitting alongside Line, Shape, and Path.
+
+- Selecting **Fill** in the dropdown activates fill placement mode and shows a dedicated settings panel with a hint label and the **Delete All Fills** button.
+- Switching to Delete Mode while Fill is active automatically resets the dropdown to Line (the two modes are mutually exclusive).
+- All internal references to the old `fill_mode` boolean flag and `set_fill_mode()` have been removed; fill mode is now determined by `active_marker_type == MARKER_TYPE_FILL`.
+
+#### Files changed
+- **`GuidesLinesTool.gd`** — added `MARKER_TYPE_FILL = "Fill"` constant; removed `fill_mode` var and `set_fill_mode()`; updated `set_delete_mode()` to reset type to Line when Fill was active; updated `handle_fill_click()` guard to `active_marker_type != MARKER_TYPE_FILL`.
+- **`GuidesLinesToolUI.gd`** — added `MARKER_TYPE_FILL` constant, `fill_settings_container` variable, `_create_fill_settings_ui()` function, and `sync_type_selector_to_active_type()` helper; added "Fill" item (index 3) to `type_selector`; updated `_switch_type_ui()` and `_on_marker_type_changed()` to handle Fill; removed standalone Fill Mode `CheckButton`, its spacer, and `_on_fill_mode_toggled()` callback; **Delete All Fills** button now lives inside the Fill settings panel.
+- **`MarkerOverlay.gd`** — replaced all three `tool.fill_mode` references with `tool.active_marker_type == tool.MARKER_TYPE_FILL`.
+
+---
+
 ## [2.2.0] - 2026-02-23
 
 ### Added — Marker visibility toggle and opacity control in tool panel
