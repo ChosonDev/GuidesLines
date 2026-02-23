@@ -663,6 +663,117 @@ func _notify_all_markers_deleted() -> void:
 	emit_signal("all_markers_deleted")
 
 # ============================================================================
+# FILL POLYGON QUERIES
+# ============================================================================
+
+## Computes the fill polygon that would be produced if the user clicked at
+## [coords] in Fill mode.  Uses the same logic as GuidesLinesFill:
+##   - ONE shape contains coords  →  exclusive fill (primary minus overlaps)
+##   - MULTIPLE shapes contain coords  →  intersection fill (A ∩ B ∩ C …)
+##
+## Returns a Dictionary on success:
+##   { "polygon":    Array[Vector2]  — world-space polygon vertices,
+##     "marker_ids": Array[int]      — ids of all Shape markers that contributed,
+##     "fill_type":  String          — "exclusive" or "intersection" }
+## Returns null if coords is not inside any Shape marker.
+##
+## Parameters:
+##   coords — world-space Vector2 click position
+func compute_fill_polygon(coords: Vector2):
+	if not _has_tool():
+		return null
+	var tool = _tool()
+
+	var cell_size = tool._get_grid_cell_size()
+	if cell_size == null:
+		if LOGGER:
+			LOGGER.warn("API: compute_fill_polygon — cell_size unavailable (map not loaded?)")
+		return null
+
+	if tool._fill_handler == null:
+		if LOGGER:
+			LOGGER.warn("API: compute_fill_polygon — fill handler not ready")
+		return null
+
+	var hit_entries = tool._fill_handler._collect_hit_markers(coords, cell_size)
+	if hit_entries.empty():
+		if LOGGER:
+			LOGGER.debug("API: compute_fill_polygon — no Shape marker hit at %s" % str(coords))
+		return null
+
+	var fill_poly = tool._fill_handler._compute_fill_polygon(coords, hit_entries)
+	if fill_poly.empty():
+		if LOGGER:
+			LOGGER.debug("API: compute_fill_polygon — computed polygon is empty at %s" % str(coords))
+		return null
+
+	var marker_ids = []
+	for entry in hit_entries:
+		marker_ids.append(entry.marker.id)
+
+	var fill_type = "exclusive" if hit_entries.size() == 1 else "intersection"
+
+	if LOGGER:
+		LOGGER.debug("API: compute_fill_polygon — type=%s hits=%d verts=%d at %s" % [
+			fill_type, hit_entries.size(), fill_poly.size(), str(coords)])
+
+	return {
+		"polygon":    fill_poly,
+		"marker_ids": marker_ids,
+		"fill_type":  fill_type,
+	}
+
+## Returns the current polygon vertices of a Shape marker by [marker_id].
+## The polygon reflects the marker's actual current outline — including any
+## Clip / Cut / Difference / Merge modifications that have been applied.
+##
+## Returns a Dictionary on success:
+##   { "polygon":     Array[Vector2]  — world-space polygon vertices (closed loop),
+##     "marker_id":   int,
+##     "marker_type": String }
+## Returns null if the marker is not found or is not a Shape marker.
+##
+## Parameters:
+##   marker_id — integer id of the Shape marker
+func get_shape_polygon(marker_id: int):
+	if not _has_tool():
+		return null
+	var tool = _tool()
+
+	if not tool.markers_lookup.has(marker_id):
+		if LOGGER:
+			LOGGER.warn("API: get_shape_polygon — marker id %d not found" % marker_id)
+		return null
+
+	var marker = tool.markers_lookup[marker_id]
+	if marker.marker_type != "Shape":
+		if LOGGER:
+			LOGGER.warn("API: get_shape_polygon — marker id %d is type '%s', not Shape" % [
+				marker_id, marker.marker_type])
+		return null
+
+	var cell_size = tool._get_grid_cell_size()
+	if cell_size == null:
+		if LOGGER:
+			LOGGER.warn("API: get_shape_polygon — cell_size unavailable (map not loaded?)")
+		return null
+
+	var desc = tool._get_shape_descriptor(marker, cell_size)
+	if desc.empty():
+		if LOGGER:
+			LOGGER.warn("API: get_shape_polygon — could not build descriptor for marker id %d" % marker_id)
+		return null
+
+	if LOGGER:
+		LOGGER.debug("API: get_shape_polygon — id=%d verts=%d" % [marker_id, desc.points.size()])
+
+	return {
+		"polygon":     desc.points,
+		"marker_id":   marker_id,
+		"marker_type": marker.marker_type,
+	}
+
+# ============================================================================
 # PRIVATE HELPERS
 # ============================================================================
 

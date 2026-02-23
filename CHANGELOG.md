@@ -5,6 +5,29 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-02-23
+
+### Added — Fill polygon query methods in GuidesLinesApi
+
+Two new methods allow other mods to programmatically retrieve fill polygons using the same computation logic as the Fill tool, without placing any markers.
+
+- **`compute_fill_polygon(coords: Vector2) → Dictionary|null`**
+  Computes the fill polygon that would be produced if the user clicked at `coords` in Fill mode.
+  - If exactly one Shape marker contains `coords` → **exclusive fill**: primary shape minus every overlapping shape that is not an outer container (holes are correctly bridged in).
+  - If multiple Shape markers contain `coords` → **intersection fill**: the precise region shared by all hit shapes (A ∩ B ∩ C …).
+  - Returns `{ "polygon": Array[Vector2], "marker_ids": Array[int], "fill_type": String }` on success, or `null` if `coords` is not inside any Shape marker.
+
+- **`get_shape_polygon(marker_id: int) → Dictionary|null`**
+  Returns the current outline polygon of a specific Shape marker, reflecting any Merge / Difference / Clip / Conforming modifications that have been applied.
+  - Returns `{ "polygon": Array[Vector2], "marker_id": int, "marker_type": String }` on success, or `null` if the marker is not found or is not a Shape.
+
+Both methods fully delegate to internal Fill-tool helpers (`_fill_handler._collect_hit_markers`, `_fill_handler._compute_fill_polygon`, `tool._get_shape_descriptor`), so their results are always consistent with what the Fill tool produces.
+
+#### Files changed
+- **`scripts/api/guides_lines_api.gd`** — added `# FILL POLYGON QUERIES` section with `compute_fill_polygon()` and `get_shape_polygon()`.
+
+---
+
 ## [2.2.1] - 2026-02-23
 
 ### Changed — Fill Mode moved into Marker Type dropdown
