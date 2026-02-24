@@ -38,6 +38,25 @@ const LINE_WIDTH = 5.0  # Thicker lines
 #     Never rebuilt from original parameters — use undo snapshots to revert.
 var cached_draw_data = {}
 var _dirty = true
+var _cached_map_rect = Rect2()  # Tracks map_rect for Line cache invalidation
+
+# CACHED COORDINATE POINTS — pre-computed grid intersections for show_coordinates.
+# Rebuilt only when marker properties or map/snap params change.
+# Each entry: { "grid_pos": Vector2, "text": String, "perp": Vector2 }
+# "perp" is the normalised perpendicular to the line — text_pos = grid_pos + perp * text_offset,
+# where text_offset is zoom-dependent and applied at draw time.
+var cached_coord_points = []
+var _coord_dirty = true
+var _cached_coord_map_rect   = Rect2()
+var _cached_coord_cell_size  = null
+var _cached_coord_snap_enabled   = false
+var _cached_coord_snap_interval  = Vector2.ZERO
+
+# CACHED DRAW COLORS — pre-multiplied with global opacity so _draw never allocs Color.
+# Call update_opacity() whenever opacity or marker.color changes.
+var draw_color = Color(0, 0.7, 1, 1)        # color * opacity
+var draw_marker_color = Color(1, 0, 0, 1)   # MARKER_COLOR * opacity
+var draw_arc_color = Color(0, 0, 0, 1)      # black * opacity (outline arc)
 
 # Initialize marker with position and type-specific parameters
 func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
@@ -50,6 +69,87 @@ func _init(pos = Vector2.ZERO, _angle = 0.0, _mirror = false, coords = false):
 	show_coordinates = coords
 	color = DEFAULT_LINE_COLOR
 	_dirty = true
+	_coord_dirty = true
+
+# Refresh cached draw colors for the given global opacity (0.0–1.0).
+# Call once after the marker is created / color is changed / opacity setting changes.
+func update_opacity(opacity: float) -> void:
+	draw_color        = Color(color.r, color.g, color.b, color.a * opacity)
+	draw_marker_color = Color(MARKER_COLOR.r, MARKER_COLOR.g, MARKER_COLOR.b, MARKER_COLOR.a * opacity)
+	draw_arc_color    = Color(0, 0, 0, opacity)
+
+# Rebuild cached coordinate points from scratch.
+# map_rect, cell_size and custom_snap come from the overlay (computed once per frame).
+func rebuild_coord_cache(map_rect: Rect2, cell_size, custom_snap) -> void:
+	cached_coord_points = []
+	_cached_coord_map_rect  = map_rect
+	_cached_coord_cell_size = cell_size
+	_cached_coord_snap_enabled   = custom_snap != null and custom_snap.custom_snap_enabled
+	_cached_coord_snap_interval  = custom_snap.snap_interval if _cached_coord_snap_enabled else Vector2.ZERO
+	_coord_dirty = false
+
+	if marker_type != "Line":
+		return
+
+	var angles_list = [angle]
+	if mirror:
+		angles_list.append(fmod(angle + 180.0, 360.0))
+
+	for ang in angles_list:
+		var angle_rad = deg2rad(ang)
+		var direction = Vector2(cos(angle_rad), sin(angle_rad))
+		var perp      = Vector2(-direction.y, direction.x)  # unit perpendicular
+		if _cached_coord_snap_enabled:
+			_build_coord_points_custom_snap(direction, perp, map_rect, custom_snap)
+		else:
+			_build_coord_points_vanilla(direction, perp, map_rect, cell_size)
+
+func _build_coord_points_vanilla(direction: Vector2, perp: Vector2, map_rect: Rect2, cell_size) -> void:
+	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
+		return
+	var step     = min(cell_size.x, cell_size.y)
+	var max_dist = sqrt(pow(map_rect.size.x, 2) + pow(map_rect.size.y, 2))
+	var distance = step
+	while distance < max_dist:
+		var test_pos = position + direction * distance
+		if not map_rect.has_point(test_pos):
+			distance += step
+			continue
+		var grid_x   = round(test_pos.x / cell_size.x)
+		var grid_y   = round(test_pos.y / cell_size.y)
+		var grid_pos = Vector2(grid_x * cell_size.x, grid_y * cell_size.y)
+		if test_pos.distance_to(grid_pos) < step * 0.25:
+			var grid_dist = round(distance / step)
+			cached_coord_points.append({
+				"grid_pos": grid_pos,
+				"text":     str(int(grid_dist)),
+				"perp":     perp
+			})
+		distance += step
+
+func _build_coord_points_custom_snap(direction: Vector2, perp: Vector2, map_rect: Rect2, custom_snap) -> void:
+	var snap_interval = custom_snap.snap_interval
+	var test_spacing  = min(snap_interval.x, snap_interval.y) * 0.5
+	var max_dist      = sqrt(pow(map_rect.size.x, 2) + pow(map_rect.size.y, 2))
+	var checked       = {}
+	var distance      = test_spacing
+	while distance < max_dist:
+		var test_pos = position + direction * distance
+		var snapped  = custom_snap.get_snapped_position(test_pos)
+		if not map_rect.has_point(snapped):
+			distance += test_spacing
+			continue
+		var key = str(int(snapped.x * 10)) + "_" + str(int(snapped.y * 10))
+		if not checked.has(key):
+			if GeometryUtils.is_point_on_ray(position, direction, snapped, deg2rad(5.0)):
+				checked[key] = true
+				var grid_dist = round(snapped.distance_to(position) / min(snap_interval.x, snap_interval.y))
+				cached_coord_points.append({
+					"grid_pos": snapped,
+					"text":     str(int(grid_dist)),
+					"perp":     perp
+				})
+		distance += test_spacing
 
 # Set a property and mark geometry as dirty if needed
 func set_property(prop, value):
@@ -85,12 +185,18 @@ func set_property(prop, value):
 	
 	if changed:
 		_dirty = true
+		match prop:
+			"angle", "position", "mirror", "show_coordinates":
+				_coord_dirty = true
 
 # Generate geometry data based on current settings
 # map_rect: Rectangle of the map (used for infinite line clipping)
 # cell_size: Vector2 of grid cell size (used for shape scaling)
 func get_draw_data(map_rect, cell_size):
 	if _dirty or cached_draw_data.empty():
+		_recalculate_geometry(map_rect, cell_size)
+	elif marker_type == "Line" and map_rect != null and map_rect != _cached_map_rect:
+		# map_rect changed (different map loaded) — rebuild line endpoints
 		_recalculate_geometry(map_rect, cell_size)
 	return cached_draw_data
 
@@ -118,6 +224,7 @@ func _recalculate_geometry(map_rect, cell_size):
 	cached_draw_data = {}
 
 	if marker_type == "Line" and map_rect != null:
+		_cached_map_rect = map_rect
 		cached_draw_data["type"] = "line"
 		cached_draw_data["segments"] = []
 		
@@ -249,4 +356,5 @@ func Load(data):
 		show_coordinates = data.show_coordinates
 	else:
 		show_coordinates = false		
-	_dirty = true # Invalidate cache after loading
+	_dirty = true       # Invalidate geometry cache
+	_coord_dirty = true # Invalidate coordinate cache

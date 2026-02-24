@@ -22,6 +22,25 @@ const MAX_COORD_MARKERS = 100  # Maximum coordinate markers for vanilla grid
 const MAX_ITERATIONS = 1000  # Maximum iterations for custom_snap grid
 
 var _cached_font = null # Optim: Cache font resource
+var _coord_checked_v = {}  # Optim: reuse dict to avoid per-frame allocation
+var _coord_checked_h = {}  # Optim: reuse dict to avoid per-frame allocation
+
+# Optim: Cache map center — WorldRect changes rarely (like CrossOverlay pattern)
+var _cached_raw_map_cx: float = 0.0
+var _cached_raw_map_cy: float = 0.0
+var _cached_map_rect_perm: Rect2 = Rect2(0, 0, -1, -1)
+
+# Optim: Cache coordinate draw points — rebuilt only when world/viewport params change
+var _perm_coord_cache_v = []   # Array of {pos: Vector2, text: String, text_dir: Vector2}
+var _perm_coord_cache_h = []
+var _perm_coord_cache_wt   = -INF  # world_top at last build
+var _perm_coord_cache_wb   =  INF  # world_bottom
+var _perm_coord_cache_wl   = -INF  # world_left
+var _perm_coord_cache_wr   =  INF  # world_right
+var _perm_coord_cache_cx   = 0.0   # map_cx
+var _perm_coord_cache_cy   = 0.0   # map_cy
+var _perm_coord_cache_snap_en = false
+var _perm_coord_cache_snap_iv = Vector2.ZERO
 
 func _ready():
 	set_z_index(99)
@@ -32,6 +51,21 @@ func _ready():
 	_cached_font = temp_control.get_font("font")
 	temp_control.free()
 
+# Update cached map center and rect — WorldRect changes rarely
+# Returns true if the cache was updated (map changed)
+func _update_map_cache() -> bool:
+	if not cached_world:
+		return false
+	var rect = cached_world.WorldRect
+	if rect == _cached_map_rect_perm:
+		return false
+	_cached_map_rect_perm = rect
+	_cached_raw_map_cx = rect.position.x + rect.size.x * 0.5
+	_cached_raw_map_cy = rect.position.y + rect.size.y * 0.5
+	# Invalidate coord cache when map changes
+	_perm_coord_cache_wt = -INF
+	return true
+
 # Check for camera changes and trigger redraw only when needed
 func _process(_delta):
 	if cached_camera and parent_mod:
@@ -40,9 +74,10 @@ func _process(_delta):
 		var perm_v = parent_mod.perm_vertical_enabled
 		var perm_h = parent_mod.perm_horizontal_enabled
 		var show_coords = parent_mod.show_coordinates_enabled
+		var map_changed = _update_map_cache()
 		
 		# Only redraw if something changed
-		if cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom or \
+		if map_changed or cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom or \
 		   perm_v != _last_perm_v_enabled or perm_h != _last_perm_h_enabled or \
 		   show_coords != _last_show_coords:
 			_last_camera_pos = cam_pos
@@ -62,9 +97,9 @@ func _draw():
 	if cached_world == null or cached_camera == null:
 		return
 	
-	var rect = cached_world.WorldRect
-	var map_cx = rect.position.x + rect.size.x * 0.5
-	var map_cy = rect.position.y + rect.size.y * 0.5
+	# Use cached center — WorldRect rarely changes, updated in _process via _update_map_cache()
+	var map_cx = _cached_raw_map_cx
+	var map_cy = _cached_raw_map_cy
 	
 	# Adjust center to nearest grid node if custom_snap is enabled
 	var custom_snap = _get_custom_snap()
@@ -108,7 +143,7 @@ func _draw():
 	
 	# Draw red center marker
 	if parent_mod.perm_vertical_enabled or parent_mod.perm_horizontal_enabled:
-		var center_marker_size = 5.0 * cam_zoom.x
+		var center_marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
 		draw_circle(Vector2(map_cx, map_cy), center_marker_size, Color(1, 0, 0, 0.8))
 	
 	# Draw grid coordinates if enabled
@@ -118,13 +153,43 @@ func _draw():
 # Draw grid coordinates along the guide lines
 # Shows grid node markers and distance numbers from map center
 func _draw_grid_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom):
-	# Try to use custom_snap if available
-	var custom_snap = _get_custom_snap()
+	var custom_snap   = _get_custom_snap()
+	var snap_enabled  = custom_snap != null and custom_snap.custom_snap_enabled
+	var snap_interval = custom_snap.snap_interval if snap_enabled else Vector2.ZERO
 	
-	if custom_snap and custom_snap.custom_snap_enabled:
-		_draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom, custom_snap)
-	else:
-		_draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom)
+	# Rebuild coord point cache only when relevant params change
+	if world_top    != _perm_coord_cache_wt  or \
+	   world_bottom != _perm_coord_cache_wb  or \
+	   world_left   != _perm_coord_cache_wl  or \
+	   world_right  != _perm_coord_cache_wr  or \
+	   map_cx       != _perm_coord_cache_cx  or \
+	   map_cy       != _perm_coord_cache_cy  or \
+	   snap_enabled != _perm_coord_cache_snap_en or \
+	   snap_interval != _perm_coord_cache_snap_iv:
+		_perm_coord_cache_wt = world_top
+		_perm_coord_cache_wb = world_bottom
+		_perm_coord_cache_wl = world_left
+		_perm_coord_cache_wr = world_right
+		_perm_coord_cache_cx = map_cx
+		_perm_coord_cache_cy = map_cy
+		_perm_coord_cache_snap_en = snap_enabled
+		_perm_coord_cache_snap_iv = snap_interval
+		_rebuild_perm_coord_cache(map_cx, map_cy, world_left, world_right, world_top, world_bottom, custom_snap, snap_enabled)
+	
+	if _perm_coord_cache_v.empty() and _perm_coord_cache_h.empty():
+		return
+	
+	# Draw from cache — only zoom-dependent sizes computed here
+	var marker_size  = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var text_offset  = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
+	var marker_color = parent_mod.PERM_LINE_COLOR
+	var text_color   = parent_mod.PERM_LINE_COLOR
+	for point in _perm_coord_cache_v:
+		draw_circle(point.pos, marker_size, marker_color)
+		_draw_text_with_outline(point.text, point.pos + point.text_dir * text_offset, text_color)
+	for point in _perm_coord_cache_h:
+		draw_circle(point.pos, marker_size, marker_color)
+		_draw_text_with_outline(point.text, point.pos + point.text_dir * text_offset, text_color)
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
@@ -135,177 +200,96 @@ func _draw_text_with_outline(text, position, color):
 func _get_custom_snap():
 	return cached_snappy_mod
 
-# Draw coordinates using vanilla Dungeondraft grid
-func _draw_vanilla_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom):
-	# Get grid cell size
-	if cached_world.Level == null or cached_world.Level.TileMap == null:
-		return
+# Rebuild coordinate point caches for both guide lines.
+# Populates _perm_coord_cache_v and _perm_coord_cache_h.
+# Called only when world/viewport params change between frames.
+func _rebuild_perm_coord_cache(map_cx, map_cy, world_left, world_right, world_top, world_bottom, custom_snap, snap_enabled) -> void:
+	_perm_coord_cache_v.clear()
+	_perm_coord_cache_h.clear()
+	var map_rect = _cached_map_rect_perm
 	
-	var cell_size = cached_world.Level.TileMap.CellSize
-	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
-		return
-	
-	# Configuration
-	var marker_size = 5.0 * cam_zoom.x  # Size of coordinate marker
-	var text_offset = 20.0 * cam_zoom.x  # Offset for text from line
-	var marker_color = parent_mod.PERM_LINE_COLOR  # Same as permanent lines
-	var text_color = parent_mod.PERM_LINE_COLOR  # Same as permanent lines
-	
-	# Draw vertical line coordinates
-	if parent_mod.perm_vertical_enabled:
-		# Calculate grid positions along vertical line
-		var start_y = floor((world_top - map_cy) / cell_size.y) * cell_size.y + map_cy
-		var y = start_y
+	if snap_enabled:
+		var snap_interval = custom_snap.snap_interval
+		var snap_offset   = custom_snap.snap_offset
+		var test_spacing  = min(snap_interval.x, snap_interval.y) * 0.5
 		
-		# Get map boundaries
-		var map_rect = cached_world.WorldRect
+		# Vertical line
+		if parent_mod.perm_vertical_enabled:
+			_coord_checked_v.clear()
+			var y = world_top
+			var iteration_count = 0
+			while y <= world_bottom and iteration_count < MAX_ITERATIONS:
+				var test_pos = Vector2(map_cx, y)
+				var snapped  = custom_snap.get_snapped_position(test_pos)
+				if abs(snapped.x - map_cx) < 0.5:
+					var key = str(int(snapped.y * 10))
+					if not _coord_checked_v.has(key) and abs(snapped.y - map_cy) > 0.5:
+						if map_rect.has_point(snapped):
+							_coord_checked_v[key] = true
+							var delta = snapped - Vector2(map_cx, map_cy) - snap_offset
+							var grid_dist = round(abs(delta.y) / snap_interval.y)
+							_perm_coord_cache_v.append({"pos": snapped, "text": str(int(grid_dist)), "text_dir": Vector2(1, 0)})
+				y += test_spacing
+				iteration_count += 1
+			if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
+				parent_mod.LOGGER.warn("Vertical coordinate drawing exceeded iteration limit")
 		
-		# Check if too many markers would be drawn
-		var max_iterations = int((world_bottom - world_top) / cell_size.y) + 1
-		if max_iterations > MAX_COORD_MARKERS:
-			return  # Skip drawing if too many markers
+		# Horizontal line
+		if parent_mod.perm_horizontal_enabled:
+			_coord_checked_h.clear()
+			var x = world_left
+			var iteration_count = 0
+			while x <= world_right and iteration_count < MAX_ITERATIONS:
+				var test_pos = Vector2(x, map_cy)
+				var snapped  = custom_snap.get_snapped_position(test_pos)
+				if abs(snapped.y - map_cy) < 0.5:
+					var key = str(int(snapped.x * 10))
+					if not _coord_checked_h.has(key) and abs(snapped.x - map_cx) > 0.5:
+						if map_rect.has_point(snapped):
+							_coord_checked_h[key] = true
+							var delta = snapped - Vector2(map_cx, map_cy) - snap_offset
+							var grid_dist = round(abs(delta.x) / snap_interval.x)
+							_perm_coord_cache_h.append({"pos": snapped, "text": str(int(grid_dist)), "text_dir": Vector2(0, -1)})
+				x += test_spacing
+				iteration_count += 1
+			if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
+				parent_mod.LOGGER.warn("Horizontal coordinate drawing exceeded iteration limit")
+	else:
+		# Vanilla Dungeondraft grid
+		if cached_world.Level == null or cached_world.Level.TileMap == null:
+			return
+		var cell_size = cached_world.Level.TileMap.CellSize
+		if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
+			return
 		
-		var iteration_count = 0
-		while y <= world_bottom and iteration_count < MAX_COORD_MARKERS:
-			if abs(y - map_cy) > 0.1:  # Skip center point
-				# Check if position is within map bounds
-				var pos = Vector2(map_cx, y)
-				if map_rect.has_point(pos):
-					# Calculate grid index (distance from center in cells)
-					var grid_y = round((y - map_cy) / cell_size.y)
-					
-					# Draw marker
-					draw_circle(pos, marker_size, marker_color)
-					
-					# Draw text with grid coordinate
-					var text = str(abs(int(grid_y)))
-					var text_pos = Vector2(map_cx + text_offset, y)
-					_draw_text_with_outline(text, text_pos, text_color)
-			
-			y += cell_size.y
-			iteration_count += 1
-	
-	# Draw horizontal line coordinates
-	if parent_mod.perm_horizontal_enabled:
-		# Calculate grid positions along horizontal line
-		var start_x = floor((world_left - map_cx) / cell_size.x) * cell_size.x + map_cx
-		var x = start_x
+		# Vertical line
+		if parent_mod.perm_vertical_enabled:
+			var max_v = int((world_bottom - world_top) / cell_size.y) + 1
+			if max_v <= MAX_COORD_MARKERS:
+				var start_y = floor((world_top - map_cy) / cell_size.y) * cell_size.y + map_cy
+				var y = start_y
+				var iteration_count = 0
+				while y <= world_bottom and iteration_count < MAX_COORD_MARKERS:
+					if abs(y - map_cy) > 0.1:
+						var pos = Vector2(map_cx, y)
+						if map_rect.has_point(pos):
+							var grid_y = round((y - map_cy) / cell_size.y)
+							_perm_coord_cache_v.append({"pos": pos, "text": str(abs(int(grid_y))), "text_dir": Vector2(1, 0)})
+					y += cell_size.y
+					iteration_count += 1
 		
-		# Get map boundaries
-		var map_rect = cached_world.WorldRect
-		
-		# Check if too many markers would be drawn
-		var max_iterations = int((world_right - world_left) / cell_size.x) + 1
-		if max_iterations > MAX_COORD_MARKERS:
-			return  # Skip drawing if too many markers
-		
-		var iteration_count = 0
-		while x <= world_right and iteration_count < MAX_COORD_MARKERS:
-			if abs(x - map_cx) > 0.1:  # Skip center point
-				# Check if position is within map bounds
-				var pos = Vector2(x, map_cy)
-				if map_rect.has_point(pos):
-					# Calculate grid index (distance from center in cells)
-					var grid_x = round((x - map_cx) / cell_size.x)
-					
-					# Draw marker
-					draw_circle(pos, marker_size, marker_color)
-					
-					# Draw text with grid coordinate
-					var text = str(abs(int(grid_x)))
-					var text_pos = Vector2(x, map_cy - text_offset)
-					_draw_text_with_outline(text, text_pos, text_color)
-			
-			x += cell_size.x
-			iteration_count += 1
-
-# Draw coordinates using custom_snap grid
-func _draw_custom_snap_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom, custom_snap):
-	# Configuration
-	var marker_size = 5.0 * cam_zoom.x
-	var text_offset = 20.0 * cam_zoom.x
-	var marker_color = parent_mod.PERM_LINE_COLOR
-	var text_color = parent_mod.PERM_LINE_COLOR
-	
-	var snap_interval = custom_snap.snap_interval
-	var snap_offset = custom_snap.snap_offset
-	
-	# Determine approximate spacing for iteration
-	# For hex grids, we need to sample more densely
-	var test_spacing = min(snap_interval.x, snap_interval.y) * 0.5
-	
-	# Draw vertical line coordinates
-	if parent_mod.perm_vertical_enabled:
-		var checked_positions = {}  # Track unique snapped positions
-		var y = world_top
-		var iteration_count = 0
-		
-		# Get map boundaries
-		var map_rect = cached_world.WorldRect
-		
-		while y <= world_bottom and iteration_count < MAX_ITERATIONS:
-			var test_pos = Vector2(map_cx, y)
-			var snapped = custom_snap.get_snapped_position(test_pos)
-			
-			# Check if this is actually on the vertical line and not already drawn
-			if abs(snapped.x - map_cx) < 0.5:
-				var key = str(int(snapped.y * 10))  # Round to avoid duplicates
-				
-				if not checked_positions.has(key) and abs(snapped.y - map_cy) > 0.5:
-					# Check if position is within map bounds
-					if map_rect.has_point(snapped):
-						checked_positions[key] = true
-						
-						# Calculate grid distance from center
-						var delta = snapped - Vector2(map_cx, map_cy) - snap_offset
-						var grid_dist = round(abs(delta.y) / snap_interval.y)
-						
-						# Draw marker and text
-						draw_circle(snapped, marker_size, marker_color)
-						var text = str(int(grid_dist))
-						var text_pos = Vector2(snapped.x + text_offset, snapped.y)
-						_draw_text_with_outline(text, text_pos, text_color)
-			
-			y += test_spacing
-			iteration_count += 1
-		
-		if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
-			parent_mod.LOGGER.warn("Vertical coordinate drawing exceeded iteration limit")
-	
-	# Draw horizontal line coordinates
-	if parent_mod.perm_horizontal_enabled:
-		var checked_positions = {}
-		var x = world_left
-		var iteration_count = 0
-		
-		# Get map boundaries
-		var map_rect = cached_world.WorldRect
-		
-		while x <= world_right and iteration_count < MAX_ITERATIONS:
-			var test_pos = Vector2(x, map_cy)
-			var snapped = custom_snap.get_snapped_position(test_pos)
-			
-			# Check if this is actually on the horizontal line and not already drawn
-			if abs(snapped.y - map_cy) < 0.5:
-				var key = str(int(snapped.x * 10))
-				
-				if not checked_positions.has(key) and abs(snapped.x - map_cx) > 0.5:
-					# Check if position is within map bounds
-					if map_rect.has_point(snapped):
-						checked_positions[key] = true
-						
-						# Calculate grid distance from center
-						var delta = snapped - Vector2(map_cx, map_cy) - snap_offset
-						var grid_dist = round(abs(delta.x) / snap_interval.x)
-						
-						# Draw marker and text
-						draw_circle(snapped, marker_size, marker_color)
-						var text = str(int(grid_dist))
-						var text_pos = Vector2(snapped.x, snapped.y - text_offset)
-						_draw_text_with_outline(text, text_pos, text_color)
-			
-			x += test_spacing
-			iteration_count += 1
-		
-		if iteration_count >= MAX_ITERATIONS and parent_mod.LOGGER:
-			parent_mod.LOGGER.warn("Horizontal coordinate drawing exceeded iteration limit")
+		# Horizontal line
+		if parent_mod.perm_horizontal_enabled:
+			var max_h = int((world_right - world_left) / cell_size.x) + 1
+			if max_h <= MAX_COORD_MARKERS:
+				var start_x = floor((world_left - map_cx) / cell_size.x) * cell_size.x + map_cx
+				var x = start_x
+				var iteration_count = 0
+				while x <= world_right and iteration_count < MAX_COORD_MARKERS:
+					if abs(x - map_cx) > 0.1:
+						var pos = Vector2(x, map_cy)
+						if map_rect.has_point(pos):
+							var grid_x = round((x - map_cx) / cell_size.x)
+							_perm_coord_cache_h.append({"pos": pos, "text": str(abs(int(grid_x))), "text_dir": Vector2(0, -1)})
+					x += cell_size.x
+					iteration_count += 1

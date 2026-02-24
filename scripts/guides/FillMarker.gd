@@ -11,8 +11,16 @@ var id = -1
 var polygon = []   # Array[Vector2] — world-space vertices of the filled polygon
 var color = Color(0, 0.7, 1, 0.25)  # Fill color (alpha always 0.25)
 
+# CACHED DRAW COLOR — pre-multiplied with global opacity so _draw never allocs Color.
+# Call update_opacity() whenever opacity setting changes.
+var draw_color = Color(0, 0.7, 1, 0.25)
+
 func _init():
 	pass
+
+# Refresh cached draw color for the given global opacity (0.0–1.0).
+func update_opacity(opacity: float) -> void:
+	draw_color = Color(color.r, color.g, color.b, color.a * opacity)
 
 # ============================================================================
 # SERIALISATION

@@ -308,6 +308,7 @@ func _undo_delete_all(saved_markers):
 	for marker_data in saved_markers:
 		var marker = GuideMarkerClass.new()
 		marker.Load(marker_data)
+		marker.update_opacity(_current_opacity())
 		markers.append(marker)
 		markers_lookup[marker.id] = marker # Add to lookup
 		if marker.id >= next_id:
@@ -354,6 +355,7 @@ func _do_delete_marker(index):
 func _undo_delete_marker(marker_data, index):
 	var marker = GuideMarkerClass.new()
 	marker.Load(marker_data)
+	marker.update_opacity(_current_opacity())
 	markers.insert(index, marker)
 	markers_lookup[marker.id] = marker # Add to lookup
 	if marker.id >= next_id:
@@ -377,6 +379,7 @@ func _do_place_marker(marker_data):
 	marker.id = marker_data["id"] 
 	marker.set_property("marker_type", marker_data["marker_type"])
 	marker.color = marker_data["color"]
+	marker.update_opacity(_current_opacity())
 	marker.set_property("show_coordinates", marker_data["coordinates"])
 	
 	# Load type-specific parameters
@@ -501,6 +504,7 @@ func handle_fill_click(pos: Vector2) -> void:
 func _do_place_fill(fill_data: Dictionary) -> void:
 	var fill = FillMarkerClass.new()
 	fill.Load(fill_data)
+	fill.update_opacity(_current_opacity())
 	fills.append(fill)
 	fills_lookup[fill.id] = fill
 	if fill.id >= next_fill_id:
@@ -548,6 +552,7 @@ func _undo_delete_all_fills(saved_fills: Array) -> void:
 	for fill_data in saved_fills:
 		var fill = FillMarkerClass.new()
 		fill.Load(fill_data)
+		fill.update_opacity(_current_opacity())
 		fills.append(fill)
 		fills_lookup[fill.id] = fill
 		if fill.id >= next_fill_id:
@@ -562,6 +567,20 @@ func _undo_delete_all_fills(saved_fills: Array) -> void:
 func update_ui_checkboxes_state():
 	if ui:
 		ui.update_ui_checkboxes_state()
+
+# Return the current global markers opacity (0.0–1.0).
+func _current_opacity() -> float:
+	return parent_mod.markers_opacity if parent_mod else 1.0
+
+# Refresh cached draw colors on every marker and fill for the given opacity.
+# Call this whenever the global opacity setting changes.
+func _apply_opacity_to_all(opacity: float) -> void:
+	for marker in markers:
+		if marker:
+			marker.update_opacity(opacity)
+	for fill in fills:
+		if fill:
+			fill.update_opacity(opacity)
 
 # Snap position to grid, using custom_snap mod if available
 # Falls back to vanilla Dungeondraft snapping

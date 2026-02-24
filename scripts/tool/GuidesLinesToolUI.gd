@@ -565,6 +565,7 @@ func _on_markers_visible_toggled(enabled):
 
 func _on_markers_opacity_changed(value):
 	tool.parent_mod.markers_opacity = value / 100.0
+	tool._apply_opacity_to_all(value / 100.0)
 	if tool.overlay:
 		tool.overlay.update()
 	if tool.LOGGER:

@@ -602,8 +602,10 @@ func get_markers_visible() -> bool:
 ## Sets the global opacity for all placed markers (0.0 = fully transparent, 1.0 = fully opaque).
 func set_markers_opacity(value: float) -> void:
 	_mod.markers_opacity = clamp(value, 0.0, 1.0)
-	if _has_tool() and _tool().overlay:
-		_tool().overlay.update()
+	if _has_tool():
+		_tool()._apply_opacity_to_all(_mod.markers_opacity)
+		if _tool().overlay:
+			_tool().overlay.update()
 	emit_signal("settings_changed", "markers_opacity", _mod.markers_opacity)
 	if LOGGER:
 		LOGGER.debug("API: markers_opacity = %.2f" % [_mod.markers_opacity])

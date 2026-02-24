@@ -5,6 +5,28 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] - 2026-02-24
+
+### Changed — Draw pipeline performance optimisations (no behaviour change)
+
+A series of refactors across all overlay classes removes redundant per-frame calculations and heap allocations from the hot `_draw()` path. No visual or API behaviour has changed.
+
+#### MarkerOverlay.gd
+- **Color constants** — five static `Color(...)` literals used inside preview draw methods are now `const` class fields (`_PREVIEW_MARKER_COLOR`, `_PREVIEW_ARC_COLOR`, `_PATH_PREVIEW_LINE_COLOR`, `_PATH_PREVIEW_FIRST_COLOR`, `_PATH_PREVIEW_CURSOR_COLOR`), eliminating per-frame object allocations.
+- **`coord_marker_size` / `coord_text_offset`** — previously recomputed via `get_adaptive_width` for every marker that has `show_coordinates` enabled; now computed once in `_draw()` and passed as parameters down to `_draw_marker_coordinates_cached`.
+- **`custom_snap`** — previously fetched per-marker inside `_draw_custom_marker`; now fetched once in `_draw()` and passed as a parameter.
+- **`active_arrow_length_px`** — previously computed via `get_adaptive_width` every preview frame; now computed once in `_draw()` and passed into `_draw_path_preview`.
+- **Marker / line sizes** — `marker_size_draw`, `line_width_draw`, `preview_line_width`, `preview_marker_size` already computed once in `_draw()` (from previous session); signatures updated throughout to carry all sizes as parameters.
+
+#### PermanentOverlay.gd
+- **Map center cache** (`_update_map_cache`) — `WorldRect` is accessed and `map_cx / map_cy` recomputed only when `WorldRect` actually changes (same pattern as `CrossOverlay`). Cache is updated in `_process()` and invalidates the coord cache automatically.
+- **`GuidesLinesRender.get_adaptive_width`** — `center_marker_size`, `marker_size`, and `text_offset` now use `get_adaptive_width` consistently (was raw `* cam_zoom.x`), unifying the approach with `MarkerOverlay`.
+- **Coordinate point cache** (`_perm_coord_cache_v / _perm_coord_cache_h`) — the expensive `while` loops (vanilla grid iteration and custom-snap snapping) previously ran every frame. Now extracted into `_rebuild_perm_coord_cache()` and executed only when viewport bounds, map center, or snap settings change. `_draw_grid_coordinates` simply iterates the pre-built arrays; only zoom-dependent dot/text sizes are computed at draw time.
+- `_draw_vanilla_coordinates` and `_draw_custom_snap_coordinates` removed; replaced by the single unified `_rebuild_perm_coord_cache()`.
+- Class-level `_coord_checked_v / _coord_checked_h` dicts reused with `.clear()` instead of allocating new `{}` each rebuild.
+
+---
+
 ## [2.2.2] - 2026-02-23
 
 ### Added — Fill polygon query methods in GuidesLinesApi

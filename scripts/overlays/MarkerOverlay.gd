@@ -20,6 +20,13 @@ var _mouse_in_ui = false  # Track if cursor is in UI area
 const PREVIEW_MARKER_SIZE = 10.0  # Base size before zoom adaptation
 const PREVIEW_LINE_WIDTH = 5.0    # Base width before zoom adaptation
 
+# Static Color constants — avoids per-frame allocations in preview methods
+const _PREVIEW_MARKER_COLOR      = Color(1, 0, 0, 0.5)
+const _PREVIEW_ARC_COLOR         = Color(0, 0, 0, 0.5)
+const _PATH_PREVIEW_LINE_COLOR   = Color(1, 1, 1, 0.5)
+const _PATH_PREVIEW_FIRST_COLOR  = Color(0, 1, 0, 0.6)
+const _PATH_PREVIEW_CURSOR_COLOR = Color(1, 1, 1, 0.3)
+
 var _cached_font = null # Optim: Cache font resource
 
 func _ready():
@@ -215,7 +222,23 @@ func _draw():
 	var world_right = cam_pos.x + world_width * 0.5
 	var world_top = cam_pos.y - world_height * 0.5
 	var world_bottom = cam_pos.y + world_height * 0.5
-	
+
+	# Compute once — shared by all markers this frame
+	var map_rect: Rect2
+	if tool.cached_world:
+		map_rect = tool.cached_world.WorldRect
+	else:
+		map_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top)
+	var cell_size = _get_grid_cell_size()
+	var custom_snap = _get_custom_snap()
+	var marker_size_draw    = GuidesLinesRender.get_adaptive_width(10.0, cam_zoom)
+	var line_width_draw     = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var preview_line_width  = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
+	var preview_marker_size = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
+	var coord_marker_size   = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
+	var coord_text_offset   = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
+	var active_arrow_length_px = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
+
 	# Draw fill regions under marker outlines (respects markers_opacity)
 	_draw_fills()
 
@@ -225,7 +248,7 @@ func _draw():
 			if not marker:
 				continue
 			
-			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom)
+			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, marker_size_draw, line_width_draw, coord_marker_size, coord_text_offset)
 	
 	# Draw preview marker at cursor (disabled in delete mode AND in fill mode)
 	if tool.is_enabled and not tool.delete_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
@@ -235,40 +258,30 @@ func _draw():
 		
 		# Special preview for Path type
 		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
-			_draw_path_preview(world_left, world_right, world_top, world_bottom)
+			_draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zoom, preview_line_width, preview_marker_size, active_arrow_length_px)
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
-			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom)
+			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width, preview_marker_size)
 
 # Draw all fill regions stored in the tool.
 # Fills are drawn below marker outlines and respect the global markers_opacity.
 func _draw_fills() -> void:
 	if not tool or tool.fills.empty():
 		return
-	var opacity: float = tool.parent_mod.markers_opacity if tool.parent_mod else 1.0
 	for fill in tool.fills:
 		if fill.polygon.size() < 3:
 			continue
-		var draw_color = Color(fill.color.r, fill.color.g, fill.color.b, fill.color.a * opacity)
-		draw_colored_polygon(PoolVector2Array(fill.polygon), draw_color)
+		draw_colored_polygon(PoolVector2Array(fill.polygon), fill.draw_color)
 
 # Draw a single custom marker with its line(s) or circle
-func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom):
-	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(marker.MARKER_SIZE, cam_zoom)
-	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(marker.LINE_WIDTH, cam_zoom)
-	
-	# Apply global opacity from parent_mod
-	var _opacity: float = tool.parent_mod.markers_opacity if tool.parent_mod else 1.0
-	var line_color  = Color(marker.color.r, marker.color.g, marker.color.b, marker.color.a * _opacity)
-	var MARKER_COLOR = Color(marker.MARKER_COLOR.r, marker.MARKER_COLOR.g, marker.MARKER_COLOR.b, marker.MARKER_COLOR.a * _opacity)
-	
-	var map_rect = Rect2(world_left, world_top, world_right - world_left, world_bottom - world_top) # Fallback
-	if tool.cached_world:
-		map_rect = tool.cached_world.WorldRect
-	
-	var cell_size = _get_grid_cell_size()
-	
-	# Fetch pre-calculated geometry
+func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect: Rect2, cell_size, custom_snap, marker_size_draw: float, line_width_draw: float, coord_marker_size: float, coord_text_offset: float):
+	var MARKER_SIZE = marker_size_draw
+	var LINE_WIDTH  = line_width_draw
+
+	var line_color   = marker.draw_color
+	var MARKER_COLOR = marker.draw_marker_color
+
+	# map_rect and cell_size come from _draw — computed once per frame
 	var draw_data = marker.get_draw_data(map_rect, cell_size)
 	
 	# Draw based on marker type
@@ -326,22 +339,29 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	
 	if is_marker_visible:
 		draw_circle(marker.position, MARKER_SIZE / 2.0, MARKER_COLOR)
-		draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, _opacity), 2)
+		draw_arc(marker.position, MARKER_SIZE / 2.0, 0, TAU, 32, marker.draw_arc_color, 2)
 	
 	# Draw coordinates if enabled for this marker
 	if marker.show_coordinates:
-		_draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom)
+		var snap_enabled  = custom_snap != null and custom_snap.custom_snap_enabled
+		var snap_interval = custom_snap.snap_interval if snap_enabled else Vector2.ZERO
+		if marker._coord_dirty \
+				or map_rect != marker._cached_coord_map_rect \
+				or cell_size != marker._cached_coord_cell_size \
+				or snap_enabled  != marker._cached_coord_snap_enabled \
+				or snap_interval != marker._cached_coord_snap_interval:
+			marker.rebuild_coord_cache(map_rect, cell_size, custom_snap)
+		_draw_marker_coordinates_cached(marker, coord_marker_size, coord_text_offset)
 
 
 # Draw semi-transparent preview of marker at cursor position
-func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom):
-	var MARKER_COLOR = Color(1, 0, 0, 0.5)
+func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width: float, preview_marker_size: float):
+	var MARKER_COLOR = _PREVIEW_MARKER_COLOR
 	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	
-	# Get camera zoom for adaptive line width and marker size
-	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
+
+	# Sizes pre-computed in _draw — no re-fetch needed
+	var LINE_WIDTH  = preview_line_width
+	var MARKER_SIZE = preview_marker_size
 	
 	# Draw preview based on active marker type
 	if tool.active_marker_type == tool.MARKER_TYPE_LINE:
@@ -351,11 +371,6 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			angles.append(fmod(tool.active_angle + 180.0, 360.0))
 		
 		for angle in angles:
-			# Get map boundaries for clipping
-			var map_rect = null
-			if tool.cached_world:
-				map_rect = tool.cached_world.WorldRect
-			
 			var line_points = _calculate_line_endpoints(
 				pos,
 				angle,
@@ -376,8 +391,7 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 				)
 	
 	elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
-		# Draw preview shape
-		var cell_size = _get_grid_cell_size()
+		# Draw preview shape — cell_size comes from _draw
 		if cell_size:
 			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
 			var angle_rad = deg2rad(tool.active_shape_angle)
@@ -387,21 +401,20 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 	
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
-	draw_arc(pos, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
+	draw_arc(pos, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
 
 # Draw preview for Path type (temp points + line to cursor)
-func _draw_path_preview(world_left, world_right, world_top, world_bottom):
+func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zoom, preview_line_width: float, preview_marker_size: float, active_arrow_length_px: float):
 	if not tool.path_placement_active or tool.path_temp_points.size() == 0:
 		return
 	
-	var MARKER_COLOR = Color(1, 0, 0, 0.5)  # Red semi-transparent
-	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
-	var PREVIEW_LINE_COLOR = Color(1, 1, 1, 0.5)  # White semi-transparent for preview line
+	var MARKER_COLOR       = _PREVIEW_MARKER_COLOR
+	var LINE_COLOR         = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
+	var PREVIEW_LINE_COLOR = _PATH_PREVIEW_LINE_COLOR
 	
-	# Get camera zoom for adaptive line width and marker size
-	var cam_zoom = tool.cached_camera.zoom if tool.cached_camera else Vector2.ONE
-	var LINE_WIDTH = GuidesLinesRender.get_adaptive_width(PREVIEW_LINE_WIDTH, cam_zoom)
-	var MARKER_SIZE = GuidesLinesRender.get_adaptive_width(PREVIEW_MARKER_SIZE, cam_zoom)
+	# Sizes pre-computed in _draw — no re-fetch needed
+	var LINE_WIDTH  = preview_line_width
+	var MARKER_SIZE = preview_marker_size
 	
 	# Draw all placed points
 	for i in range(tool.path_temp_points.size()):
@@ -409,12 +422,12 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 		
 		# First point is slightly larger and different color
 		if i == 0:
-			draw_circle(point, MARKER_SIZE / 1.5, Color(0, 1, 0, 0.6))  # Green first point
+			draw_circle(point, MARKER_SIZE / 1.5, _PATH_PREVIEW_FIRST_COLOR)
 		else:
 			draw_circle(point, MARKER_SIZE / 2.0, MARKER_COLOR)
 		
 		# Draw outline
-		draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
+		draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
 	
 	# Draw lines between placed points
 	if tool.path_temp_points.size() >= 2:
@@ -437,11 +450,11 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom):
 		)
 		
 		# Draw cursor preview circle
-		draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, Color(1, 1, 1, 0.3))
+		draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, _PATH_PREVIEW_CURSOR_COLOR)
 		
 		# Draw arrow preview at cursor if path_end_arrow is enabled
 		if tool.active_path_end_arrow:
-			var arrow_length = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
+			var arrow_length = active_arrow_length_px  # Pre-computed in _draw
 			var head_points = GeometryUtils.calculate_arrowhead_points(
 				tool.path_preview_point, last_point, arrow_length, tool.active_arrow_head_angle)
 			GuidesLinesRender.draw_arrow(self, last_point, tool.path_preview_point, head_points,
@@ -474,39 +487,6 @@ func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world
 	else:
 		return viewport_points
 
-# Draw grid coordinates along Line marker's guide lines
-func _draw_marker_coordinates(marker, cam_zoom, world_left, world_right, world_top, world_bottom):
-	if not tool or not tool.cached_world:
-		return
-	if marker.marker_type != "Line":
-		return
-	
-	var marker_pos = marker.position
-	var angles = [marker.angle]
-	if marker.mirror:
-		angles.append(fmod(marker.angle + 180.0, 360.0))
-	
-	for angle in angles:
-		_draw_coordinates_along_line(
-			marker_pos,
-			angle,
-			cam_zoom,
-			world_left,
-			world_right,
-			world_top,
-			world_bottom,
-			marker.color
-		)
-
-# Draw coordinates along a line at any angle - always to map boundaries
-func _draw_coordinates_along_line(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
-	var custom_snap = _get_custom_snap()
-	
-	if custom_snap and custom_snap.custom_snap_enabled:
-		_draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap)
-	else:
-		_draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color)
-
 # Get custom_snap mod reference if available
 func _get_custom_snap():
 	if not tool:
@@ -517,116 +497,24 @@ func _get_custom_snap():
 func _get_grid_cell_size():
 	if not tool or not tool.cached_world:
 		return null
-	
-	# Check if custom_snap is active and use its snap_interval
 	var custom_snap = _get_custom_snap()
 	if custom_snap and custom_snap.custom_snap_enabled:
 		if custom_snap.has("snap_interval"):
 			return custom_snap.snap_interval
-	
-	# Fallback to vanilla grid cell size
 	if not tool.cached_world.Level or not tool.cached_world.Level.TileMap:
 		return null
 	return tool.cached_world.Level.TileMap.CellSize
 
-# Draw coordinates using vanilla Dungeondraft grid - always to map boundaries
-func _draw_coords_vanilla(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color):
-	# Get cell size (may be from custom_snap if active)
-	var cell_size = _get_grid_cell_size()
-	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
+# Draw cached coordinate points for a Line marker.
+# All grid positions and texts are pre-computed in GuideMarker.rebuild_coord_cache().
+# Sizes are pre-computed in _draw() — no per-call get_adaptive_width needed.
+func _draw_marker_coordinates_cached(marker, marker_size: float, text_offset: float) -> void:
+	if marker.cached_coord_points.empty():
 		return
-	
-	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
-	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
-	var marker_color = line_color
-	var text_color = line_color
-
-	
-	var angle_rad = deg2rad(angle_deg)
-	var direction = Vector2(cos(angle_rad), sin(angle_rad))
-	
-	var step = min(cell_size.x, cell_size.y)
-	# Always draw to map boundaries
-	var max_dist = sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
-	var distance = step
-	
-	var map_rect = tool.cached_world.WorldRect
-	
-	while distance < max_dist:
-		var test_pos = origin + direction * distance
-		
-		if not map_rect.has_point(test_pos):
-			distance += step
-			continue
-		
-		# Check if near grid intersection
-		var grid_x = round(test_pos.x / cell_size.x)
-		var grid_y = round(test_pos.y / cell_size.y)
-		var grid_pos = Vector2(grid_x * cell_size.x, grid_y * cell_size.y)
-		
-		if test_pos.distance_to(grid_pos) < step * 0.25:
-			var grid_dist = round(distance / step)
-			
-			# Draw marker
-			draw_circle(grid_pos, marker_size, marker_color)
-			
-			# Draw text
-			var text = str(int(grid_dist))
-			var perp = Vector2(-direction.y, direction.x) * text_offset
-			var text_pos = grid_pos + perp
-			_draw_text_with_outline(text, text_pos, text_color)
-		
-		distance += step
-
-# Draw coordinates using custom_snap grid - always to map boundaries
-func _draw_coords_custom_snap(origin, angle_deg, cam_zoom, world_left, world_right, world_top, world_bottom, line_color, custom_snap):
-	var marker_size = GuidesLinesRender.get_adaptive_width(5.0, cam_zoom)
-	var text_offset = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
-	var marker_color = line_color
-	var text_color = line_color
-	
-	var snap_interval = custom_snap.snap_interval
-	var snap_offset = custom_snap.snap_offset
-	var test_spacing = min(snap_interval.x, snap_interval.y) * 0.5
-	
-	var angle_rad = deg2rad(angle_deg)
-	var direction = Vector2(cos(angle_rad), sin(angle_rad))
-	
-	# Always draw to map boundaries
-	var max_dist = sqrt(pow(world_right - world_left, 2) + pow(world_bottom - world_top, 2))
-	var checked_positions = {}
-	var distance = test_spacing
-	
-	var map_rect = tool.cached_world.WorldRect
-	
-	while distance < max_dist:
-		var test_pos = origin + direction * distance
-		var snapped = custom_snap.get_snapped_position(test_pos)
-		
-		if not map_rect.has_point(snapped):
-			distance += test_spacing
-			continue
-		
-		var key = str(int(snapped.x * 10)) + "_" + str(int(snapped.y * 10))
-		
-		if not checked_positions.has(key):
-			# Use new optimized GeometryUtils method
-			if GeometryUtils.is_point_on_ray(origin, direction, snapped, deg2rad(5.0)):
-				checked_positions[key] = true
-				
-				var delta = snapped - origin - snap_offset
-				var grid_dist = round(snapped.distance_to(origin) / min(snap_interval.x, snap_interval.y))
-				
-				# Draw marker
-				draw_circle(snapped, marker_size, marker_color)
-				
-				# Draw text
-				var text = str(int(grid_dist))
-				var perp = Vector2(-direction.y, direction.x) * text_offset
-				var text_pos = snapped + perp
-				_draw_text_with_outline(text, text_pos, text_color)
-		
-		distance += test_spacing
+	var color = marker.draw_color
+	for point in marker.cached_coord_points:
+		draw_circle(point.grid_pos, marker_size, color)
+		_draw_text_with_outline(point.text, point.grid_pos + point.perp * text_offset, color)
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
