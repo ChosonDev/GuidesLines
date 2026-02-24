@@ -99,6 +99,10 @@ func _process(_delta):
 			_last_path_active = path_active
 			needs_update = true
 	
+	# Check if an API preview was queued
+	if tool and not tool._api_preview.empty():
+		needs_update = true
+	
 	# Only update when necessary
 	if needs_update:
 		update()
@@ -250,6 +254,11 @@ func _draw():
 			
 			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, marker_size_draw, line_width_draw, coord_marker_size, coord_text_offset)
 	
+	# Draw API-requested shape preview (external callers; rendered regardless of tool state)
+	if not tool._api_preview.empty():
+		_draw_api_shape_preview(tool._api_preview, cam_zoom, cell_size, preview_line_width, preview_marker_size)
+		tool._api_preview = {}
+
 	# Draw preview marker at cursor (disabled in delete mode AND in fill mode)
 	if tool.is_enabled and not tool.delete_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		# Don't draw preview if mouse is in UI area
@@ -353,6 +362,23 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 			marker.rebuild_coord_cache(map_rect, cell_size, custom_snap)
 		_draw_marker_coordinates_cached(marker, coord_marker_size, coord_text_offset)
 
+
+## Render a one-frame Shape preview requested via GuidesLinesApi.set_shape_preview().
+## [p] is the dict stored in tool._api_preview.
+func _draw_api_shape_preview(p: Dictionary, cam_zoom: Vector2, cell_size, preview_line_width: float, preview_marker_size: float) -> void:
+	if cell_size == null:
+		return
+	var pos    = p.get("pos",    Vector2.ZERO)
+	var radius = p.get("radius", 1.0)
+	var angle  = p.get("angle",  0.0)
+	var sides  = p.get("sides",  6)
+	var color  = p.get("color",  Color(0, 0.7, 1, 0.5))
+	var radius_px = radius * min(cell_size.x, cell_size.y)
+	var angle_rad = deg2rad(angle)
+	var vertices  = GeometryUtils.calculate_shape_vertices(pos, radius_px, sides, angle_rad)
+	GuidesLinesRender.draw_polygon_outline(self, vertices, color, preview_line_width)
+	draw_circle(pos, preview_marker_size / 2.0, Color(color.r, color.g, color.b, 0.5))
+	draw_arc(pos, preview_marker_size / 2.0, 0, TAU, 32, Color(0, 0, 0, 0.5), 2)
 
 # Draw semi-transparent preview of marker at cursor position
 func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width: float, preview_marker_size: float):

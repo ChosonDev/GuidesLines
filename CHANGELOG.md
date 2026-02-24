@@ -5,6 +5,56 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.4] - 2026-02-24
+
+### Added — Shape preview API and tool-state query
+
+Two new methods in `GuidesLinesApi` allow external mods to render a live shape preview on the map and inspect the full current tool configuration.
+
+#### `set_shape_preview(coords, radius, angle, sides, color)`
+Queues a one-frame Shape preview rendered directly on the map overlay at `coords`.
+
+- The preview is drawn by `MarkerOverlay` on the next paint pass and cleared automatically. To keep it alive call this method every frame (e.g. from `_process`).
+- Parameters match `place_shape_marker`: `coords: Vector2`, `radius: float` (grid cells, default `1.0`), `angle: float` (degrees, default `0.0`), `sides: int` (default `6`), `color: Color` (default semi-transparent active color).
+- Uses the same `GeometryUtils.calculate_shape_vertices` + `GuidesLinesRender.draw_polygon_outline` pipeline as the built-in cursor preview, so the result is visually identical to the normal Shape hover.
+
+#### `clear_shape_preview()`
+Explicitly clears any pending API preview immediately, triggering an overlay redraw. Useful when the external mod hides its UI or the cursor leaves the map.
+
+#### `get_tool_state() → Dictionary`
+Returns a snapshot of the full current tool state. All fields:
+
+| Key | Type | Description |
+|---|---|---|
+| `ready` | `bool` | `false` if the tool is not yet loaded (map not open) |
+| `active_marker_type` | `String` | `"Line"` \| `"Shape"` \| `"Path"` \| `"Fill"` |
+| `active_angle` | `float` | Line angle in degrees |
+| `active_mirror` | `bool` | Line mirror mode |
+| `active_shape_radius` | `float` | Shape circumradius in grid cells |
+| `active_shape_angle` | `float` | Shape rotation in degrees |
+| `active_shape_sides` | `int` | Shape polygon sides |
+| `active_path_end_arrow` | `bool` | Path arrowhead enabled |
+| `active_arrow_head_length` | `float` | Arrowhead length in pixels |
+| `active_arrow_head_angle` | `float` | Arrowhead opening angle in degrees |
+| `active_color` | `Color` | Current active marker color |
+| `show_coordinates` | `bool` | Grid-coordinate labels on new Line markers |
+| `delete_mode` | `bool` | Delete-on-click mode active |
+| `merge_shapes` | `bool` | Merge mode active |
+| `conforming_mode` | `bool` | Conforming mode active |
+| `wrapping_mode` | `bool` | Wrapping mode active |
+| `difference_mode` | `bool` | Difference mode active |
+| `marker_count` | `int` | Total placed markers |
+| `fill_count` | `int` | Total placed fills |
+| `path_placement_active` | `bool` | Multi-point path placement in progress |
+| `path_temp_point_count` | `int` | Points collected so far in active path |
+
+#### Files changed
+- **`scripts/tool/GuidesLinesTool.gd`** — added `var _api_preview = {}` field used as the one-frame preview slot.
+- **`scripts/overlays/MarkerOverlay.gd`** — `_process` triggers redraw when `_api_preview` is non-empty; `_draw()` calls new `_draw_api_shape_preview()` and auto-clears the slot; added `_draw_api_shape_preview()`.
+- **`scripts/api/guides_lines_api.gd`** — added `# TOOL STATE & PREVIEW` section with `set_shape_preview()`, `clear_shape_preview()`, and `get_tool_state()`.
+
+---
+
 ## [2.2.3] - 2026-02-24
 
 ### Changed — Draw pipeline performance optimisations (no behaviour change)

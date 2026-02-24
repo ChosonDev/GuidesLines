@@ -111,6 +111,9 @@ var path_placement_active = false  # Whether we're in path placement mode
 var path_temp_points = []  # Temporary storage for points being placed
 var path_preview_point = null  # Current mouse position for line preview
 
+# API-requested one-frame preview (set by GuidesLinesApi.set_shape_preview, auto-cleared after one render)
+var _api_preview = {}
+
 
 # Initialize tool with reference to parent mod
 func _init(mod):

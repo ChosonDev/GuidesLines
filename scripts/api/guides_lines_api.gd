@@ -776,6 +776,98 @@ func get_shape_polygon(marker_id: int):
 	}
 
 # ============================================================================
+# TOOL STATE & PREVIEW
+# ============================================================================
+
+## Queues a one-frame Shape preview at [coords].
+## The overlay renders it on the next draw pass, then clears it automatically.
+## Call this every frame (e.g. from _process) to keep the preview alive.
+##
+## Parameters:
+##   coords — world-space Vector2 position of the shape centre
+##   radius — circumradius in grid cells (default 1.0)
+##   angle  — rotation in degrees (default 0.0)
+##   sides  — number of polygon sides; 64 ≈ circle (default 6)
+##   color  — preview color; use an alpha < 1 for transparency (default semi-transparent active color)
+func set_shape_preview(coords: Vector2, radius: float = 1.0,
+		angle: float = 0.0, sides: int = 6, color = null) -> void:
+	if not _has_tool():
+		return
+	var tool = _tool()
+	var c = color if color != null else Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.5)
+	tool._api_preview = {
+		"pos":    coords,
+		"radius": radius,
+		"angle":  angle,
+		"sides":  sides,
+		"color":  c,
+	}
+	if tool.overlay:
+		tool.overlay.update()
+
+## Clears any pending API shape preview immediately.
+func clear_shape_preview() -> void:
+	if not _has_tool():
+		return
+	var tool = _tool()
+	if not tool._api_preview.empty():
+		tool._api_preview = {}
+		if tool.overlay:
+			tool.overlay.update()
+
+## Returns a snapshot of the full current tool state as a Dictionary.
+##
+## Keys:
+##   "ready"                  : bool   — false when the tool is not yet loaded
+##   "active_marker_type"     : String — "Line" | "Shape" | "Path" | "Fill"
+##   "active_angle"           : float  — Line angle in degrees
+##   "active_mirror"          : bool   — Line mirror enabled
+##   "active_shape_radius"    : float  — Shape circumradius in grid cells
+##   "active_shape_angle"     : float  — Shape rotation in degrees
+##   "active_shape_sides"     : int    — Shape polygon sides
+##   "active_path_end_arrow"  : bool
+##   "active_arrow_head_length": float — pixels
+##   "active_arrow_head_angle" : float — degrees
+##   "active_color"           : Color
+##   "show_coordinates"       : bool
+##   "delete_mode"            : bool
+##   "merge_shapes"           : bool
+##   "conforming_mode"        : bool
+##   "wrapping_mode"          : bool
+##   "difference_mode"        : bool
+##   "marker_count"           : int
+##   "fill_count"             : int
+##   "path_placement_active"  : bool
+##   "path_temp_point_count"  : int
+func get_tool_state() -> Dictionary:
+	if not _has_tool():
+		return {"ready": false}
+	var t = _tool()
+	return {
+		"ready":                    true,
+		"active_marker_type":       t.active_marker_type,
+		"active_angle":             t.active_angle,
+		"active_mirror":            t.active_mirror,
+		"active_shape_radius":      t.active_shape_radius,
+		"active_shape_angle":       t.active_shape_angle,
+		"active_shape_sides":       t.active_shape_sides,
+		"active_path_end_arrow":    t.active_path_end_arrow,
+		"active_arrow_head_length": t.active_arrow_head_length,
+		"active_arrow_head_angle":  t.active_arrow_head_angle,
+		"active_color":             t.active_color,
+		"show_coordinates":         t.show_coordinates,
+		"delete_mode":              t.delete_mode,
+		"merge_shapes":             t.merge_shapes,
+		"conforming_mode":          t.conforming_mode,
+		"wrapping_mode":            t.wrapping_mode,
+		"difference_mode":          t.difference_mode,
+		"marker_count":             t.markers.size(),
+		"fill_count":               t.fills.size(),
+		"path_placement_active":    t.path_placement_active,
+		"path_temp_point_count":    t.path_temp_points.size(),
+	}
+
+# ============================================================================
 # PRIVATE HELPERS
 # ============================================================================
 
