@@ -194,6 +194,174 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 	return marker_id
 
 # ============================================================================
+# SHAPE PLACEMENT WITH INTERACTION MODES
+# ============================================================================
+
+## Places a virtual Shape and merges it into every overlapping existing Shape
+## marker (union of outlines).  No new marker is created.
+##
+## Returns a Dictionary on success:
+##   {
+##     "affected_markers": Array — one entry per modified marker:
+##       {
+##         "marker_id":    int,
+##         "new_polygon":  Array[Vector2] — updated outline after merge,
+##         "old_position": Vector2,
+##         "new_position": Vector2,       — midpoint between original and [position],
+##       }
+##   }
+## Returns {} on internal failure.
+## Returns {"affected_markers":[]} when no existing Shape marker overlaps [position].
+##
+## Parameters:
+##   position — world-space Vector2 centre of the virtual new shape
+##   radius   — circumradius in grid cells (default 1.0)
+##   angle    — rotation in degrees (default 0.0)
+##   sides    — number of polygon sides (default 6)
+func place_shape_merge(position: Vector2, radius: float = 1.0,
+		angle: float = 0.0, sides: int = 6) -> Dictionary:
+	if not _has_tool():
+		return {}
+	var tool = _tool()
+	var marker_data = {
+		"position":     position,
+		"marker_type":  "Shape",
+		"shape_radius": radius,
+		"shape_angle":  angle,
+		"shape_sides":  sides,
+	}
+	var result = tool.api_place_shape_merge(marker_data)
+	if LOGGER:
+		var n = result.get("affected_markers", []).size()
+		LOGGER.debug("API: place_shape_merge — merged into %d markers at %s" % [n, str(position)])
+	return result
+
+## Places a Shape marker in Conforming mode.
+## The new marker is placed with its original outline; every existing Shape
+## marker that overlaps is dented to accommodate the new one
+## (Difference applied to existing markers only).
+##
+## Returns a Dictionary on success:
+##   {
+##     "marker_id":        int,              — id of the newly placed marker
+##     "affected_markers": Array — one entry per dented existing marker:
+##       {
+##         "marker_id":   int,
+##         "new_polygon": Array[Vector2],
+##       }
+##   }
+## "marker_id" is -1 on failure (map not loaded).
+##
+## Parameters:
+##   position — world-space Vector2 centre
+##   radius   — circumradius in grid cells (default 1.0)
+##   angle    — rotation in degrees (default 0.0)
+##   sides    — number of polygon sides (default 6)
+##   color    — marker color (default active color)
+func place_shape_conforming(position: Vector2, radius: float = 1.0,
+		angle: float = 0.0, sides: int = 6, color = null) -> Dictionary:
+	if not _has_tool():
+		return {"marker_id": -1, "affected_markers": []}
+	var tool = _tool()
+	var marker_id = tool.next_id
+	var marker_data = {
+		"position":     position,
+		"marker_type":  "Shape",
+		"color":        color if color != null else tool.active_color,
+		"coordinates":  tool.show_coordinates,
+		"id":           marker_id,
+		"shape_radius": radius,
+		"shape_angle":  angle,
+		"shape_sides":  sides,
+	}
+	var result = tool.api_place_shape_conforming(marker_data)
+	if LOGGER:
+		var n = result.get("affected_markers", []).size()
+		LOGGER.debug("API: place_shape_conforming — id=%d dented %d markers" % [marker_id, n])
+	return result
+
+## Places a Shape marker in Wrapping mode.
+## The new marker is placed but its own outline is dented wherever it overlaps
+## existing Shape markers (Difference applied to the new shape only; existing
+## markers are left unchanged).
+##
+## Returns a Dictionary on success:
+##   {
+##     "marker_id":      int,            — id of the newly placed (dented) marker
+##     "dented_by":      Array[int],     — ids of existing markers that caused dents
+##     "marker_polygon": Array[Vector2], — final outline of the new marker after denting
+##   }
+## "marker_id" is -1 on failure (map not loaded).
+##
+## Parameters:
+##   position — world-space Vector2 centre
+##   radius   — circumradius in grid cells (default 1.0)
+##   angle    — rotation in degrees (default 0.0)
+##   sides    — number of polygon sides (default 6)
+##   color    — marker color (default active color)
+func place_shape_wrapping(position: Vector2, radius: float = 1.0,
+		angle: float = 0.0, sides: int = 6, color = null) -> Dictionary:
+	if not _has_tool():
+		return {"marker_id": -1, "dented_by": [], "marker_polygon": []}
+	var tool = _tool()
+	var marker_id = tool.next_id
+	var marker_data = {
+		"position":     position,
+		"marker_type":  "Shape",
+		"color":        color if color != null else tool.active_color,
+		"coordinates":  tool.show_coordinates,
+		"id":           marker_id,
+		"shape_radius": radius,
+		"shape_angle":  angle,
+		"shape_sides":  sides,
+	}
+	var result = tool.api_place_shape_wrapping(marker_data)
+	if LOGGER:
+		LOGGER.debug("API: place_shape_wrapping — id=%d dented_by=%s verts=%d" % [
+			marker_id,
+			str(result.get("dented_by", [])),
+			result.get("marker_polygon", []).size()])
+	return result
+
+## Applies a Difference operation using a virtual shape at [position].
+## No new marker is created — a hole is punched into every overlapping
+## existing Shape marker's outline.
+##
+## Returns a Dictionary:
+##   {
+##     "affected_markers": Array — one entry per modified marker:
+##       {
+##         "marker_id":   int,
+##         "new_polygon": Array[Vector2],
+##       }
+##   }
+## Returns {} on internal failure.
+## Returns {"affected_markers":[]} when no existing Shape overlaps [position].
+##
+## Parameters:
+##   position — world-space Vector2 centre of the virtual cutter shape
+##   radius   — circumradius in grid cells (default 1.0)
+##   angle    — rotation in degrees (default 0.0)
+##   sides    — number of polygon sides (default 6)
+func apply_shape_difference(position: Vector2, radius: float = 1.0,
+		angle: float = 0.0, sides: int = 6) -> Dictionary:
+	if not _has_tool():
+		return {}
+	var tool = _tool()
+	var marker_data = {
+		"position":     position,
+		"marker_type":  "Shape",
+		"shape_radius": radius,
+		"shape_angle":  angle,
+		"shape_sides":  sides,
+	}
+	var result = tool.api_apply_shape_difference(marker_data)
+	if LOGGER:
+		var n = result.get("affected_markers", []).size()
+		LOGGER.debug("API: apply_shape_difference — affected %d markers at %s" % [n, str(position)])
+	return result
+
+# ============================================================================
 # MARKER DELETION
 # ============================================================================
 

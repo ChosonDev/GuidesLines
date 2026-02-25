@@ -51,6 +51,78 @@ class PlaceMarkerRecord:
 		return "GuidesLines.PlaceMarker"
 
 
+# History record for placing a Shape marker via the API with Conforming mode.
+# Differs from PlaceMarkerRecord in that redo() re-snapshots using a stored
+# shape descriptor instead of the tool's active shape parameters, and
+# re-enables conforming_mode only for the duration of _do_place_marker.
+class PlaceMarkerConformingRecord:
+	var tool
+	var marker_data
+	var stored_desc      # shape descriptor of the placed shape (for redo snapshot)
+	var clip_snapshots = {}
+
+	func _init(tool_ref, data, p_desc, p_clip_snapshots = {}):
+		tool = tool_ref
+		marker_data = data
+		stored_desc = p_desc
+		clip_snapshots = p_clip_snapshots
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerConformingRecord created for id: %d" % [data["id"]])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerConformingRecord.redo() for id: %d" % [marker_data["id"]])
+		clip_snapshots = tool._snapshot_potential_clip_targets_by_desc(stored_desc)
+		var prev = tool.conforming_mode
+		tool.conforming_mode = true
+		tool._do_place_marker(marker_data)
+		tool.conforming_mode = prev
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerConformingRecord.undo() for id: %d" % [marker_data["id"]])
+		tool._undo_place_marker(marker_data["id"])
+		for cid in clip_snapshots:
+			if tool.markers_lookup.has(cid):
+				tool.markers_lookup[cid].set_primitives(
+					clip_snapshots[cid]["primitives"].duplicate(true))
+		if tool.overlay:
+			tool.overlay.update()
+
+	func record_type():
+		return "GuidesLines.PlaceMarkerConforming"
+
+
+# History record for placing a Shape marker via the API with Wrapping mode.
+# Differs from PlaceMarkerRecord in that redo() re-enables wrapping_mode only
+# for the duration of _do_place_marker, regardless of the tool's current flag.
+class PlaceMarkerWrappingRecord:
+	var tool
+	var marker_data
+
+	func _init(tool_ref, data):
+		tool = tool_ref
+		marker_data = data
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerWrappingRecord created for id: %d" % [data["id"]])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerWrappingRecord.redo() for id: %d" % [marker_data["id"]])
+		var prev = tool.wrapping_mode
+		tool.wrapping_mode = true
+		tool._do_place_marker(marker_data)
+		tool.wrapping_mode = prev
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("PlaceMarkerWrappingRecord.undo() for id: %d" % [marker_data["id"]])
+		tool._undo_place_marker(marker_data["id"])
+
+	func record_type():
+		return "GuidesLines.PlaceMarkerWrapping"
+
+
 # History record for deleting a single marker.
 class DeleteMarkerRecord:
 	var tool

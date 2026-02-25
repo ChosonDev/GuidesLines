@@ -265,6 +265,162 @@ func api_place_marker(marker_data: Dictionary) -> void:
 	next_id += 1
 	_record_history(GuidesLinesHistory.PlaceMarkerRecord.new(self, marker_data, clip_snaps))
 
+## Bridge: build a shape descriptor from a marker_data Dictionary without
+## touching the tool's active shape parameters.
+func _get_shape_descriptor_from_marker_data(marker_data: Dictionary) -> Dictionary:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return {}
+	var tmp = GuideMarkerClass.new()
+	tmp.position     = marker_data["position"]
+	tmp.marker_type  = MARKER_TYPE_SHAPE
+	tmp.shape_radius = marker_data.get("shape_radius", active_shape_radius)
+	tmp.shape_angle  = marker_data.get("shape_angle", 0.0)
+	tmp.shape_sides  = marker_data.get("shape_sides", DEFAULT_SHAPE_SIDES)
+	return _get_shape_descriptor(tmp, cell_size)
+
+## Bridge: snapshot clip targets using an already-built descriptor instead of
+## the tool's active shape parameters.  Semantically identical to
+## _snapshot_potential_clip_targets but decoupled from active settings.
+func _snapshot_potential_clip_targets_by_desc(new_desc: Dictionary) -> Dictionary:
+	var snap = {}
+	if new_desc.empty():
+		return snap
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return snap
+	for marker in markers:
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var other_desc = _get_shape_descriptor(marker, cell_size)
+		if _shapes_overlap(new_desc, other_desc):
+			snap[marker.id] = {
+				"primitives": marker.get_primitives().duplicate(true)
+			}
+	return snap
+
+## API bridge: Place a Shape marker with Merge mode applied.
+## Returns { "affected_markers": Array } where each entry is:
+##   { marker_id, new_polygon, old_position, new_position }
+## Returns {} on internal failure or {"affected_markers":[]} if no overlap.
+func api_place_shape_merge(marker_data: Dictionary) -> Dictionary:
+	var merge_desc = _get_shape_descriptor_from_marker_data(marker_data)
+	if merge_desc.empty():
+		return {}
+	var snap = _snapshot_potential_merge_targets(merge_desc)
+	if snap.empty():
+		return {"affected_markers": []}
+	var cell_size = _get_grid_cell_size()
+	var old_positions = {}
+	for mid in snap:
+		if markers_lookup.has(mid):
+			old_positions[mid] = markers_lookup[mid].position
+	_do_apply_merge(merge_desc, marker_data["position"])
+	_record_history(GuidesLinesHistory.MergeShapeRecord.new(
+		self, merge_desc, marker_data["position"], snap))
+	var affected = []
+	for mid in snap:
+		if not markers_lookup.has(mid):
+			continue
+		var m = markers_lookup[mid]
+		var desc = _get_shape_descriptor(m, cell_size)
+		affected.append({
+			"marker_id":    mid,
+			"new_polygon":  desc.get("points", []),
+			"old_position": old_positions.get(mid, m.position),
+			"new_position": m.position,
+		})
+	return {"affected_markers": affected}
+
+## API bridge: Place a Shape marker with Conforming mode applied.
+## Returns { "marker_id": int, "affected_markers": Array } where each entry is:
+##   { marker_id, new_polygon }
+## Returns {"marker_id":-1,"affected_markers":[]} on failure.
+func api_place_shape_conforming(marker_data: Dictionary) -> Dictionary:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return {"marker_id": -1, "affected_markers": []}
+	var new_desc   = _get_shape_descriptor_from_marker_data(marker_data)
+	var clip_snaps = _snapshot_potential_clip_targets_by_desc(new_desc)
+	var prev_conforming = conforming_mode
+	conforming_mode = true
+	_do_place_marker(marker_data)
+	next_id += 1
+	conforming_mode = prev_conforming
+	_record_history(GuidesLinesHistory.PlaceMarkerConformingRecord.new(
+		self, marker_data, new_desc, clip_snaps))
+	var affected = []
+	for mid in clip_snaps:
+		if not markers_lookup.has(mid):
+			continue
+		var m = markers_lookup[mid]
+		var desc = _get_shape_descriptor(m, cell_size)
+		affected.append({
+			"marker_id":   mid,
+			"new_polygon": desc.get("points", []),
+		})
+	return {"marker_id": marker_data["id"], "affected_markers": affected}
+
+## API bridge: Place a Shape marker with Wrapping mode applied.
+## Returns { "marker_id": int, "dented_by": Array[int], "marker_polygon": Array[Vector2] }
+## Returns {"marker_id":-1,"dented_by":[],"marker_polygon":[]} on failure.
+func api_place_shape_wrapping(marker_data: Dictionary) -> Dictionary:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return {"marker_id": -1, "dented_by": [], "marker_polygon": []}
+	# Identify which existing shapes would cause dents (pre-placement overlap check).
+	var tmp_desc = _get_shape_descriptor_from_marker_data(marker_data)
+	var dented_by_ids = []
+	if not tmp_desc.empty():
+		for m in markers:
+			if m.marker_type != MARKER_TYPE_SHAPE:
+				continue
+			var other_desc = _get_shape_descriptor(m, cell_size)
+			if not other_desc.empty() and _shapes_overlap(other_desc, tmp_desc):
+				dented_by_ids.append(m.id)
+	var prev_wrapping = wrapping_mode
+	wrapping_mode = true
+	_do_place_marker(marker_data)
+	next_id += 1
+	wrapping_mode = prev_wrapping
+	_record_history(GuidesLinesHistory.PlaceMarkerWrappingRecord.new(
+		self, marker_data))
+	var final_polygon = []
+	if markers_lookup.has(marker_data["id"]):
+		var placed = markers_lookup[marker_data["id"]]
+		var final_desc = _get_shape_descriptor(placed, cell_size)
+		final_polygon = final_desc.get("points", [])
+	return {
+		"marker_id":      marker_data["id"],
+		"dented_by":      dented_by_ids,
+		"marker_polygon": final_polygon,
+	}
+
+## API bridge: Apply Difference mode at the shape described by marker_data.
+## No new marker is created — existing Shape markers get a hole punched in them.
+## Returns { "affected_markers": Array } where each entry is:
+##   { marker_id, new_polygon }
+## Returns {} on internal failure.
+func api_apply_shape_difference(marker_data: Dictionary) -> Dictionary:
+	var diff_desc = _get_shape_descriptor_from_marker_data(marker_data)
+	if diff_desc.empty():
+		return {}
+	var cell_size = _get_grid_cell_size()
+	var snap = _take_difference_snapshot(diff_desc)
+	_do_apply_difference(diff_desc)
+	_record_history(GuidesLinesHistory.DifferenceRecord.new(self, diff_desc, snap))
+	var affected = []
+	for mid in snap:
+		if not markers_lookup.has(mid):
+			continue
+		var m = markers_lookup[mid]
+		var desc = _get_shape_descriptor(m, cell_size)
+		affected.append({
+			"marker_id":   mid,
+			"new_polygon": desc.get("points", []),
+		})
+	return {"affected_markers": affected}
+
 # Delete a marker by id from the external API (handles history recording internally)
 # Returns true if the marker was found and deleted
 func api_delete_marker_by_id(marker_id: int) -> bool:

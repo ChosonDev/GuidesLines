@@ -5,6 +5,26 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.5] - 2026-02-25
+
+### Added — Shape interaction mode API methods
+
+Four new methods in `GuidesLinesApi` expose all four Shape interaction modes programmatically, each with full undo/redo support.
+
+#### `place_shape_merge(position, radius, angle, sides) → Dictionary`
+Merges a virtual shape into every overlapping existing Shape marker (union of outlines). No new marker is created. Returns `{"affected_markers": [{marker_id, new_polygon, old_position, new_position}, …]}`. Returns `{}` on failure, `{"affected_markers": []}` if nothing overlapped.
+
+#### `place_shape_conforming(position, radius, angle, sides, color) → Dictionary`
+Places a new Shape marker normally while denting every overlapping existing Shape to accommodate it. Returns `{"marker_id": int, "affected_markers": [{marker_id, new_polygon}, …]}`. `marker_id` is `-1` on failure.
+
+#### `place_shape_wrapping(position, radius, angle, sides, color) → Dictionary`
+Places a new Shape marker whose own outline is dented by all overlapping existing shapes. Existing markers are left unchanged. Returns `{"marker_id": int, "dented_by": [int, …], "marker_polygon": [Vector2, …]}`. `marker_id` is `-1` on failure.
+
+#### `apply_shape_difference(position, radius, angle, sides) → Dictionary`
+Punches a hole into every overlapping existing Shape marker using a virtual cutter shape. No new marker is created. Returns `{"affected_markers": [{marker_id, new_polygon}, …]}`. Returns `{}` on failure, `{"affected_markers": []}` if nothing overlapped.
+
+---
+
 ## [2.2.4] - 2026-02-24
 
 ### Added — Shape preview API and tool-state query
