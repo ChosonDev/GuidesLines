@@ -5,6 +5,22 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6] - 2026-02-25
+
+### Fixed — Merge mode now produces a single unified marker
+
+Previously, when a Merge placement overlapped multiple existing Shape markers, each marker was merged independently with the virtual shape — resulting in several separately updated markers instead of one combined outline.
+
+**New behaviour:** all overlapping Shape markers are folded into a single union polygon in one pass. Only the first overlapping marker is kept (the *primary*); all others are removed. The primary receives the full union outline and a position averaged across all participants. Undo correctly restores every absorbed marker.
+
+- `_do_apply_merge` rebuilt to iterate all overlapping markers and chain their polygons via `GeometryUtils.chain_segments_to_polygon`, then write the result to the primary marker only.
+- Absorbed marker IDs are now passed to `MergeShapeRecord` and stored as `absorbed_ids`.
+- `MergeShapeRecord.undo()` re-creates every absorbed marker from its snapshot (`primitives`, `position`, `color`).
+- `_snapshot_potential_merge_targets` now includes `color` in each snapshot entry.
+- `api_place_shape_merge` updated accordingly; `affected_markers` in the response now contains only the surviving primary marker.
+
+---
+
 ## [2.2.5] - 2026-02-25
 
 ### Added — Shape interaction mode API methods

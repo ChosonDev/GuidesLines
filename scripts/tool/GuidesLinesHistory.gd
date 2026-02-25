@@ -200,22 +200,28 @@ class DifferenceRecord:
 # History record for a Merge operation.
 # Merge does NOT create a new marker — instead existing Shape markers that overlap
 # the placed shape have their primitives and position updated.
-# undo() restores each affected marker to its pre-merge state.
+# When multiple markers overlap, all are folded into a single primary marker and
+# the rest are deleted.  absorbed_ids holds the IDs of those deleted markers.
+# undo() restores the primary marker AND re-creates every absorbed marker.
 # redo() re-applies _do_apply_merge() with the stored descriptor + center.
 class MergeShapeRecord:
 	var tool
 	var merge_desc   # { shape_type, points } descriptor of the virtual new shape
 	var new_pos      # Vector2 — center of the placed (virtual) shape
-	# { marker_id: { "primitives": [...], "position": Vector2 } }
+	# { marker_id: { "primitives": [...], "position": Vector2, "color": Color } }
 	var snapshots
+	# IDs of markers absorbed (deleted) during the merge — all except the primary.
+	var absorbed_ids: Array
 
-	func _init(tool_ref, p_desc, p_pos, p_snapshots):
+	func _init(tool_ref, p_desc, p_pos, p_snapshots, p_absorbed_ids = []):
 		tool = tool_ref
 		merge_desc = p_desc
 		new_pos = p_pos
 		snapshots = p_snapshots
+		absorbed_ids = p_absorbed_ids
 		if tool.LOGGER:
-			tool.LOGGER.debug("MergeShapeRecord created at %s" % [str(p_pos)])
+			tool.LOGGER.debug("MergeShapeRecord created at %s, absorbed: %s" % [
+					str(p_pos), str(absorbed_ids)])
 
 	func redo():
 		if tool.LOGGER:
@@ -224,12 +230,37 @@ class MergeShapeRecord:
 
 	func undo():
 		if tool.LOGGER:
-			tool.LOGGER.debug("MergeShapeRecord.undo() called — restoring %d markers" % [snapshots.size()])
+			tool.LOGGER.debug("MergeShapeRecord.undo() — restoring %d markers, re-creating %d absorbed" % [
+					snapshots.size(), absorbed_ids.size()])
+
+		# Restore every marker that still exists (the primary survivor).
 		for id in snapshots:
+			if absorbed_ids.has(id):
+				continue  # handled below via re-creation
 			if tool.markers_lookup.has(id):
 				var m = tool.markers_lookup[id]
 				m.set_primitives(snapshots[id]["primitives"].duplicate(true))
 				m.position = snapshots[id]["position"]
+
+		# Re-create every marker that was absorbed (deleted) during the merge.
+		for id in absorbed_ids:
+			if tool.markers_lookup.has(id):
+				continue  # already present (shouldn't happen)
+			var snap = snapshots.get(id)
+			if snap == null:
+				continue
+			var marker = tool.GuideMarkerClass.new()
+			marker.id           = id
+			marker.marker_type  = tool.MARKER_TYPE_SHAPE
+			marker.position     = snap["position"]
+			marker.color        = snap.get("color", Color(0, 0.7, 1, 1))
+			marker.update_opacity(tool._current_opacity())
+			marker.set_primitives(snap["primitives"].duplicate(true))
+			tool.markers.append(marker)
+			tool.markers_lookup[id] = marker
+			if tool.LOGGER:
+				tool.LOGGER.debug("MergeShapeRecord.undo() — restored absorbed marker id=%d" % id)
+
 		if tool.overlay:
 			tool.overlay.update()
 

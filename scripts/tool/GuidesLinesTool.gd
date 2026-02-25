@@ -201,8 +201,9 @@ func place_marker(pos):
 		if merge_snap.empty():
 			# No overlapping shapes — nothing to merge, do nothing.
 			return
-		_do_apply_merge(merge_desc, final_pos_merge)
-		_record_history(GuidesLinesHistory.MergeShapeRecord.new(self, merge_desc, final_pos_merge, merge_snap))
+		var merge_absorbed = _do_apply_merge(merge_desc, final_pos_merge)
+		_record_history(GuidesLinesHistory.MergeShapeRecord.new(
+				self, merge_desc, final_pos_merge, merge_snap, merge_absorbed))
 		return
 
 	# Apply grid snapping if enabled globally
@@ -315,13 +316,14 @@ func api_place_shape_merge(marker_data: Dictionary) -> Dictionary:
 	for mid in snap:
 		if markers_lookup.has(mid):
 			old_positions[mid] = markers_lookup[mid].position
-	_do_apply_merge(merge_desc, marker_data["position"])
+	var merge_absorbed = _do_apply_merge(merge_desc, marker_data["position"])
 	_record_history(GuidesLinesHistory.MergeShapeRecord.new(
-		self, merge_desc, marker_data["position"], snap))
+		self, merge_desc, marker_data["position"], snap, merge_absorbed))
+	# Build the result: the primary survivor + any still-live markers from snap.
 	var affected = []
 	for mid in snap:
 		if not markers_lookup.has(mid):
-			continue
+			continue  # absorbed marker — omit from result
 		var m = markers_lookup[mid]
 		var desc = _get_shape_descriptor(m, cell_size)
 		affected.append({
@@ -946,41 +948,95 @@ func _snapshot_potential_merge_targets(merge_desc: Dictionary) -> Dictionary:
 		if _shapes_overlap(merge_desc, other_desc):
 			snap[marker.id] = {
 				"primitives": marker.get_primitives().duplicate(true),
-				"position": marker.position
+				"position":   marker.position,
+				"color":      marker.color
 			}
 	return snap
 
-## Merge [merge_desc] (the virtual new shape at [new_pos]) into every overlapping
-## existing Shape marker.  For each such marker A:
-##   - The outline becomes the union of A's polygon and merge_desc's polygon.
-##   - A's position moves to the midpoint between its old position and new_pos.
-## No new marker is created; the placed shape is only represented by the change
-## in existing markers.
-func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2):
+## Merge [merge_desc] (the virtual new shape at [new_pos]) into ALL overlapping
+## existing Shape markers simultaneously, producing ONE unified marker.
+##
+## Algorithm:
+##   1. Collect every Shape marker that overlaps merge_desc.
+##   2. Iteratively fold each one's polygon into a running union polygon,
+##      starting from merge_desc's own points.
+##   3. Write the final union outline back to the FIRST overlapping marker.
+##   4. Remove all other overlapping markers from [markers] and [markers_lookup].
+##
+## Returns an Array of the IDs of every marker that was absorbed (deleted) —
+## i.e. all overlapping markers except the primary one.
+## The primary marker's ID is NOT included in the returned list.
+## Returns [] when there is nothing to merge or on internal failure.
+func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 	if merge_desc.empty():
-		return
+		return []
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null:
-		return
+		return []
+
+	# ── 1. Collect all Shape markers that overlap merge_desc ─────────────────
+	var overlapping = []
 	for marker in markers:
 		if marker.marker_type != MARKER_TYPE_SHAPE:
 			continue
-		var other_desc = _get_shape_descriptor(marker, cell_size)
-		if other_desc.empty():
+		var desc = _get_shape_descriptor(marker, cell_size)
+		if desc.empty():
 			continue
-		if not _shapes_overlap(other_desc, merge_desc):
+		if _shapes_overlap(desc, merge_desc):
+			overlapping.append(marker)
+
+	if overlapping.empty():
+		return []
+
+	# ── 2. Build one unified polygon from virtual shape + all overlapping markers ─
+	# Start with the virtual (placed) shape's points.
+	var running_pts: Array = merge_desc.points.duplicate()
+	# Weighted-average centre: start from the virtual shape's centre.
+	var center_sum: Vector2 = new_pos
+	var center_count: int = 1
+
+	for marker in overlapping:
+		var desc = _get_shape_descriptor(marker, cell_size)
+		if desc.empty():
 			continue
-		var merged_segs = GeometryUtils.merge_polygons_outline(
-			other_desc.points, merge_desc.points)
+		center_sum += marker.position
+		center_count += 1
+		var merged_segs = GeometryUtils.merge_polygons_outline(running_pts, desc.points)
 		if merged_segs.empty():
+			# Shouldn't happen (we verified overlap) but be defensive.
 			continue
-		marker.set_primitives(merged_segs)
-		marker.position = (marker.position + new_pos) * 0.5
+		var chained = GeometryUtils.chain_segments_to_polygon(merged_segs)
+		if chained.empty():
+			# Fallback: keep previous running polygon.
+			continue
+		running_pts = chained
+
+	# ── 3. Write the final outline and position to the primary marker ─────────
+	var final_segs = GeometryUtils.points_to_segs(running_pts)
+	var final_pos  = center_sum / float(center_count)
+
+	var primary = overlapping[0]
+	primary.set_primitives(final_segs)
+	primary.position = final_pos
+	if LOGGER:
+		LOGGER.debug("Merge: primary marker %d updated, pos %s" % [primary.id, str(final_pos)])
+
+	# ── 4. Remove all other overlapping markers ───────────────────────────────
+	var absorbed_ids: Array = []
+	for i in range(1, overlapping.size()):
+		var m = overlapping[i]
+		absorbed_ids.append(m.id)
+		var idx = markers.find(m)
+		if idx != -1:
+			markers.remove(idx)
+		markers_lookup.erase(m.id)
 		if LOGGER:
-			LOGGER.debug("Merge: marker %d outline updated, new position %s" % [
-				marker.id, str(marker.position)])
+			LOGGER.debug("Merge: marker %d absorbed into marker %d" % [m.id, primary.id])
+
 	if overlay:
 		overlay.update()
+
+	return absorbed_ids
 
 # ============================================================================
 # DIFFERENCE MODE CORE
