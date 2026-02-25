@@ -5,6 +5,25 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.7] - 2026-02-25
+
+### Fixed — `place_shape_merge` now reports absorbed marker IDs
+
+`api_place_shape_merge` (and the public `GuidesLinesApi.place_shape_merge`) previously silently discarded the IDs of markers that were deleted during a multi-marker merge. External mods had no way to know which IDs were removed.
+
+The response dictionary now includes `absorbed_marker_ids: Array[int]`:
+
+```gdscript
+{
+  "affected_markers":    [ { "marker_id": 1, "new_polygon": [...], ... } ],
+  "absorbed_marker_ids": [ 2, 3 ]   # IDs of markers deleted during merge
+}
+```
+
+`absorbed_marker_ids` is empty when only one Shape marker overlapped (no deletion occurred). The `{}` failure case and the no-overlap early-return now also consistently carry `absorbed_marker_ids: []`.
+
+---
+
 ## [2.2.6] - 2026-02-25
 
 ### Fixed — Merge mode now produces a single unified marker

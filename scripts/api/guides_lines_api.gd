@@ -199,19 +199,23 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 
 ## Places a virtual Shape and merges it into every overlapping existing Shape
 ## marker (union of outlines).  No new marker is created.
+## All overlapping markers are folded into a single primary marker; the rest
+## are deleted and their IDs returned in "absorbed_marker_ids".
 ##
 ## Returns a Dictionary on success:
 ##   {
-##     "affected_markers": Array — one entry per modified marker:
+##     "affected_markers": Array — one entry for the surviving primary marker:
 ##       {
 ##         "marker_id":    int,
-##         "new_polygon":  Array[Vector2] — updated outline after merge,
+##         "new_polygon":  Array[Vector2] — full union outline,
 ##         "old_position": Vector2,
-##         "new_position": Vector2,       — midpoint between original and [position],
+##         "new_position": Vector2,       — average of all participants,
 ##       }
+##     "absorbed_marker_ids": Array[int] — IDs of markers that were deleted
+##                              during the merge (empty if only one overlap)
 ##   }
 ## Returns {} on internal failure.
-## Returns {"affected_markers":[]} when no existing Shape marker overlaps [position].
+## Returns {"affected_markers":[], "absorbed_marker_ids":[]} when no overlap.
 ##
 ## Parameters:
 ##   position — world-space Vector2 centre of the virtual new shape
@@ -232,8 +236,8 @@ func place_shape_merge(position: Vector2, radius: float = 1.0,
 	}
 	var result = tool.api_place_shape_merge(marker_data)
 	if LOGGER:
-		var n = result.get("affected_markers", []).size()
-		LOGGER.debug("API: place_shape_merge — merged into %d markers at %s" % [n, str(position)])
+		var absorbed = result.get("absorbed_marker_ids", [])
+		LOGGER.debug("API: place_shape_merge at %s — absorbed %d markers" % [str(position), absorbed.size()])
 	return result
 
 ## Places a Shape marker in Conforming mode.

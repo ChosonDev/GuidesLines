@@ -301,16 +301,21 @@ func _snapshot_potential_clip_targets_by_desc(new_desc: Dictionary) -> Dictionar
 	return snap
 
 ## API bridge: Place a Shape marker with Merge mode applied.
-## Returns { "affected_markers": Array } where each entry is:
-##   { marker_id, new_polygon, old_position, new_position }
-## Returns {} on internal failure or {"affected_markers":[]} if no overlap.
+## Returns:
+##   {
+##     "affected_markers":    Array — one entry for the surviving primary marker:
+##                              { marker_id, new_polygon, old_position, new_position }
+##     "absorbed_marker_ids": Array[int] — IDs of every marker that was absorbed
+##                              and deleted during the merge (empty if only one overlap)
+##   }
+## Returns {} on internal failure or {"affected_markers":[], "absorbed_marker_ids":[]} if no overlap.
 func api_place_shape_merge(marker_data: Dictionary) -> Dictionary:
 	var merge_desc = _get_shape_descriptor_from_marker_data(marker_data)
 	if merge_desc.empty():
 		return {}
 	var snap = _snapshot_potential_merge_targets(merge_desc)
 	if snap.empty():
-		return {"affected_markers": []}
+		return {"affected_markers": [], "absorbed_marker_ids": []}
 	var cell_size = _get_grid_cell_size()
 	var old_positions = {}
 	for mid in snap:
@@ -332,7 +337,10 @@ func api_place_shape_merge(marker_data: Dictionary) -> Dictionary:
 			"old_position": old_positions.get(mid, m.position),
 			"new_position": m.position,
 		})
-	return {"affected_markers": affected}
+	return {
+		"affected_markers":    affected,
+		"absorbed_marker_ids": merge_absorbed,
+	}
 
 ## API bridge: Place a Shape marker with Conforming mode applied.
 ## Returns { "marker_id": int, "affected_markers": Array } where each entry is:
