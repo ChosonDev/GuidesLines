@@ -198,13 +198,12 @@ func place_marker(pos):
 		if merge_desc.empty():
 			return
 		var merge_snap = _snapshot_potential_merge_targets(merge_desc)
-		if merge_snap.empty():
-			# No overlapping shapes — nothing to merge, do nothing.
+		if not merge_snap.empty():
+			var merge_absorbed = _do_apply_merge(merge_desc, final_pos_merge)
+			_record_history(GuidesLinesHistory.MergeShapeRecord.new(
+					self, merge_desc, final_pos_merge, merge_snap, merge_absorbed))
 			return
-		var merge_absorbed = _do_apply_merge(merge_desc, final_pos_merge)
-		_record_history(GuidesLinesHistory.MergeShapeRecord.new(
-				self, merge_desc, final_pos_merge, merge_snap, merge_absorbed))
-		return
+		# No overlapping shapes — fall through to normal marker placement.
 
 	# Apply grid snapping if enabled globally
 	var final_pos = pos
@@ -369,7 +368,16 @@ func api_place_shape_conforming(marker_data: Dictionary) -> Dictionary:
 			"marker_id":   mid,
 			"new_polygon": desc.get("points", []),
 		})
-	return {"marker_id": marker_data["id"], "affected_markers": affected}
+	var new_marker_polygon = []
+	if markers_lookup.has(marker_data["id"]):
+		var placed = markers_lookup[marker_data["id"]]
+		var placed_desc = _get_shape_descriptor(placed, cell_size)
+		new_marker_polygon = placed_desc.get("points", [])
+	return {
+		"marker_id":      marker_data["id"],
+		"marker_polygon": new_marker_polygon,
+		"affected_markers": affected,
+	}
 
 ## API bridge: Place a Shape marker with Wrapping mode applied.
 ## Returns { "marker_id": int, "dented_by": Array[int], "marker_polygon": Array[Vector2] }

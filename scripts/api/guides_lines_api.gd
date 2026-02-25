@@ -248,6 +248,7 @@ func place_shape_merge(position: Vector2, radius: float = 1.0,
 ## Returns a Dictionary on success:
 ##   {
 ##     "marker_id":        int,              — id of the newly placed marker
+##     "marker_polygon":   Array[Vector2],   — final outline of the new marker
 ##     "affected_markers": Array — one entry per dented existing marker:
 ##       {
 ##         "marker_id":   int,
@@ -265,7 +266,7 @@ func place_shape_merge(position: Vector2, radius: float = 1.0,
 func place_shape_conforming(position: Vector2, radius: float = 1.0,
 		angle: float = 0.0, sides: int = 6, color = null) -> Dictionary:
 	if not _has_tool():
-		return {"marker_id": -1, "affected_markers": []}
+		return {"marker_id": -1, "marker_polygon": [], "affected_markers": []}
 	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
@@ -291,9 +292,13 @@ func place_shape_conforming(position: Vector2, radius: float = 1.0,
 ##
 ## Returns a Dictionary on success:
 ##   {
-##     "marker_id":      int,            — id of the newly placed (dented) marker
-##     "dented_by":      Array[int],     — ids of existing markers that caused dents
-##     "marker_polygon": Array[Vector2], — final outline of the new marker after denting
+##     "marker_id":        int,            — id of the newly placed (dented) marker
+##     "marker_polygon":   Array[Vector2], — final outline of the new marker after denting
+##     "affected_markers": Array — one entry per marker that caused a dent:
+##       {
+##         "marker_id":   int,
+##         "new_polygon": Array[Vector2],  — polygon of that marker (unchanged)
+##       }
 ##   }
 ## "marker_id" is -1 on failure (map not loaded).
 ##
@@ -306,7 +311,7 @@ func place_shape_conforming(position: Vector2, radius: float = 1.0,
 func place_shape_wrapping(position: Vector2, radius: float = 1.0,
 		angle: float = 0.0, sides: int = 6, color = null) -> Dictionary:
 	if not _has_tool():
-		return {"marker_id": -1, "dented_by": [], "marker_polygon": []}
+		return {"marker_id": -1, "marker_polygon": [], "affected_markers": []}
 	var tool = _tool()
 	var marker_id = tool.next_id
 	var marker_data = {
@@ -321,10 +326,10 @@ func place_shape_wrapping(position: Vector2, radius: float = 1.0,
 	}
 	var result = tool.api_place_shape_wrapping(marker_data)
 	if LOGGER:
-		LOGGER.debug("API: place_shape_wrapping — id=%d dented_by=%s verts=%d" % [
+		LOGGER.debug("API: place_shape_wrapping — id=%d verts=%d affected=%d" % [
 			marker_id,
-			str(result.get("dented_by", [])),
-			result.get("marker_polygon", []).size()])
+			result.get("marker_polygon", []).size(),
+			result.get("affected_markers", []).size()])
 	return result
 
 ## Applies a Difference operation using a virtual shape at [position].

@@ -5,6 +5,44 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.8] - 2026-02-26
+
+### Fixed — `place_shape_conforming` and `place_shape_wrapping` now return full polygon data
+
+Both methods previously returned incomplete data for the new marker and the markers affected during placement.
+
+- **`place_shape_conforming`** — response now includes `marker_polygon: Array[Vector2]`, the final outline of the newly placed marker.
+- **`place_shape_wrapping`** — `dented_by: Array[int]` (IDs only) replaced by `affected_markers: Array[{marker_id, new_polygon}]`, matching the structure used by all other shape interaction methods. The legacy `dented_by` field is removed.
+
+Both methods now return a consistent structure:
+```gdscript
+{
+  "marker_id":        int,
+  "marker_polygon":   Array[Vector2],
+  "affected_markers": [ { "marker_id": int, "new_polygon": Array[Vector2] }, ... ]
+}
+```
+
+### Changed — Merge mode falls back to normal placement when no shapes overlap
+
+Previously, clicking in Merge mode with no overlapping Shape markers did nothing. Now the marker is placed normally (as if no interaction mode were active), matching the intuitive expectation that a click always produces a marker.
+
+### Added — Icons for Shape interaction mode checkboxes
+
+Four 64×64 PNG icons are now displayed on the Merge, Conforming, Wrapping, and Difference `CheckButton` controls in the Shape settings panel.
+
+- `icons/merge64.png`
+- `icons/conforming64.png`
+- `icons/wrapping64.png`
+- `icons/difference64.png`
+
+#### Files changed
+- **`scripts/tool/GuidesLinesTool.gd`** — `api_place_shape_conforming` reads the placed marker's descriptor and adds `marker_polygon` to the return dict; `api_place_shape_wrapping` snapshots overlapping marker polygons before placement and returns them as `affected_markers`; Merge branch in `place_marker()` falls through to normal placement when no targets are found.
+- **`scripts/api/guides_lines_api.gd`** — error-return dicts, docstrings, and logger messages updated for both methods.
+- **`scripts/tool/GuidesLinesToolUI.gd`** — `_create_shape_settings_ui()` loads and applies icons to the four mode checkboxes via `add_icon_override`; added `_load_icon(filename)` helper.
+
+---
+
 ## [2.2.7] - 2026-02-25
 
 ### Fixed — `place_shape_merge` now reports absorbed marker IDs

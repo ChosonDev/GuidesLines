@@ -343,6 +343,9 @@ func _create_shape_settings_ui():
 	merge_check.name = "MergeIntersectingShapesCheckbox"
 	merge_check.hint_tooltip = "New shape is merged (union) into any intersecting existing shapes"
 	merge_check.connect("toggled", self, "_on_merge_shapes_toggled")
+	var merge_icon = _load_icon("merge64.png")
+	if merge_icon:
+		merge_check.add_icon_override("icon", merge_icon)
 	container.add_child(merge_check)
 
 	# Conforming Mode toggle
@@ -352,6 +355,9 @@ func _create_shape_settings_ui():
 	conforming_check.name = "ConformingModeCheckbox"
 	conforming_check.hint_tooltip = "New shape dents the outlines of existing shapes (difference applied to existing)"
 	conforming_check.connect("toggled", self, "_on_conforming_mode_toggled")
+	var conforming_icon = _load_icon("conforming64.png")
+	if conforming_icon:
+		conforming_check.add_icon_override("icon", conforming_icon)
 	container.add_child(conforming_check)
 
 	# Wrapping Mode toggle
@@ -361,6 +367,9 @@ func _create_shape_settings_ui():
 	wrapping_check.name = "WrappingModeCheckbox"
 	wrapping_check.hint_tooltip = "New shape is dented by existing shapes' outlines (difference applied to new shape)"
 	wrapping_check.connect("toggled", self, "_on_wrapping_mode_toggled")
+	var wrapping_icon = _load_icon("wrapping64.png")
+	if wrapping_icon:
+		wrapping_check.add_icon_override("icon", wrapping_icon)
 	container.add_child(wrapping_check)
 
 	# Difference Mode toggle
@@ -370,6 +379,9 @@ func _create_shape_settings_ui():
 	diff_check.name = "DifferenceModeCheckbox"
 	diff_check.hint_tooltip = "Fills the overlapping area into existing shapes without placing a new shape"
 	diff_check.connect("toggled", self, "_on_difference_mode_toggled")
+	var difference_icon = _load_icon("difference64.png")
+	if difference_icon:
+		diff_check.add_icon_override("icon", difference_icon)
 	container.add_child(diff_check)
 
 	return container
@@ -1060,3 +1072,14 @@ func _set_shape_checkbox(node_name: String, value: bool) -> void:
 		btn.set_block_signals(true)
 		btn.pressed = value
 		btn.set_block_signals(false)
+
+# Helper: load a Texture from icons/ folder relative to the mod root.
+# Returns null if the file cannot be read (silently skips icon).
+func _load_icon(filename: String):
+	var path = tool.parent_mod.Global.Root + "icons/" + filename
+	var image = Image.new()
+	if image.load(path) != OK:
+		return null
+	var texture = ImageTexture.new()
+	texture.create_from_image(image, 0)
+	return texture
