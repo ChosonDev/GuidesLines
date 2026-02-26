@@ -5,6 +5,33 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.9] - 2026-02-26
+
+### Changed — Shape interaction modes UI redesigned with icon-only buttons
+
+The Shape interaction mode controls (Merge, Conforming, Wrapping, Difference) have been replaced from checkboxes to toggle buttons with icons arranged in a horizontal row. A new **Normal Mode** button has been added as the default state when no interaction mode is active.
+
+- All 5 mode buttons (Normal, Merge, Conforming, Wrapping, Difference) are now displayed in a single row
+- Buttons use icon-only display with tooltips for mode descriptions
+- Icons are scaled to 50% (32×32) for better visual fit in the panel
+- Only one mode can be active at a time; clicking a button automatically deactivates others
+- New icon added: `icons/normal64.png`
+
+### Fixed — `place_shape_merge` no longer produces degenerate polygons with identical shapes
+
+`place_shape_merge` previously created corrupted/degenerate polygons when attempting to merge a virtual shape with identical parameters (position, radius, angle, sides) onto an existing marker.
+
+- Added early detection: when the virtual shape is nearly identical to a single existing marker (same vertex count, position within 1px), the merge is skipped and the existing marker remains unchanged.
+- Added validation: if the merge result has fewer than 3 vertices (degenerate polygon), the operation is aborted and the original marker is preserved.
+- Returns `{"affected_markers": [], "absorbed_marker_ids": []}` when no actual merge is performed.
+
+#### Files changed
+- **`scripts/tool/GuidesLinesToolUI.gd`** — `_create_shape_settings_ui()` redesigned with icon buttons; `_load_icon()` now supports scaling parameter.
+- **`scripts/tool/GuidesLinesTool.gd`** — `_do_apply_merge()` validates shape identity before merging; validates vertex count after merging.
+- **`scripts/api/guides_lines_api.gd`** — `place_shape_merge()` docstring updated to clarify behavior with identical shapes.
+
+---
+
 ## [2.2.8] - 2026-02-26
 
 ### Fixed — `place_shape_conforming` and `place_shape_wrapping` now return full polygon data

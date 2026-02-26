@@ -336,53 +336,82 @@ func _create_shape_settings_ui():
 
 	container.add_child(_create_spacer(10))
 
-	# Merge Intersecting Shapes toggle
-	var merge_check = CheckButton.new()
-	merge_check.text = "Merge Intersecting Shapes"
-	merge_check.pressed = tool.merge_shapes
-	merge_check.name = "MergeIntersectingShapesCheckbox"
-	merge_check.hint_tooltip = "New shape is merged (union) into any intersecting existing shapes"
-	merge_check.connect("toggled", self, "_on_merge_shapes_toggled")
-	var merge_icon = _load_icon("merge64.png")
+	# Shape Interaction Modes - Row of icon buttons
+	var modes_label = Label.new()
+	modes_label.text = "Overlap Mode:"
+	container.add_child(modes_label)
+	container.add_child(_create_spacer(5))
+
+	var modes_hbox = HBoxContainer.new()
+	modes_hbox.name = "ShapeModesRow"
+	modes_hbox.alignment = BoxContainer.ALIGN_CENTER
+
+	# Normal Mode button (default)
+	var normal_btn = Button.new()
+	normal_btn.name = "NormalModeButton"
+	normal_btn.toggle_mode = true
+	normal_btn.pressed = not (tool.merge_shapes or tool.conforming_mode or tool.wrapping_mode or tool.difference_mode)
+	normal_btn.hint_tooltip = "Normal Mode - place shapes without interaction"
+	normal_btn.rect_min_size = Vector2(48, 48)
+	var normal_icon = _load_icon("normal64.png", 0.5)
+	if normal_icon:
+		normal_btn.icon = normal_icon
+	normal_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["normal"])
+	modes_hbox.add_child(normal_btn)
+
+	# Merge Mode button
+	var merge_btn = Button.new()
+	merge_btn.name = "MergeModeButton"
+	merge_btn.toggle_mode = true
+	merge_btn.pressed = tool.merge_shapes
+	merge_btn.hint_tooltip = "Merge Mode - new shape is merged (union) into any intersecting existing shapes"
+	merge_btn.rect_min_size = Vector2(48, 48)
+	var merge_icon = _load_icon("merge64.png", 0.5)
 	if merge_icon:
-		merge_check.add_icon_override("icon", merge_icon)
-	container.add_child(merge_check)
+		merge_btn.icon = merge_icon
+	merge_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["merge"])
+	modes_hbox.add_child(merge_btn)
 
-	# Conforming Mode toggle
-	var conforming_check = CheckButton.new()
-	conforming_check.text = "Conforming Mode"
-	conforming_check.pressed = tool.conforming_mode
-	conforming_check.name = "ConformingModeCheckbox"
-	conforming_check.hint_tooltip = "New shape dents the outlines of existing shapes (difference applied to existing)"
-	conforming_check.connect("toggled", self, "_on_conforming_mode_toggled")
-	var conforming_icon = _load_icon("conforming64.png")
+	# Conforming Mode button
+	var conforming_btn = Button.new()
+	conforming_btn.name = "ConformingModeButton"
+	conforming_btn.toggle_mode = true
+	conforming_btn.pressed = tool.conforming_mode
+	conforming_btn.hint_tooltip = "Conforming Mode - new shape dents the outlines of existing shapes (difference applied to existing)"
+	conforming_btn.rect_min_size = Vector2(48, 48)
+	var conforming_icon = _load_icon("conforming64.png", 0.5)
 	if conforming_icon:
-		conforming_check.add_icon_override("icon", conforming_icon)
-	container.add_child(conforming_check)
+		conforming_btn.icon = conforming_icon
+	conforming_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["conforming"])
+	modes_hbox.add_child(conforming_btn)
 
-	# Wrapping Mode toggle
-	var wrapping_check = CheckButton.new()
-	wrapping_check.text = "Wrapping Mode"
-	wrapping_check.pressed = tool.wrapping_mode
-	wrapping_check.name = "WrappingModeCheckbox"
-	wrapping_check.hint_tooltip = "New shape is dented by existing shapes' outlines (difference applied to new shape)"
-	wrapping_check.connect("toggled", self, "_on_wrapping_mode_toggled")
-	var wrapping_icon = _load_icon("wrapping64.png")
+	# Wrapping Mode button
+	var wrapping_btn = Button.new()
+	wrapping_btn.name = "WrappingModeButton"
+	wrapping_btn.toggle_mode = true
+	wrapping_btn.pressed = tool.wrapping_mode
+	wrapping_btn.hint_tooltip = "Wrapping Mode - new shape is dented by existing shapes' outlines (difference applied to new shape)"
+	wrapping_btn.rect_min_size = Vector2(48, 48)
+	var wrapping_icon = _load_icon("wrapping64.png", 0.5)
 	if wrapping_icon:
-		wrapping_check.add_icon_override("icon", wrapping_icon)
-	container.add_child(wrapping_check)
+		wrapping_btn.icon = wrapping_icon
+	wrapping_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["wrapping"])
+	modes_hbox.add_child(wrapping_btn)
 
-	# Difference Mode toggle
-	var diff_check = CheckButton.new()
-	diff_check.text = "Difference Mode"
-	diff_check.pressed = tool.difference_mode
-	diff_check.name = "DifferenceModeCheckbox"
-	diff_check.hint_tooltip = "Fills the overlapping area into existing shapes without placing a new shape"
-	diff_check.connect("toggled", self, "_on_difference_mode_toggled")
-	var difference_icon = _load_icon("difference64.png")
+	# Difference Mode button
+	var diff_btn = Button.new()
+	diff_btn.name = "DifferenceModeButton"
+	diff_btn.toggle_mode = true
+	diff_btn.pressed = tool.difference_mode
+	diff_btn.hint_tooltip = "Difference Mode - fills the overlapping area into existing shapes without placing a new shape"
+	diff_btn.rect_min_size = Vector2(48, 48)
+	var difference_icon = _load_icon("difference64.png", 0.5)
 	if difference_icon:
-		diff_check.add_icon_override("icon", difference_icon)
-	container.add_child(diff_check)
+		diff_btn.icon = difference_icon
+	diff_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["difference"])
+	modes_hbox.add_child(diff_btn)
+
+	container.add_child(modes_hbox)
 
 	return container
 
@@ -675,69 +704,57 @@ func _on_shape_sides_changed(value):
 	if tool.LOGGER:
 		tool.LOGGER.debug("Shape sides changed to: %d" % [tool.active_shape_sides])
 
-func _on_merge_shapes_toggled(enabled):
-	tool.merge_shapes = enabled
-	# Only one clip mode can be active at a time
-	if enabled:
-		if tool.conforming_mode:
-			tool.conforming_mode = false
-			_set_shape_checkbox("ConformingModeCheckbox", false)
-		if tool.wrapping_mode:
-			tool.wrapping_mode = false
-			_set_shape_checkbox("WrappingModeCheckbox", false)
-		if tool.difference_mode:
-			tool.difference_mode = false
-			_set_shape_checkbox("DifferenceModeCheckbox", false)
-	if tool.LOGGER:
-		tool.LOGGER.info("Merge Intersecting Shapes: %s" % ["ON" if enabled else "OFF"])
+# Unified callback for shape interaction mode button presses
+func _on_shape_mode_button_pressed(mode: String):
+	# Set all modes to false first
+	tool.merge_shapes = false
+	tool.conforming_mode = false
+	tool.wrapping_mode = false
+	tool.difference_mode = false
 
-func _on_conforming_mode_toggled(enabled):
-	tool.conforming_mode = enabled
-	# Only one clip mode can be active at a time
-	if enabled:
-		if tool.merge_shapes:
-			tool.merge_shapes = false
-			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
-		if tool.wrapping_mode:
-			tool.wrapping_mode = false
-			_set_shape_checkbox("WrappingModeCheckbox", false)
-		if tool.difference_mode:
-			tool.difference_mode = false
-			_set_shape_checkbox("DifferenceModeCheckbox", false)
-	if tool.LOGGER:
-		tool.LOGGER.info("Conforming Mode: %s" % ["ON" if enabled else "OFF"])
+	# Activate the selected mode (normal means all stay false)
+	match mode:
+		"merge":
+			tool.merge_shapes = true
+		"conforming":
+			tool.conforming_mode = true
+		"wrapping":
+			tool.wrapping_mode = true
+		"difference":
+			tool.difference_mode = true
+		"normal":
+			pass  # All modes already false
 
-func _on_wrapping_mode_toggled(enabled):
-	tool.wrapping_mode = enabled
-	# Only one clip mode can be active at a time
-	if enabled:
-		if tool.merge_shapes:
-			tool.merge_shapes = false
-			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
-		if tool.conforming_mode:
-			tool.conforming_mode = false
-			_set_shape_checkbox("ConformingModeCheckbox", false)
-		if tool.difference_mode:
-			tool.difference_mode = false
-			_set_shape_checkbox("DifferenceModeCheckbox", false)
-	if tool.LOGGER:
-		tool.LOGGER.info("Wrapping Mode: %s" % ["ON" if enabled else "OFF"])
+	# Update button pressed states
+	_update_shape_mode_buttons(mode)
 
-func _on_difference_mode_toggled(enabled):
-	tool.difference_mode = enabled
-	# Only one mode can be active at a time
-	if enabled:
-		if tool.merge_shapes:
-			tool.merge_shapes = false
-			_set_shape_checkbox("MergeIntersectingShapesCheckbox", false)
-		if tool.conforming_mode:
-			tool.conforming_mode = false
-			_set_shape_checkbox("ConformingModeCheckbox", false)
-		if tool.wrapping_mode:
-			tool.wrapping_mode = false
-			_set_shape_checkbox("WrappingModeCheckbox", false)
 	if tool.LOGGER:
-		tool.LOGGER.info("Difference Mode: %s" % ["ON" if enabled else "OFF"])
+		tool.LOGGER.info("Shape interaction mode changed to: %s" % [mode])
+
+# Helper to update the pressed state of all shape mode buttons
+func _update_shape_mode_buttons(active_mode: String):
+	if not shape_settings_container:
+		return
+	var modes_row = shape_settings_container.find_node("ShapeModesRow", true, false)
+	if not modes_row:
+		return
+
+	# Map mode names to button names
+	var button_map = {
+		"normal": "NormalModeButton",
+		"merge": "MergeModeButton",
+		"conforming": "ConformingModeButton",
+		"wrapping": "WrappingModeButton",
+		"difference": "DifferenceModeButton"
+	}
+
+	# Update each button
+	for mode_name in button_map.keys():
+		var btn = modes_row.find_node(button_map[mode_name], false, false)
+		if btn:
+			btn.set_block_signals(true)
+			btn.pressed = (mode_name == active_mode)
+			btn.set_block_signals(false)
 
 # ============================================================================
 # UI CALLBACKS — PATH ARROW SETTINGS
@@ -1064,6 +1081,8 @@ func _update_path_arrow_head_angle_spinbox():
 
 # Helper: set pressed state on a named CheckButton inside shape_settings_container
 # without triggering its toggled signal (to avoid recursion).
+# NOTE: This function is kept for backward compatibility but is no longer used
+# since shape modes now use buttons instead of checkboxes.
 func _set_shape_checkbox(node_name: String, value: bool) -> void:
 	if not shape_settings_container:
 		return
@@ -1075,11 +1094,20 @@ func _set_shape_checkbox(node_name: String, value: bool) -> void:
 
 # Helper: load a Texture from icons/ folder relative to the mod root.
 # Returns null if the file cannot be read (silently skips icon).
-func _load_icon(filename: String):
+# scale: optional multiplier for image dimensions (e.g., 0.5 for half-size).
+func _load_icon(filename: String, scale: float = 1.0):
 	var path = tool.parent_mod.Global.Root + "icons/" + filename
 	var image = Image.new()
 	if image.load(path) != OK:
 		return null
+	
+	# Apply scaling if needed
+	if scale != 1.0 and scale > 0.0:
+		var new_width = int(image.get_width() * scale)
+		var new_height = int(image.get_height() * scale)
+		if new_width > 0 and new_height > 0:
+			image.resize(new_width, new_height, Image.INTERPOLATE_LANCZOS)
+	
 	var texture = ImageTexture.new()
 	texture.create_from_image(image, 0)
 	return texture

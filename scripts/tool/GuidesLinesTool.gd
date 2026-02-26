@@ -1004,6 +1004,20 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 	if overlapping.empty():
 		return []
 
+	# ── 1.5. Early exit if virtual shape is nearly identical to the only overlapping marker ─
+	# This prevents degenerate polygons when merging identical shapes.
+	if overlapping.size() == 1:
+		var primary_desc = _get_shape_descriptor(overlapping[0], cell_size)
+		if not primary_desc.empty():
+			# Check if shapes are approximately identical (same vertex count and similar geometry)
+			if primary_desc.points.size() == merge_desc.points.size():
+				var pos_delta = overlapping[0].position.distance_to(new_pos)
+				if pos_delta < 1.0:  # Positions are nearly identical (< 1 pixel apart)
+					# Shapes are essentially identical - no merge needed
+					if LOGGER:
+						LOGGER.debug("Merge: virtual shape is identical to marker %d — no merge needed" % [overlapping[0].id])
+					return []
+
 	# ── 2. Build one unified polygon from virtual shape + all overlapping markers ─
 	# Start with the virtual (placed) shape's points.
 	var running_pts: Array = merge_desc.points.duplicate()
@@ -1026,6 +1040,14 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 			# Fallback: keep previous running polygon.
 			continue
 		running_pts = chained
+
+	# ── 2.5. Validate the merged polygon ──────────────────────────────────────
+	# If merging produced a degenerate polygon (e.g., two identical shapes),
+	# keep the original primary marker's geometry unchanged.
+	if running_pts.size() < 3:
+		if LOGGER:
+			LOGGER.warn("Merge: resulted in degenerate polygon (< 3 vertices) — keeping primary marker %d unchanged" % [overlapping[0].id])
+		return []
 
 	# ── 3. Write the final outline and position to the primary marker ─────────
 	var final_segs = GeometryUtils.points_to_segs(running_pts)

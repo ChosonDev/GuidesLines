@@ -202,6 +202,10 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 ## All overlapping markers are folded into a single primary marker; the rest
 ## are deleted and their IDs returned in "absorbed_marker_ids".
 ##
+## Note: If the virtual shape is nearly identical to a single existing marker
+## (same position, same vertex count), no merge occurs and the existing marker
+## remains unchanged. This prevents degenerate polygons from identical overlaps.
+##
 ## Returns a Dictionary on success:
 ##   {
 ##     "affected_markers": Array — one entry for the surviving primary marker:
@@ -215,7 +219,8 @@ func place_arrow_marker(from_pos: Vector2, to_pos: Vector2,
 ##                              during the merge (empty if only one overlap)
 ##   }
 ## Returns {} on internal failure.
-## Returns {"affected_markers":[], "absorbed_marker_ids":[]} when no overlap.
+## Returns {"affected_markers":[], "absorbed_marker_ids":[]} when no overlap
+##         or when the virtual shape is identical to the existing marker.
 ##
 ## Parameters:
 ##   position — world-space Vector2 centre of the virtual new shape
