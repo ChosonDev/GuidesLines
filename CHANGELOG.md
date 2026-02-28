@@ -5,6 +5,24 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.10] - 2026-03-01
+
+### Fixed — Merge mode produced no result when two squares intersected along shared boundary edges
+
+When placing a square marker (Shape, 4 sides, 45° rotation) such that it intersected an existing square **exactly along two full boundary edges** (i.e. the top and bottom sides of both squares were collinear), the Merge operation silently failed and left the map unchanged.
+
+**Root cause:** Godot 3's `Geometry.is_point_in_polygon()` returns `true` for points that lie exactly on a polygon's boundary edge. When two polygon edges are collinear, `clip_polygon_against_shapes` split both polygons along the shared boundary, but evaluated the midpoint of the connector sub-segment as "inside the other shape" and discarded it. Both polygons lost the connecting bridge segment, leaving 6 open-ended segments instead of a closed ring. `chain_segments_to_polygon` could only chain 2 of them, the degenerate-polygon guard (`< 3 vertices`) fired, and the operation was aborted with no changes.
+
+**Fix** (`GeometryUtils.merge_polygons_outline`): after collecting the outer segments from both polygons, a two-pass repair is applied:
+
+- **Pass 1 — de-duplicate reverse-direction segments:** handles the complementary boundary case where `is_point_in_polygon()` returns `false` for boundary midpoints, causing the same shared-boundary segment to survive in both `segs_a` and `segs_b` in opposite directions. The reverse duplicate is removed from `segs_b`.
+- **Pass 2 — gap bridging:** builds a vertex-valence map over all collected segments. In a valid closed-polygon edge-set every vertex has even valence; vertices with odd valence are open ends left by the discarded connector(s). Open ends are greedily paired by nearest distance and synthetic bridge segments are added to close the boundary.
+
+#### Files changed
+- **`scripts/utils/GeometryUtils.gd`** — `merge_polygons_outline()` extended with Pass 1 (de-dup) and Pass 2 (gap-bridging) after the `clip_polygon_against_shapes` calls.
+
+---
+
 ## [2.2.9] - 2026-02-26
 
 ### Changed — Shape interaction modes UI redesigned with icon-only buttons

@@ -486,7 +486,83 @@ static func merge_polygons_outline(pts_a: Array, pts_b: Array) -> Array:
 	# Normal intersection: keep the outer ring of each polygon.
 	var segs_a = clip_polygon_against_shapes(pts_a, [shape_b])
 	var segs_b = clip_polygon_against_shapes(pts_b, [shape_a])
-	return segs_a + segs_b
+
+	# ── Pass 1: de-duplicate reverse-direction boundary segments ─────────────
+	# When two polygon edges are collinear and Godot 3's is_point_in_polygon()
+	# returns FALSE for boundary-midpoints, both copies of the shared-boundary
+	# segment survive clip — but in opposite directions — causing chain_segments
+	# to dead-end.  Remove from segs_b every segment whose reverse is in segs_a.
+	var eps_sq = 0.25  # (0.5 px)²
+	var deduped_b = []
+	for sb in segs_b:
+		var dup = false
+		for sa in segs_a:
+			if sa.a.distance_squared_to(sb.b) < eps_sq and \
+					sa.b.distance_squared_to(sb.a) < eps_sq:
+				dup = true
+				break
+		if not dup:
+			deduped_b.append(sb)
+
+	var all_segs = segs_a + deduped_b
+
+	# ── Pass 2: bridge gaps caused by collinear shared boundaries ────────────
+	# When two polygon edges are collinear and is_point_in_polygon() returns
+	# TRUE for boundary-midpoints (the usual Godot 3 behaviour), BOTH copies of
+	# the connector segment along the shared boundary are dropped.  The result
+	# is an open-ended segment set that chain_segments_to_polygon cannot close.
+	#
+	# Detection: in a valid closed-polygon edge-set each vertex appears as a
+	# segment-endpoint an even number of times.  Vertices with an odd count are
+	# "open ends" that lost their partner connector.  We greedily pair them by
+	# nearest distance and add a synthetic bridge segment for each pair.
+	#
+	# Example: two axis-aligned squares whose top boundaries share the same Y.
+	#   seg[0]  (10365, 4093) → (9981, 4093)   ← B-top right portion
+	#   seg[3]  (9858, 4093)  → (9474, 4093)   ← A-top left portion
+	# Open ends: (9981, 4093) and (9858, 4093) — bridged to close the top.
+	var EPS_VERTEX = 0.5  # matches chain_segments_to_polygon tolerance
+	var pts_list  = []      # unique endpoint positions
+	var valence   = []      # how many seg-ends touch each unique point
+	for seg in all_segs:
+		for pt in [seg.a, seg.b]:
+			var found = -1
+			for idx in range(pts_list.size()):
+				if pts_list[idx].distance_squared_to(pt) < EPS_VERTEX * EPS_VERTEX:
+					found = idx
+					break
+			if found == -1:
+				pts_list.append(pt)
+				valence.append(1)
+			else:
+				valence[found] += 1
+
+	var open_ends = []
+	for idx in range(pts_list.size()):
+		if valence[idx] % 2 == 1:
+			open_ends.append(pts_list[idx])
+
+	if not open_ends.empty():
+		var remaining = open_ends.duplicate()
+		while remaining.size() >= 2:
+			# Find the closest pair.
+			var best_i = 0
+			var best_j = 1
+			var best_d = remaining[0].distance_squared_to(remaining[1])
+			for ii in range(remaining.size()):
+				for jj in range(ii + 1, remaining.size()):
+					var d = remaining[ii].distance_squared_to(remaining[jj])
+					if d < best_d:
+						best_d = d
+						best_i = ii
+						best_j = jj
+			all_segs.append({"type": "seg", "a": remaining[best_i], "b": remaining[best_j]})
+			var hi = max(best_i, best_j)
+			var lo = min(best_i, best_j)
+			remaining.remove(hi)
+			remaining.remove(lo)
+
+	return all_segs
 
 ## Chain a flat list of {type:"seg", a:V2, b:V2} segments into a single ordered
 ## polygon vertex array.  Endpoints are matched within [eps] tolerance.
