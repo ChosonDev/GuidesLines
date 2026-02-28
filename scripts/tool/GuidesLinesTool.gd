@@ -1029,16 +1029,18 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 		var desc = _get_shape_descriptor(marker, cell_size)
 		if desc.empty():
 			continue
-		center_sum += marker.position
-		center_count += 1
 		var merged_segs = GeometryUtils.merge_polygons_outline(running_pts, desc.points)
 		if merged_segs.empty():
-			# Shouldn't happen (we verified overlap) but be defensive.
+			# No geometric overlap (e.g. tangent touch with zero area) — skip this
+			# marker entirely so its position does not skew the centroid.
 			continue
 		var chained = GeometryUtils.chain_segments_to_polygon(merged_segs)
 		if chained.empty():
-			# Fallback: keep previous running polygon.
+			# Fallback: keep previous running polygon without shifting centroid.
 			continue
+		# Merge succeeded — accumulate centroid only now.
+		center_sum += marker.position
+		center_count += 1
 		running_pts = chained
 
 	# ── 2.5. Validate the merged polygon ──────────────────────────────────────

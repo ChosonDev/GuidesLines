@@ -566,9 +566,11 @@ static func merge_polygons_outline(pts_a: Array, pts_b: Array) -> Array:
 
 ## Chain a flat list of {type:"seg", a:V2, b:V2} segments into a single ordered
 ## polygon vertex array.  Endpoints are matched within [eps] tolerance.
-## The segments must form (approximately) one closed boundary — any gaps
-## larger than [eps] stop the chain early.
-## Returns Array[Vector2] suitable for Geometry.is_point_in_polygon() etc.,
+## Handles figure-8 / tangent unions where two closed loops share exactly one
+## vertex: after the primary loop is closed, any unused edges that reconnect to
+## a vertex already in [poly] are inserted as an in-and-out detour at that
+## junction, producing a self-touching outline that draws both shapes.
+## Returns Array[Vector2] suitable for draw_polyline() / points_to_segs(),
 ## or an empty array if the input is empty.
 static func chain_segments_to_polygon(segs: Array, eps: float = 0.5) -> Array:
 	if segs.empty():
@@ -606,5 +608,68 @@ static func chain_segments_to_polygon(segs: Array, eps: float = 0.5) -> Array:
 	# Drop the closing duplicate if the last point coincides with the first.
 	if poly.size() > 1 and poly[0].distance_to(poly[poly.size() - 1]) < eps:
 		poly.pop_back()
+
+	# ── Figure-8 / tangent-touch continuation ───────────────────────────────
+	# If unused edges remain (e.g. the second circle of a tangent pair), find
+	# any vertex in poly that serves as a bridge to those edges and insert the
+	# sub-chain as a detour: [..., T, <sub-loop>, T, ...].
+	# This preserves the outline of both shapes in one continuous path.
+	var any_unused = false
+	for e in edges:
+		if not e.used:
+			any_unused = true
+			break
+
+	if any_unused:
+		# Find poly vertex that connects to an unused edge (the tangent point).
+		var bridge_poly_idx = -1
+		var bridge_edge_idx = -1
+		var bridge_rev      = false
+		for pi in range(poly.size()):
+			var pv = poly[pi]
+			for ei in range(edges.size()):
+				if edges[ei].used:
+					continue
+				if pv.distance_to(edges[ei].a) < eps:
+					bridge_poly_idx = pi; bridge_edge_idx = ei; bridge_rev = false
+					break
+				if pv.distance_to(edges[ei].b) < eps:
+					bridge_poly_idx = pi; bridge_edge_idx = ei; bridge_rev = true
+					break
+			if bridge_poly_idx != -1:
+				break
+
+		if bridge_poly_idx != -1:
+			var bridge_pt = poly[bridge_poly_idx]
+			# Trace the sub-loop back to bridge_pt.
+			var sub = []
+			edges[bridge_edge_idx].used = true
+			sub.append(edges[bridge_edge_idx].b if not bridge_rev else edges[bridge_edge_idx].a)
+			for _j in range(edges.size()):
+				var stail = sub[sub.size() - 1]
+				if stail.distance_to(bridge_pt) < eps:
+					break  # sub-loop closed
+				var sf = -1
+				var sr = false
+				for ei in range(edges.size()):
+					if edges[ei].used:
+						continue
+					if stail.distance_to(edges[ei].a) < eps:
+						sf = ei; sr = false; break
+					if stail.distance_to(edges[ei].b) < eps:
+						sf = ei; sr = true; break
+				if sf == -1:
+					break
+				edges[sf].used = true
+				sub.append(edges[sf].b if not sr else edges[sf].a)
+			# Remove closing duplicate of bridge_pt at the end of sub.
+			if sub.size() > 0 and sub[sub.size() - 1].distance_to(bridge_pt) < eps:
+				sub.pop_back()
+			# Insert: bridge_pt is already at bridge_poly_idx;
+			# splice in [sub..., bridge_pt] right after it.
+			sub.append(bridge_pt)
+			var insert_idx = bridge_poly_idx + 1
+			for k in range(sub.size()):
+				poly.insert(insert_idx + k, sub[k])
 
 	return poly

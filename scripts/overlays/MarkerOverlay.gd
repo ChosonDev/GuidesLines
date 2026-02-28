@@ -177,13 +177,27 @@ func _input(event):
 		
 		# Handle left click for placing/deleting markers
 		if event.button_index == BUTTON_LEFT and event.pressed:
+			# Skip if any Dungeondraft window/popup is currently open.
+			# _input fires before Control._gui_input, so is_input_handled() is not yet set —
+			# we must check visible windows explicitly.
+			var editor = tool.parent_mod.Global.Editor
+			for window in editor.Windows.values():
+				if window.visible:
+					return
+
 			# Check if click is inside world bounds
 			if tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 				# Get mouse position in viewport coordinates
 				var mouse_pos = get_viewport().get_mouse_position()
+				var viewport_size = get_viewport().size
 				
-				# Check if mouse is over the tool panel (left side of screen)
+				# Ignore clicks outside the map canvas:
+				#   x < 450              — left tool panel
+				#   y < 100              — top UI bar
+				#   y > height - 100     — bottom UI bar
 				if mouse_pos.x < 450:
+					return
+				if mouse_pos.y < 100 or mouse_pos.y > viewport_size.y - 100:
 					return
 				
 				var pos = tool.cached_worldui.MousePosition

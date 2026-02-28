@@ -23,6 +23,41 @@ When placing a square marker (Shape, 4 sides, 45° rotation) such that it inters
 
 ---
 
+### Fixed — Left-click input no longer fires through open Dungeondraft windows or UI bars
+
+Clicks were being processed by `MarkerOverlay` even when a Dungeondraft popup/window was visible on screen (e.g. the Map Settings dialog), occasionally placing or deleting markers accidentally.
+
+**Root cause:** `_input` fires before `Control._gui_input`, so `is_input_handled()` is not yet set when `MarkerOverlay` receives the event. There was no explicit check for open windows.
+
+**Fix** (`scripts/overlays/MarkerOverlay.gd`):
+- Before processing any left click, the handler now iterates `editor.Windows.values()` and returns early if any window is `visible`.
+- The viewport boundary guard was extended to also reject clicks within **100 px of the top and bottom edges** of the viewport (in addition to the existing 450 px left-panel guard), preventing accidental interaction with the top and bottom UI bars.
+
+#### Files changed
+- **`scripts/overlays/MarkerOverlay.gd`** — added visible-window check and top/bottom viewport margin guards to the left-click handler.
+
+---
+
+### Fixed — Merging two tangentially touching circles produced only one circle with a shifted center
+
+When two identical circular Shape markers (e.g. 50 sides, radius 1 cell) were placed so that only their outermost points touched (tangent contact, zero-area intersection), the Merge operation:
+1. Wrote only the outline of the **second** (newly placed) circle to the primary marker.
+2. Moved the primary marker's center to the **midpoint** between both circles, despite the shape being a single circle.
+
+**Root cause — `chain_segments_to_polygon`:** The tangent point T is a shared vertex of both circle polygons. After `merge_polygons_outline` collected all outer segments, the chaining loop started on a segment of circle B, traversed all 50 edges of B, and returned to B[0]. At that point the tail no longer matched any unused edge of circle A (none of A's edges share B[0]), so the loop exited with all A-edges unconsumed. The result was only circle B's outline.
+
+**Root cause — centroid skew:** `center_sum += marker.position` was executed unconditionally before checking whether the geometry step (`chain_segments_to_polygon`) actually succeeded, so the centroid was shifted even when only B's shape was written.
+
+**Fix 1** (`GeometryUtils.chain_segments_to_polygon`): After the primary chaining loop, a **figure-8 / tangent-touch continuation** pass checks for unused edges. If any unused edge connects to a vertex already present in `poly` (the tangent point T), the function traces the remaining sub-loop from T back to T and splices it into `poly` as an in-and-out detour: `[…, T, A₁, …, Aₙ, T, …]`. This produces a single continuous figure-8 outline that correctly draws both circles.
+
+**Fix 2** (`GuidesLinesTool._do_apply_merge`): `center_sum += marker.position` and `center_count += 1` are now accumulated **only after** `chain_segments_to_polygon` returns a non-empty result, ensuring the centroid is not shifted when the geometry step fails or produces no usable polygon.
+
+#### Files changed
+- **`scripts/utils/GeometryUtils.gd`** — `chain_segments_to_polygon()` extended with figure-8 continuation block.
+- **`scripts/tool/GuidesLinesTool.gd`** — `_do_apply_merge()` centroid accumulation moved after successful geometry step.
+
+---
+
 ## [2.2.9] - 2026-02-26
 
 ### Changed — Shape interaction modes UI redesigned with icon-only buttons
