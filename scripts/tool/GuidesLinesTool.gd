@@ -778,10 +778,10 @@ func _get_grid_cell_size():
 	if not cached_world:
 		return null
 	
-	# Check if custom_snap is active and use its snap_interval
-	if cached_snappy_mod and cached_snappy_mod.has("custom_snap_enabled") and cached_snappy_mod.custom_snap_enabled:
-		if cached_snappy_mod.has("snap_interval"):
-			return cached_snappy_mod.snap_interval
+	# Check if custom_snap is active and use its snap_interval.
+	# Direct property access (no .has() guard) — consistent with MarkerOverlay.
+	if cached_snappy_mod and cached_snappy_mod.custom_snap_enabled:
+		return cached_snappy_mod.snap_interval
 	
 	# Fallback to vanilla grid cell size
 	if not cached_world.Level or not cached_world.Level.TileMap:

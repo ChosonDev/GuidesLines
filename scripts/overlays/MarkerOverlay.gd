@@ -535,15 +535,10 @@ func _get_custom_snap():
 
 # Get grid cell size (accounting for custom_snap mod if active)
 func _get_grid_cell_size():
-	if not tool or not tool.cached_world:
+	if not tool:
 		return null
-	var custom_snap = _get_custom_snap()
-	if custom_snap and custom_snap.custom_snap_enabled:
-		if custom_snap.has("snap_interval"):
-			return custom_snap.snap_interval
-	if not tool.cached_world.Level or not tool.cached_world.Level.TileMap:
-		return null
-	return tool.cached_world.Level.TileMap.CellSize
+	# Single source of truth — delegate to the tool so all modes use identical cell_size.
+	return tool._get_grid_cell_size()
 
 # Draw cached coordinate points for a Line marker.
 # All grid positions and texts are pre-computed in GuideMarker.rebuild_coord_cache().

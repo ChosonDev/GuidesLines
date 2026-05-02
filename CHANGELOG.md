@@ -5,6 +5,18 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] — 2026-05-02
+
+### Fixed — Shape markers 4× too large in Conforming / Wrapping / Difference modes when Custom Snap is active
+
+When Custom Snap mod was enabled and any non-Normal shape interaction mode (Conforming, Wrapping, Difference, Merge) was used, newly placed Shape markers were rendered at the wrong size — up to 4× larger than in Normal mode.
+
+**Fix — single source of truth for `cell_size`:**
+- `GuidesLinesTool._get_grid_cell_size()` — replaced the `.has()` guard with a direct property access (`cached_snappy_mod.custom_snap_enabled`), consistent with how the overlay always read it.
+- `MarkerOverlay._get_grid_cell_size()` — removed the duplicated implementation; now delegates to `tool._get_grid_cell_size()` so all code paths use identical logic.
+
+---
+
 ## [2.3.0] — 2026-05-01
 
 ### Changed
