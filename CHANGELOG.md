@@ -5,6 +5,15 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] — 2026-05-01
+
+### Changed
+- **Release packaging** — the ZIP archive now contains a `GuidesLines/` subfolder
+  instead of placing files at the archive root.  
+  Files `.gitignore` and `.gitmodules` are excluded from the release.
+
+---
+
 ## [2.2.10] - 2026-03-01
 
 ### Fixed — Merge mode produced no result when two squares intersected along shared boundary edges
