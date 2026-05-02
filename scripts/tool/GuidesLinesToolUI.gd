@@ -1,5 +1,7 @@
 extends Reference
 
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
+
 # GuidesLinesToolUI - UI panel creation, callbacks, and widget helpers for GuidesLinesTool.
 # Holds all UI node references and handles user input from the tool panel.
 # Accesses and mutates tool state exclusively through the `tool` reference.
@@ -272,8 +274,33 @@ func _create_shape_settings_ui():
 
 	container.add_child(_create_spacer(10))
 
+	# Size Mode row (Radius vs Side) — hidden for Circle
+	var size_mode_hbox = HBoxContainer.new()
+	size_mode_hbox.name = "SizeModeRow"
+	var size_mode_label = Label.new()
+	size_mode_label.text = "Size by:"
+	size_mode_label.rect_min_size = Vector2(80, 0)
+	size_mode_hbox.add_child(size_mode_label)
+
+	var size_mode_option = OptionButton.new()
+	size_mode_option.add_item("Radius")
+	size_mode_option.set_item_metadata(0, "radius")
+	size_mode_option.add_item("Side")
+	size_mode_option.set_item_metadata(1, "side")
+	size_mode_option.selected = 0
+	size_mode_option.name = "ShapeSizeModeOption"
+	size_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_mode_option.connect("item_selected", self, "_on_shape_size_mode_changed")
+	size_mode_hbox.add_child(size_mode_option)
+	# Circle is selected by default — hide until a non-circle preset is chosen
+	size_mode_hbox.visible = false
+	container.add_child(size_mode_hbox)
+
+	container.add_child(_create_spacer(5))
+
 	# Radius SpinBox
 	var radius_hbox = HBoxContainer.new()
+	radius_hbox.name = "RadiusRow"
 	var radius_label = Label.new()
 	radius_label.text = "Radius:"
 	radius_label.rect_min_size = Vector2(80, 0)
@@ -292,6 +319,29 @@ func _create_shape_settings_ui():
 	radius_hbox.add_child(radius_spin)
 	radius_hbox.hint_tooltip = "Radius in grid cells (circumradius — distance from center to vertex)"
 	container.add_child(radius_hbox)
+
+	# Side SpinBox (shown only when Size mode = Side)
+	var side_hbox = HBoxContainer.new()
+	side_hbox.name = "SideRow"
+	var side_label = Label.new()
+	side_label.text = "Side:"
+	side_label.rect_min_size = Vector2(80, 0)
+	side_hbox.add_child(side_label)
+
+	var side_spin = SpinBox.new()
+	side_spin.min_value = 0.1
+	side_spin.max_value = 100
+	side_spin.step = 0.1
+	side_spin.value = tool.active_shape_side
+	side_spin.name = "ShapeSideSpinBox"
+	side_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	side_spin.connect("value_changed", self, "_on_shape_side_changed")
+	side_spin.allow_greater = true
+	side_spin.allow_lesser = false
+	side_hbox.add_child(side_spin)
+	side_hbox.hint_tooltip = "Side length in grid cells — the shape is sized so its edges equal this value"
+	side_hbox.visible = false
+	container.add_child(side_hbox)
 
 	container.add_child(_create_spacer(5))
 
@@ -674,6 +724,23 @@ func _on_shape_subtype_changed(subtype_index):
 		if sides_row:
 			sides_row.visible = (preset == SHAPE_CUSTOM)
 
+		# Circle has no meaningful side — force radius mode and hide the size toggle
+		var is_circle = (preset == SHAPE_CIRCLE)
+		if is_circle and tool.active_shape_size_mode == "side":
+			tool.active_shape_size_mode = "radius"
+			tool.type_settings[MARKER_TYPE_SHAPE]["size_mode"] = "radius"
+		_update_shape_size_mode_ui()
+
+		# In side mode with a non-circle preset, keep the user's side value and
+		# recompute the circumradius for the new number of sides.
+		if tool.active_shape_size_mode == "side" and not is_circle:
+			var new_radius = GeometryUtils.side_to_circumradius(tool.active_shape_side, tool.active_shape_sides)
+			if new_radius < 0.1:
+				new_radius = 0.1
+			tool.active_shape_radius = new_radius
+			tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = tool.active_shape_radius
+			_update_shape_radius_spinbox()
+
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
 
@@ -703,10 +770,60 @@ func _on_shape_angle_changed(value):
 func _on_shape_sides_changed(value):
 	tool.active_shape_sides = int(value)
 	tool.type_settings[MARKER_TYPE_SHAPE]["sides"] = tool.active_shape_sides
+	# In side mode, recompute circumradius from the kept side value with the new sides count
+	if tool.active_shape_size_mode == "side":
+		var new_radius = GeometryUtils.side_to_circumradius(tool.active_shape_side, tool.active_shape_sides)
+		if new_radius < 0.1:
+			new_radius = 0.1
+		tool.active_shape_radius = new_radius
+		tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = new_radius
+		_update_shape_radius_spinbox()
 	if tool.overlay:
 		tool.overlay.update()
 	if tool.LOGGER:
 		tool.LOGGER.debug("Shape sides changed to: %d" % [tool.active_shape_sides])
+
+# Called when the user toggles between Radius and Side size mode
+func _on_shape_size_mode_changed(mode_index):
+	if not shape_settings_container:
+		return
+	var size_mode_option = shape_settings_container.find_node("ShapeSizeModeOption", true, false)
+	if not size_mode_option:
+		return
+	var mode = size_mode_option.get_item_metadata(mode_index)
+	tool.active_shape_size_mode = mode
+	tool.type_settings[MARKER_TYPE_SHAPE]["size_mode"] = mode
+	if mode == "side":
+		# Compute equivalent side from the current circumradius
+		var computed_side = GeometryUtils.circumradius_to_side(tool.active_shape_radius, tool.active_shape_sides)
+		if computed_side < 0.1:
+			computed_side = 0.1
+		tool.active_shape_side = computed_side
+		tool.type_settings[MARKER_TYPE_SHAPE]["side"] = computed_side
+		_update_shape_side_spinbox()
+	_update_shape_size_mode_ui()
+	if tool.overlay:
+		tool.overlay.update()
+	if tool.LOGGER:
+		tool.LOGGER.debug("Shape size mode changed to: %s" % [mode])
+
+# Called when the user edits the Side spinbox directly
+func _on_shape_side_changed(value):
+	if value < 0.1:
+		value = 0.1
+	tool.active_shape_side = value
+	tool.type_settings[MARKER_TYPE_SHAPE]["side"] = value
+	_update_shape_side_spinbox()
+	var new_radius = GeometryUtils.side_to_circumradius(value, tool.active_shape_sides)
+	if new_radius < 0.1:
+		new_radius = 0.1
+	tool.active_shape_radius = new_radius
+	tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = new_radius
+	_update_shape_radius_spinbox()
+	if tool.overlay:
+		tool.overlay.update()
+	if tool.LOGGER:
+		tool.LOGGER.debug("Shape side changed to: %.2f cells (radius=%.3f)" % [value, new_radius])
 
 # Unified callback for shape interaction mode button presses
 func _on_shape_mode_button_pressed(mode: String):
@@ -878,9 +995,13 @@ func _load_type_settings(marker_type):
 		tool.active_shape_radius = settings["radius"]
 		tool.active_shape_angle = settings.get("angle", 0.0)
 		tool.active_shape_sides = settings.get("sides", DEFAULT_SHAPE_SIDES)
+		tool.active_shape_size_mode = settings.get("size_mode", "radius")
+		tool.active_shape_side = settings.get("side", 1.0)
 		_update_shape_radius_spinbox()
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
+		_update_shape_side_spinbox()
+		_update_shape_size_mode_ui()
 
 	elif marker_type == MARKER_TYPE_PATH:
 		tool.active_path_end_arrow = settings.get("end_arrow", false)
@@ -903,6 +1024,8 @@ func _save_current_type_settings():
 		tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = tool.active_shape_radius
 		tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = tool.active_shape_angle
 		tool.type_settings[MARKER_TYPE_SHAPE]["sides"] = tool.active_shape_sides
+		tool.type_settings[MARKER_TYPE_SHAPE]["size_mode"] = tool.active_shape_size_mode
+		tool.type_settings[MARKER_TYPE_SHAPE]["side"] = tool.active_shape_side
 
 	elif tool.active_marker_type == MARKER_TYPE_PATH:
 		tool.type_settings[MARKER_TYPE_PATH]["end_arrow"] = tool.active_path_end_arrow
@@ -943,21 +1066,36 @@ func adjust_shape_radius_with_wheel(direction):
 	if tool.active_marker_type != MARKER_TYPE_SHAPE:
 		return
 
-	var radius_step = 0.1
-	var new_radius = tool.active_shape_radius + (direction * radius_step)
-
-	if new_radius < 0.1:
-		new_radius = 0.1
-
-	tool.active_shape_radius = new_radius
-	tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = tool.active_shape_radius
-	_update_shape_radius_spinbox()
-
-	if tool.overlay:
-		tool.overlay.update()
-
-	if tool.LOGGER:
-		tool.LOGGER.debug("Shape radius adjusted via mouse wheel: %.1f cells" % [tool.active_shape_radius])
+	if tool.active_shape_size_mode == "side":
+		var side_step = 0.1
+		var new_side = tool.active_shape_side + (direction * side_step)
+		if new_side < 0.1:
+			new_side = 0.1
+		tool.active_shape_side = new_side
+		tool.type_settings[MARKER_TYPE_SHAPE]["side"] = new_side
+		_update_shape_side_spinbox()
+		var new_radius = GeometryUtils.side_to_circumradius(new_side, tool.active_shape_sides)
+		if new_radius < 0.1:
+			new_radius = 0.1
+		tool.active_shape_radius = new_radius
+		tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = new_radius
+		_update_shape_radius_spinbox()
+		if tool.overlay:
+			tool.overlay.update()
+		if tool.LOGGER:
+			tool.LOGGER.debug("Shape side adjusted via mouse wheel: %.2f cells (radius=%.3f)" % [new_side, new_radius])
+	else:
+		var radius_step = 0.1
+		var new_radius = tool.active_shape_radius + (direction * radius_step)
+		if new_radius < 0.1:
+			new_radius = 0.1
+		tool.active_shape_radius = new_radius
+		tool.type_settings[MARKER_TYPE_SHAPE]["radius"] = tool.active_shape_radius
+		_update_shape_radius_spinbox()
+		if tool.overlay:
+			tool.overlay.update()
+		if tool.LOGGER:
+			tool.LOGGER.debug("Shape radius adjusted via mouse wheel: %.1f cells" % [tool.active_shape_radius])
 
 # Adjust shape angle using mouse wheel (only for Shape type)
 # direction: 1 for wheel up (increase), -1 for wheel down (decrease)
@@ -1048,6 +1186,33 @@ func _update_mirror_checkbox():
 
 func _update_shape_radius_spinbox():
 	_set_spinbox_value("ShapeRadiusSpinBox", tool.active_shape_radius)
+
+func _update_shape_side_spinbox():
+	_set_spinbox_value("ShapeSideSpinBox", tool.active_shape_side)
+
+# Update the size mode OptionButton and show/hide Radius/Side rows accordingly.
+func _update_shape_size_mode_ui():
+	if not shape_settings_container:
+		return
+	var subtype_selector = shape_settings_container.find_node("ShapeSubtypeSelector", true, false)
+	var is_circle = false
+	if subtype_selector:
+		var preset = subtype_selector.get_item_metadata(subtype_selector.selected)
+		is_circle = (preset == SHAPE_CIRCLE)
+	var size_mode_row = shape_settings_container.find_node("SizeModeRow", true, false)
+	var radius_row    = shape_settings_container.find_node("RadiusRow",   true, false)
+	var side_row      = shape_settings_container.find_node("SideRow",     true, false)
+	var mode_option   = shape_settings_container.find_node("ShapeSizeModeOption", true, false)
+	if size_mode_row:
+		size_mode_row.visible = not is_circle
+	if radius_row:
+		radius_row.visible = (is_circle or tool.active_shape_size_mode == "radius")
+	if side_row:
+		side_row.visible = (not is_circle and tool.active_shape_size_mode == "side")
+	if mode_option:
+		mode_option.set_block_signals(true)
+		mode_option.selected = 0 if tool.active_shape_size_mode == "radius" else 1
+		mode_option.set_block_signals(false)
 
 func _update_shape_angle_spinbox():
 	if not tool.tool_panel:

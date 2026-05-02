@@ -52,6 +52,8 @@ var active_angle = 0.0
 var active_shape_radius = 1.0  # Shape radius in grid cells (circumradius)
 var active_shape_angle = 0.0  # Shape rotation angle in degrees
 var active_shape_sides = 64  # Number of polygon sides (64 = Circle approximation on start)
+var active_shape_size_mode = "radius"  # "radius" or "side" — UI-only, does not persist on marker
+var active_shape_side = 1.0            # Side length in grid cells (used only when size_mode == "side")
 var active_path_end_arrow = false  # Draw arrowhead at last point of path
 var active_arrow_head_length = 50.0  # Arrow head length in pixels
 var active_arrow_head_angle = 30.0  # Arrow head angle in degrees
@@ -71,7 +73,9 @@ var type_settings = {
 	"Shape": {
 		"radius": 1.0,
 		"angle": 0.0,
-		"sides": 64
+		"sides": 64,
+		"size_mode": "radius",
+		"side": 1.0
 	},
 	"Path": {
 		"end_arrow": false,
@@ -142,11 +146,27 @@ func Update(_delta):
 		if not overlay and cached_worldui:
 			_create_overlay()
 		return
-	
+
 	# Create overlay if needed
 	if not overlay and cached_worldui:
 		_create_overlay()
-	
+
+	# In Side size mode, keep active_shape_radius in sync with the current hex
+	# edge correction.  This handles the case where the user switches the
+	# snappy_mod between Corner and Edge without touching the Side spinbox —
+	# no signal is emitted by snappy_mod, so we poll here every frame instead.
+	if active_marker_type == MARKER_TYPE_SHAPE and active_shape_size_mode == "side":
+		var corrected = GeometryUtils.side_to_circumradius(active_shape_side, active_shape_sides) * _get_hex_edge_correction()
+		if corrected < 0.1:
+			corrected = 0.1
+		if abs(corrected - active_shape_radius) > 0.0001:
+			active_shape_radius = corrected
+			type_settings[MARKER_TYPE_SHAPE]["radius"] = corrected
+			if ui:
+				ui._update_shape_radius_spinbox()
+			if overlay:
+				overlay.update()
+
 	# Overlay manages its own update based on changes
 	# No need to force update every frame
 
@@ -787,6 +807,29 @@ func _get_grid_cell_size():
 	if not cached_world.Level or not cached_world.Level.TileMap:
 		return null
 	return cached_world.Level.TileMap.CellSize
+
+# Returns a correction multiplier for side-to-circumradius conversion when the
+# active grid is a hex grid in Edge (apothem) mode.
+#
+# Background: snap_interval always equals what the user sees as "1 grid unit".
+# Corner mode → snap_interval = circumradius of the hex cell → correction = 1.0
+# Edge   mode → snap_interval = apothem = R_cell × √3/2
+#              → R_cell = snap_interval × 2/√3 → correction = 2/√3 ≈ 1.1547
+#
+# The correction is applied only when:
+#   • custom_snap is active
+#   • geometry is HEX_V (1) or HEX_H (2)
+#   • radial_mode_to_corner == false  (Edge mode)
+func _get_hex_edge_correction() -> float:
+	if cached_snappy_mod == null or not cached_snappy_mod.custom_snap_enabled:
+		return 1.0
+	var geom = cached_snappy_mod.active_geometry
+	# GEOMETRY enum: SQUARE=0, HEX_V=1, HEX_H=2, ISOMETRIC=3
+	if geom != 1 and geom != 2:
+		return 1.0
+	if cached_snappy_mod.radial_mode_to_corner:
+		return 1.0
+	return 2.0 / sqrt(3.0)
 
 # ============================================================================
 # SHAPE CLIPPING (Clip Intersecting Shapes feature)

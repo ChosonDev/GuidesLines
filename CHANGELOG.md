@@ -5,6 +5,28 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.3] — 2026-05-02
+
+### Added — "Side" size mode for non-circle shapes
+
+Shape markers now support a second size input — **Side** — as an alternative to Radius. When enabled, the shape is sized so that its **edge length** equals the given value in grid cells, rather than its circumradius.
+
+Practical alignment guarantees:
+- **Square / any 4-sided shape** with Side = 1 → edges exactly match one square grid cell.
+- **Hexagon** with Side = 1 → edges exactly match one hexagonal grid cell (both Corner and Edge radial modes are handled automatically).
+
+**UI changes** (`GuidesLinesToolUI`):
+- A new **"Size by: Radius / Side"** `OptionButton` appears in the Shape settings panel for all non-circle presets.
+- While in Side mode the **Radius** row is hidden and replaced by a **Side** spinbox. Switching back to Radius mode restores the radius row.
+- The Circle preset always uses Radius mode (the toggle is hidden for it).
+- Mouse-wheel scroll adjusts the Side value (and updates Radius accordingly) when Side mode is active.
+
+**Hex Edge-mode correction** (`GuidesLinesTool`):
+- When Custom Snap mod is active with a hex geometry in **Edge** (apothem) mode, the circumradius is automatically scaled by `2/√3 ≈ 1.1547` so the shape still aligns with the hex grid cell.
+- The correction is re-evaluated every frame in `Update()`, so switching Corner↔Edge in Custom Snap takes effect immediately without re-entering the Side value.
+
+---
+
 ## [2.3.2] — 2026-05-02
 
 ### Fixed — Octagon and Custom shape presets defaulted to wrong angle

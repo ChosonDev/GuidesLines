@@ -32,6 +32,18 @@ static func calculate_polygon_vertices(center, radius, sides, rotation_offset = 
 static func calculate_shape_vertices(center, radius, sides: int, angle_rad: float) -> Array:
 	return calculate_polygon_vertices(center, radius, sides, angle_rad)
 
+# Convert a side length to circumradius for a regular n-gon.
+# side:   desired edge length (in grid cells or any consistent unit)
+# n:      number of sides (must be >= 3)
+static func side_to_circumradius(side: float, n: int) -> float:
+	return side / (2.0 * sin(PI / float(n)))
+
+# Convert circumradius to side length for a regular n-gon.
+# radius: circumradius (in grid cells or any consistent unit)
+# n:      number of sides (must be >= 3)
+static func circumradius_to_side(radius: float, n: int) -> float:
+	return radius * 2.0 * sin(PI / float(n))
+
 ## Returns the closest point on segment [a]→[b] to point [p].
 static func closest_point_on_segment(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
 	var ab = b - a
