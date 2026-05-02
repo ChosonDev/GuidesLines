@@ -685,3 +685,93 @@ static func chain_segments_to_polygon(segs: Array, eps: float = 0.5) -> Array:
 				poly.insert(insert_idx + k, sub[k])
 
 	return poly
+
+## Split a flat segment list into one or more disconnected open chains.
+## Unlike chain_segments_to_polygon (which produces a single closed polygon),
+## this function extracts every independent connected run of segments and
+## returns them as separate Array[Vector2] polylines.
+##
+## Used by the Cut mode: after clipping a Shape's primitives against the cut
+## shape, the remaining segments may form several disconnected runs — each run
+## becomes its own Path marker.
+##
+## Returns Array of Array[Vector2].  Each inner array has >= 2 points.
+## Closing duplicates (first == last within eps) are removed from each chain.
+static func split_segments_into_chains(segs: Array, eps: float = 0.5) -> Array:
+	if segs.empty():
+		return []
+
+	# Build a mutable list of {a, b, used} from the input segment list.
+	var edges = []
+	for s in segs:
+		if s.get("type", "") == "seg":
+			edges.append({"a": s.a, "b": s.b, "used": false})
+	if edges.empty():
+		return []
+
+	var chains = []
+
+	# Repeat until every edge has been consumed.
+	for _outer in range(edges.size()):
+		# Find the first unused edge to start a new chain.
+		var start_idx = -1
+		for i in range(edges.size()):
+			if not edges[i].used:
+				start_idx = i
+				break
+		if start_idx == -1:
+			break  # All edges consumed.
+
+		edges[start_idx].used = true
+		var chain = [edges[start_idx].a, edges[start_idx].b]
+
+		# Greedily extend the chain FORWARD by finding the next connected edge.
+		for _inner in range(edges.size()):
+			var tail = chain[chain.size() - 1]
+			var found = -1
+			var rev   = false
+			for i in range(edges.size()):
+				if edges[i].used:
+					continue
+				if tail.distance_to(edges[i].a) < eps:
+					found = i; rev = false; break
+				if tail.distance_to(edges[i].b) < eps:
+					found = i; rev = true;  break
+			if found == -1:
+				break  # No continuation — chain ends here.
+			edges[found].used = true
+			chain.append(edges[found].b if not rev else edges[found].a)
+
+		# Greedily extend the chain BACKWARD (prepend) to handle arcs that
+		# wrap around the segment-array boundary.  Without this step, a single
+		# arc stored as [..., V62, V63, V0, V1, ...] would be split in two
+		# because greedy-forward starts at V0 and cannot reach back to V63.
+		#
+		# rev=false: edge.b == head  →  the edge A→B naturally arrives at head;
+		#             prepend A (new head).
+		# rev=true:  edge.a == head  →  the edge A→B starts at head (reversed
+		#             usage); prepend B (new head).
+		for _inner in range(edges.size()):
+			var head = chain[0]
+			var found = -1
+			var rev   = false
+			for i in range(edges.size()):
+				if edges[i].used:
+					continue
+				if head.distance_to(edges[i].b) < eps:
+					found = i; rev = false; break  # edge.b == head → prepend edge.a
+				if head.distance_to(edges[i].a) < eps:
+					found = i; rev = true;  break  # edge.a == head → prepend edge.b
+			if found == -1:
+				break  # No extension backward — head is a true open end.
+			edges[found].used = true
+			chain.insert(0, edges[found].a if not rev else edges[found].b)
+
+		# Remove closing duplicate (chain loops back to its own start).
+		if chain.size() > 1 and chain[0].distance_to(chain[chain.size() - 1]) < eps:
+			chain.pop_back()
+
+		if chain.size() >= 2:
+			chains.append(chain)
+
+	return chains

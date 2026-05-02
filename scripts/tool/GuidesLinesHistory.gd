@@ -322,3 +322,54 @@ class DeleteAllFillsRecord:
 
 	func record_type():
 		return "GuidesLines.DeleteAllFills"
+
+
+# ============================================================================
+# HISTORY RECORD FOR CUT MODE
+# ============================================================================
+
+# History record for a Cut operation.
+#
+# Cut clips the outline of each intersecting Shape marker against the cut shape,
+# splits the remaining segments into disconnected chains, and:
+#   • Converts the existing marker to a Path (first chain).
+#   • Creates new Path markers for each additional chain.
+#   • Deletes markers that were fully inside the cut shape.
+#
+# Snapshot format:
+#   snapshots = { marker_id: { "primitives": Array, "color": Color, "position": Vector2 } }
+# deleted_ids   — subset of snapshots.keys() that were fully deleted (not just modified).
+# created_markers_data — Array of marker_data dicts for the extra Path markers created.
+class CutRecord:
+	var tool
+	var cut_desc            # { shape_type, points } — descriptor of the virtual cut shape
+	var snapshots           # { marker_id: { primitives, color, position } }
+	var deleted_ids: Array  # IDs of markers deleted (fully inside cut)
+	var created_markers_data: Array  # marker_data dicts for newly created Path markers
+
+	func _init(tool_ref, p_cut_desc, p_snapshots, p_deleted_ids, p_created_data):
+		tool = tool_ref
+		cut_desc             = p_cut_desc
+		snapshots            = p_snapshots
+		deleted_ids          = p_deleted_ids
+		created_markers_data = p_created_data
+		if tool.LOGGER:
+			tool.LOGGER.debug("CutRecord created: %d affected, %d deleted, %d extra paths" % [
+					p_snapshots.size(), p_deleted_ids.size(), p_created_data.size()])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("CutRecord.redo() called")
+		# Re-snapshot before redo so undo after redo uses fresh pre-redo state.
+		snapshots = tool._take_cut_snapshot(cut_desc)
+		var result = tool._do_apply_cut(cut_desc)
+		deleted_ids          = result.deleted_ids
+		created_markers_data = result.created_markers_data
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("CutRecord.undo() called")
+		tool._undo_cut(snapshots, deleted_ids, created_markers_data)
+
+	func record_type():
+		return "GuidesLines.Cut"

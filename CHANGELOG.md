@@ -5,6 +5,22 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.4] — 2026-05-03
+
+### Added — Cut overlap mode for Shape markers
+
+A new **Cut** mode is available in the Shape **Overlap Mode** row (alongside Normal, Merge, Conforming, Wrapping, Difference).
+
+**Behaviour:** When Cut mode is active and the user places a Shape, no new marker is created. Instead, every existing Shape marker whose outline **intersects** the placed shape is clipped:
+- Segments that fall inside the cut area are removed.
+- The remaining segments are split into disconnected chains; each chain becomes a **Path** marker (the original Shape marker is converted in-place for the first chain, extra chains spawn new markers).
+- A Shape that lies **fully inside** the cut area is deleted entirely.
+- A Shape that fully **contains** the cut area without any edge intersection is left untouched.
+
+The operation is fully **undoable/redoable** via the history system.
+
+---
+
 ## [2.3.3] — 2026-05-02
 
 ### Added — "Side" size mode for non-circle shapes

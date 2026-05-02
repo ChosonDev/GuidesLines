@@ -63,6 +63,7 @@ var merge_shapes = false       # Merge intersecting shape markers on placement (
 var conforming_mode = false  # Conforming mode — new shape dents existing shapes' outlines (Difference applied to others + place B)
 var wrapping_mode = false    # Wrapping mode — new shape is dented by existing shapes (Difference applied to new shape + place B)
 var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
+var cut_mode = false        # Cut mode — clip existing shapes with the new shape outline and convert them to Path markers
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -206,6 +207,23 @@ func place_marker(pos):
 		var snap = _take_difference_snapshot(diff_desc)
 		_do_apply_difference(diff_desc)
 		_record_history(GuidesLinesHistory.DifferenceRecord.new(self, diff_desc, snap))
+		return
+
+	# Cut mode: clip existing shapes with the new shape, converting results to Path markers.
+	# The new shape itself is never placed.
+	if cut_mode and active_marker_type == MARKER_TYPE_SHAPE:
+		var final_pos_cut = pos
+		if parent_mod.Global.Editor.IsSnapping:
+			final_pos_cut = snap_position_to_grid(pos)
+		var cut_desc = _build_shape_descriptor_at(final_pos_cut)
+		if cut_desc.empty():
+			return
+		var cut_snap = _take_cut_snapshot(cut_desc)
+		if cut_snap.empty():
+			return
+		var result = _do_apply_cut(cut_desc)
+		_record_history(GuidesLinesHistory.CutRecord.new(
+				self, cut_desc, cut_snap, result.deleted_ids, result.created_markers_data))
 		return
 
 	# Merge mode: merge new shape outline into every overlapping existing shape.
@@ -1188,6 +1206,204 @@ func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 				"primitives": marker.get_primitives().duplicate(true)
 			}
 	return snap
+
+
+# ============================================================================
+# CUT MODE CORE
+# ============================================================================
+
+## Snapshot the pre-cut state of every Shape marker affected by [cut_desc].
+## A marker is affected when:
+##   (a) Its edges intersect the cut shape, OR
+##   (b) It lies fully inside the cut shape (will be deleted entirely).
+## Called BEFORE _do_apply_cut so the record can undo all changes.
+func _take_cut_snapshot(cut_desc: Dictionary) -> Dictionary:
+	var snap = {}
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return snap
+	for marker in markers:
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var desc = _get_shape_descriptor(marker, cell_size)
+		if desc.empty():
+			continue
+		# Case (a): outline edges actually cross the cut shape.
+		if _shapes_intersect(cut_desc, desc):
+			snap[marker.id] = {
+				"primitives": marker.get_primitives().duplicate(true),
+				"color":      marker.color,
+				"position":   marker.position
+			}
+			continue
+		# Case (b): shape fully inside cut (no edge intersection but contained).
+		if not desc.points.empty() and Geometry.is_point_in_polygon(desc.points[0], cut_desc.points):
+			snap[marker.id] = {
+				"primitives": marker.get_primitives().duplicate(true),
+				"color":      marker.color,
+				"position":   marker.position
+			}
+	return snap
+
+## Apply the Cut operation:
+##   • Shapes whose edges intersect cut_desc are clipped; remaining segments
+##     are split into disconnected chains and each chain becomes a Path marker.
+##     The first chain reuses the existing marker (type changed to Path).
+##     Additional chains spawn new Path markers.
+##   • Shapes fully inside cut_desc (no edge intersection) are deleted.
+##   • Shapes that contain cut_desc without edge intersection are untouched.
+##
+## Returns { "deleted_ids": Array[int], "created_markers_data": Array[Dictionary] }.
+## Call _take_cut_snapshot BEFORE this to capture the pre-cut state for undo.
+func _do_apply_cut(cut_desc: Dictionary) -> Dictionary:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return {"deleted_ids": [], "created_markers_data": []}
+
+	var deleted_ids          = []
+	var created_markers_data = []
+
+	# Freeze count so newly appended Path markers are not re-processed.
+	var original_count = markers.size()
+	for i in range(original_count - 1, -1, -1):
+		var marker = markers[i]
+		if marker.marker_type != MARKER_TYPE_SHAPE:
+			continue
+		var target_desc = _get_shape_descriptor(marker, cell_size)
+		if target_desc.empty():
+			continue
+
+		var intersects = _shapes_intersect(cut_desc, target_desc)
+		if not intersects:
+			# Only delete if the shape lies fully inside the cut (not the reverse).
+			if not target_desc.points.empty() and \
+					Geometry.is_point_in_polygon(target_desc.points[0], cut_desc.points):
+				deleted_ids.append(marker.id)
+				markers_lookup.erase(marker.id)
+				markers.remove(i)
+				if parent_mod.guides_lines_api:
+					parent_mod.guides_lines_api._notify_marker_deleted(marker.id)
+				if LOGGER:
+					LOGGER.debug("Cut: deleted marker %d (fully inside cut)" % [marker.id])
+			# else: cut is inside the shape, or shapes don't overlap — leave untouched.
+			continue
+
+		# Clip: keep only segments whose midpoint lies OUTSIDE the cut shape.
+		var remaining_segs = GeometryUtils.clip_primitives_against_shapes(
+				marker.get_primitives(), [cut_desc])
+
+		if remaining_segs.empty():
+			# All segments consumed — shape is effectively fully inside cut.
+			deleted_ids.append(marker.id)
+			markers_lookup.erase(marker.id)
+			markers.remove(i)
+			if parent_mod.guides_lines_api:
+				parent_mod.guides_lines_api._notify_marker_deleted(marker.id)
+			if LOGGER:
+				LOGGER.debug("Cut: deleted marker %d (no segments remained after clip)" % [marker.id])
+			continue
+
+		# Split the remaining segments into disconnected chains.
+		var chains = GeometryUtils.split_segments_into_chains(remaining_segs)
+		if chains.empty():
+			deleted_ids.append(marker.id)
+			markers_lookup.erase(marker.id)
+			markers.remove(i)
+			if LOGGER:
+				LOGGER.warn("Cut: deleted marker %d (split_segments_into_chains returned empty)" % [marker.id])
+			continue
+
+		# Preserve color before we change marker state.
+		var saved_color = marker.color
+
+		# ── First chain: convert the existing marker in-place to a Path ────
+		marker.marker_type    = MARKER_TYPE_PATH
+		marker.marker_points  = chains[0].duplicate()
+		marker.position       = chains[0][0]  # Move anchor to start of path.
+		marker.path_closed    = false
+		marker.path_end_arrow = false
+		# Clear the Shape draw cache; Path rendering reads marker_points directly.
+		marker.cached_draw_data = {}
+		marker._dirty = true
+		if LOGGER:
+			LOGGER.debug("Cut: marker %d converted to Path (%d points)" % [
+					marker.id, chains[0].size()])
+
+		# ── Remaining chains: create new Path markers ───────────────────────
+		for ci in range(1, chains.size()):
+			var new_id = next_id
+			next_id += 1
+			var md = {
+				"position":       chains[ci][0],
+				"marker_type":    MARKER_TYPE_PATH,
+				"color":          saved_color,
+				"coordinates":    false,
+				"id":             new_id,
+				"marker_points":  chains[ci].duplicate(),
+				"path_closed":    false,
+				"path_end_arrow": false
+			}
+			_do_place_marker(md)
+			created_markers_data.append(md)
+			if LOGGER:
+				LOGGER.debug("Cut: created extra Path marker %d (%d points, chain %d)" % [
+						new_id, chains[ci].size(), ci])
+
+	if overlay:
+		overlay.update()
+
+	return {"deleted_ids": deleted_ids, "created_markers_data": created_markers_data}
+
+## Undo a Cut operation:
+##   1. Remove every Path marker that was created as an extra fragment.
+##   2. For markers that were modified (Shape → Path): restore them to Shape.
+##   3. For markers that were deleted (fully inside cut): re-create them as Shape.
+func _undo_cut(snapshots: Dictionary, deleted_ids: Array, created_markers_data: Array) -> void:
+	# 1. Remove extra Path markers that did not exist before the cut.
+	for md in created_markers_data:
+		var mid = md["id"]
+		if markers_lookup.has(mid):
+			var m = markers_lookup[mid]
+			markers.erase(m)
+			markers_lookup.erase(mid)
+			if LOGGER:
+				LOGGER.debug("Cut undo: removed created Path marker id=%d" % mid)
+
+	# 2 & 3. Restore every affected marker from its snapshot.
+	for sid in snapshots:
+		var snap = snapshots[sid]
+		if deleted_ids.has(sid):
+			# Was deleted — re-create as Shape.
+			var marker = GuideMarkerClass.new()
+			marker.id          = sid
+			marker.marker_type = MARKER_TYPE_SHAPE
+			marker.position    = snap.position
+			marker.color       = snap.color
+			marker.update_opacity(_current_opacity())
+			marker.set_primitives(snap.primitives.duplicate(true))
+			markers.append(marker)
+			markers_lookup[sid] = marker
+			if sid >= next_id:
+				next_id = sid + 1
+			if LOGGER:
+				LOGGER.debug("Cut undo: restored deleted marker id=%d" % sid)
+		else:
+			# Was modified (Path) — restore back to Shape.
+			if markers_lookup.has(sid):
+				var marker = markers_lookup[sid]
+				marker.marker_type    = MARKER_TYPE_SHAPE
+				marker.marker_points  = []
+				marker.path_closed    = false
+				marker.path_end_arrow = false
+				marker.position       = snap.position  # Restore original center.
+				marker.set_primitives(snap.primitives.duplicate(true))
+				marker._dirty = true
+				if LOGGER:
+					LOGGER.debug("Cut undo: restored Shape marker id=%d" % sid)
+
+	update_ui()
+	if overlay:
+		overlay.update()
 
 
 # ============================================================================

@@ -405,7 +405,7 @@ func _create_shape_settings_ui():
 	var normal_btn = Button.new()
 	normal_btn.name = "NormalModeButton"
 	normal_btn.toggle_mode = true
-	normal_btn.pressed = not (tool.merge_shapes or tool.conforming_mode or tool.wrapping_mode or tool.difference_mode)
+	normal_btn.pressed = not (tool.merge_shapes or tool.conforming_mode or tool.wrapping_mode or tool.difference_mode or tool.cut_mode)
 	normal_btn.hint_tooltip = "Normal Mode - place shapes without interaction"
 	normal_btn.rect_min_size = Vector2(48, 48)
 	var normal_icon = _load_icon("normal64.png", 0.5)
@@ -465,6 +465,19 @@ func _create_shape_settings_ui():
 		diff_btn.icon = difference_icon
 	diff_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["difference"])
 	modes_hbox.add_child(diff_btn)
+
+	# Cut Mode button
+	var cut_btn = Button.new()
+	cut_btn.name = "CutModeButton"
+	cut_btn.toggle_mode = true
+	cut_btn.pressed = tool.cut_mode
+	cut_btn.hint_tooltip = "Cut Mode - clips existing shapes with the new shape outline; intersected shapes become Path markers"
+	cut_btn.rect_min_size = Vector2(48, 48)
+	var cut_icon = _load_icon("cut64.png", 0.5)
+	if cut_icon:
+		cut_btn.icon = cut_icon
+	cut_btn.connect("pressed", self, "_on_shape_mode_button_pressed", ["cut"])
+	modes_hbox.add_child(cut_btn)
 
 	container.add_child(modes_hbox)
 
@@ -832,6 +845,7 @@ func _on_shape_mode_button_pressed(mode: String):
 	tool.conforming_mode = false
 	tool.wrapping_mode = false
 	tool.difference_mode = false
+	tool.cut_mode = false
 
 	# Activate the selected mode (normal means all stay false)
 	match mode:
@@ -843,6 +857,8 @@ func _on_shape_mode_button_pressed(mode: String):
 			tool.wrapping_mode = true
 		"difference":
 			tool.difference_mode = true
+		"cut":
+			tool.cut_mode = true
 		"normal":
 			pass  # All modes already false
 
@@ -866,7 +882,8 @@ func _update_shape_mode_buttons(active_mode: String):
 		"merge": "MergeModeButton",
 		"conforming": "ConformingModeButton",
 		"wrapping": "WrappingModeButton",
-		"difference": "DifferenceModeButton"
+		"difference": "DifferenceModeButton",
+		"cut": "CutModeButton"
 	}
 
 	# Update each button
