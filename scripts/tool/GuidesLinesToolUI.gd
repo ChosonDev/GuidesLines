@@ -71,8 +71,11 @@ func update_ui_checkboxes_state():
 				for subchild in child.get_children():
 					if subchild is SpinBox or subchild is ColorPickerButton:
 						subchild.editable = not tool.delete_mode
-			elif child is Button and child.text != "Delete All Markers":
-				child.disabled = tool.delete_mode
+			elif child is Button:
+				if child.name == "DeleteAllMarkersButton":
+					child.disabled = not tool.delete_mode
+				else:
+					child.disabled = tool.delete_mode
 			elif child is GridContainer:
 				for btn in child.get_children():
 					if btn is Button:
@@ -166,6 +169,8 @@ func create_ui_panel():
 
 	var delete_all_btn = Button.new()
 	delete_all_btn.text = "Delete All Markers"
+	delete_all_btn.disabled = not tool.delete_mode
+	delete_all_btn.name = "DeleteAllMarkersButton"
 	delete_all_btn.connect("pressed", tool.parent_mod, "_on_delete_all_markers", [tool])
 	container.add_child(delete_all_btn)
 
@@ -657,10 +662,9 @@ func _on_shape_subtype_changed(subtype_index):
 				tool.active_shape_angle = 0.0
 			SHAPE_OCTAGON:
 				tool.active_shape_sides = 8
-				tool.active_shape_angle = 22.5
+				tool.active_shape_angle = 0.0
 			SHAPE_CUSTOM:
-				# Keep current sides/angle as-is when switching to Custom
-				pass
+				tool.active_shape_angle = 0.0
 
 		tool.type_settings[MARKER_TYPE_SHAPE]["angle"] = tool.active_shape_angle
 		tool.type_settings[MARKER_TYPE_SHAPE]["sides"] = tool.active_shape_sides

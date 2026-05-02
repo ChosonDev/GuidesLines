@@ -109,7 +109,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.3.1")
+			LOGGER.info("Mod starting - version 2.3.2")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -198,7 +198,8 @@ func _init_mod_config():
 		return
 	
 	var input_definitions = {
-		"Activate Guide Markers Tool": ["guideslines_activate_tool", "9"],
+		"Activate Guide Markers Tool": ["guideslines_activate_tool", "Control+G"],
+		"Toggle Delete Mode":          ["guideslines_toggle_delete_mode", "Control+D"],
 	}
 	self.Global.API.InputMapApi.add_actions(input_definitions)
 	
@@ -259,7 +260,16 @@ func update(_delta):
 	# Hotkey to activate the Guide Markers tool
 	if tool_created and Input.is_action_just_released("guideslines_activate_tool", true):
 		Global.Editor.Toolset.Quickswitch("GuidesLinesTool")
-	
+
+	# Hotkey to toggle Delete Mode
+	if tool_created and guides_tool and Input.is_action_just_released("guideslines_toggle_delete_mode", true):
+		var new_state = not guides_tool.delete_mode
+		guides_tool.set_delete_mode(new_state)
+		if guides_tool.tool_panel:
+			var cb = guides_tool.tool_panel.find_node("DeleteModeCheckbox", true, false)
+			if cb:
+				cb.pressed = new_state
+
 	# Only work when map is loaded
 	if Global.World == null or Global.WorldUI == null:
 		return

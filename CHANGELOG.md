@@ -5,6 +5,24 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] — 2026-05-02
+
+### Fixed — Octagon and Custom shape presets defaulted to wrong angle
+
+Selecting the **Octagon** preset set the angle to `22.5°` instead of `0°`, which appeared as `23` in the SpinBox (step = 1). Selecting **Custom** inherited whatever angle was previously active instead of resetting to `0°`.
+
+**Fix** (`GuidesLinesToolUI._on_shape_subtype_changed`): Octagon default angle changed from `22.5` to `0.0`; Custom preset now explicitly resets the angle to `0.0`.
+
+### Changed — "Delete All Markers" button disabled until Delete Mode is active
+
+The **Delete All Markers** button is now disabled by default and becomes enabled only when **Delete Markers Mode** is turned on. This prevents accidental deletion of all markers with a misclick.
+
+### Added — Configurable hotkey to toggle Delete Mode
+
+A new shortcut **"Toggle Delete Mode"** (default: `Ctrl+D`) is now available in **Edit → Preferences → Shortcuts → Guides Lines**. Pressing it toggles Delete Mode on/off without touching the mouse. The existing tool-activation shortcut default was also updated from `9` to `Ctrl+G`.
+
+---
+
 ## [2.3.1] — 2026-05-02
 
 ### Fixed — Shape markers 4× too large in Conforming / Wrapping / Difference modes when Custom Snap is active
