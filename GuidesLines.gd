@@ -109,7 +109,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.3.4")
+			LOGGER.info("Mod starting - version 2.3.5")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -198,8 +198,9 @@ func _init_mod_config():
 		return
 	
 	var input_definitions = {
-		"Activate Guide Markers Tool": ["guideslines_activate_tool", "Control+G"],
-		"Toggle Delete Mode":          ["guideslines_toggle_delete_mode", "Control+D"],
+		"Activate Guide Markers Tool": ["guideslines_activate_tool", "Ctrl+G"],
+		"Toggle Delete Mode":          ["guideslines_toggle_delete_mode", "Ctrl+D"],
+		"Toggle Move Mode":            ["guideslines_toggle_move_mode",   "Ctrl+M"],
 	}
 	self.Global.API.InputMapApi.add_actions(input_definitions)
 	
@@ -267,6 +268,15 @@ func update(_delta):
 		guides_tool.set_delete_mode(new_state)
 		if guides_tool.tool_panel:
 			var cb = guides_tool.tool_panel.find_node("DeleteModeCheckbox", true, false)
+			if cb:
+				cb.pressed = new_state
+
+	# Hotkey to toggle Move Mode
+	if tool_created and guides_tool and Input.is_action_just_released("guideslines_toggle_move_mode", true):
+		var new_state = not guides_tool.move_mode
+		guides_tool.set_move_mode(new_state)
+		if guides_tool.tool_panel:
+			var cb = guides_tool.tool_panel.find_node("MoveModeCheckbox", true, false)
 			if cb:
 				cb.pressed = new_state
 
@@ -374,6 +384,10 @@ func _on_show_coordinates_toggled(enabled, tool_instance):
 func _on_delete_mode_toggled(enabled, tool_instance):
 	if tool_instance:
 		tool_instance.set_delete_mode(enabled)
+
+func _on_move_mode_toggled(enabled, tool_instance):
+	if tool_instance:
+		tool_instance.set_move_mode(enabled)
 
 func _on_cross_guides_toggled(enabled):
 	cross_guides_enabled = enabled

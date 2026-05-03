@@ -62,26 +62,35 @@ func update_ui_checkboxes_state():
 		return
 	var container = tool.tool_panel.Align.get_child(0)
 	if container:
-		# Disable controls when delete mode is on
+		# Sync move/delete checkboxes to current state
+		var move_check = container.get_node_or_null("MoveModeCheckbox")
+		if move_check:
+			move_check.pressed = tool.move_mode
+		var delete_check_node = container.get_node_or_null("DeleteModeCheckbox")
+		if delete_check_node:
+			delete_check_node.pressed = tool.delete_mode
+
+		# Disable controls when delete mode or move mode is on
+		var any_special_mode = tool.delete_mode or tool.move_mode
 		for child in container.get_children():
 			if child is CheckButton:
-				if child.name == "DeleteModeCheckbox":
-					continue  # Don't disable delete mode checkbox itself
-				child.disabled = tool.delete_mode
+				if child.name == "DeleteModeCheckbox" or child.name == "MoveModeCheckbox":
+					continue  # Don't disable mode checkboxes themselves
+				child.disabled = any_special_mode
 			# Also disable spinboxes, color picker, and buttons
 			elif child is HBoxContainer:
 				for subchild in child.get_children():
 					if subchild is SpinBox or subchild is ColorPickerButton:
-						subchild.editable = not tool.delete_mode
+						subchild.editable = not any_special_mode
 			elif child is Button:
 				if child.name == "DeleteAllMarkersButton":
 					child.disabled = not tool.delete_mode
 				else:
-					child.disabled = tool.delete_mode
+					child.disabled = any_special_mode
 			elif child is GridContainer:
 				for btn in child.get_children():
 					if btn is Button:
-						btn.disabled = tool.delete_mode
+						btn.disabled = any_special_mode
 
 # ============================================================================
 # PANEL CREATION
@@ -175,6 +184,14 @@ func create_ui_panel():
 	delete_all_btn.name = "DeleteAllMarkersButton"
 	delete_all_btn.connect("pressed", tool.parent_mod, "_on_delete_all_markers", [tool])
 	container.add_child(delete_all_btn)
+
+	# === MOVE MODE ===
+	var move_check = CheckButton.new()
+	move_check.text = "Move Markers Mode"
+	move_check.pressed = tool.move_mode
+	move_check.name = "MoveModeCheckbox"
+	move_check.connect("toggled", tool.parent_mod, "_on_move_mode_toggled", [tool])
+	container.add_child(move_check)
 
 	tool.tool_panel.Align.add_child(container)
 

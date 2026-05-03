@@ -373,3 +373,34 @@ class CutRecord:
 
 	func record_type():
 		return "GuidesLines.Cut"
+
+
+# History record for moving a marker to a new position.
+class MoveMarkerRecord:
+	var tool
+	var marker_id: int
+	var old_pos: Vector2
+	var new_pos: Vector2
+
+	func _init(tool_ref, id, from: Vector2, to: Vector2):
+		tool = tool_ref
+		marker_id = id
+		old_pos = from
+		new_pos = to
+		if tool.LOGGER:
+			tool.LOGGER.debug("MoveMarkerRecord created for id: %d" % [id])
+
+	func redo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("MoveMarkerRecord.redo() called for id: %d" % [marker_id])
+		if tool.markers_lookup.has(marker_id):
+			tool._do_move_marker(tool.markers_lookup[marker_id], new_pos)
+
+	func undo():
+		if tool.LOGGER:
+			tool.LOGGER.debug("MoveMarkerRecord.undo() called for id: %d" % [marker_id])
+		if tool.markers_lookup.has(marker_id):
+			tool._do_move_marker(tool.markers_lookup[marker_id], old_pos)
+
+	func record_type():
+		return "GuidesLines.MoveMarker"

@@ -29,7 +29,13 @@ var cached_snappy_mod = null  # Custom_snap mod reference (if available)
 var is_enabled = false
 var show_coordinates = false  # Show grid coordinates on new markers
 var delete_mode = false  # Delete mode - click to remove markers
+var move_mode = false   # Move Mode — drag existing markers to new position
 # fill mode is active when active_marker_type == MARKER_TYPE_FILL
+
+# Move mode drag state
+var _move_selected_marker = null   # Marker currently being dragged
+var _move_drag_offset = Vector2.ZERO  # Click offset from marker.position
+var _move_drag_pos = Vector2.ZERO     # Current drag position (mouse world pos)
 
 # Marker type system
 const MARKER_TYPE_LINE = "Line"
@@ -683,8 +689,56 @@ func set_delete_mode(enabled):
 		active_marker_type = MARKER_TYPE_LINE
 		if ui:
 			ui.sync_type_selector_to_active_type()
+	# Delete mode and Move mode are mutually exclusive.
+	if enabled and move_mode:
+		move_mode = false
+		_move_selected_marker = null
 	update_ui_checkboxes_state()
 	# Force overlay update to hide/show preview
+	if overlay:
+		overlay.update()
+
+func set_move_mode(enabled: bool):
+	move_mode = enabled
+	_move_selected_marker = null
+	# Move mode and Delete mode are mutually exclusive.
+	if enabled and delete_mode:
+		delete_mode = false
+	update_ui_checkboxes_state()
+	if overlay:
+		overlay.update()
+
+# Find the first marker whose centre is within [threshold] pixels of [pos].
+func find_marker_at(pos: Vector2, threshold: float = 20.0):
+	for marker in markers:
+		if marker.position.distance_to(pos) < threshold:
+			return marker
+	return null
+
+# Move [marker] to [new_pos] and record the action in history.
+func move_marker(marker, new_pos: Vector2):
+	var old_pos = marker.position
+	_do_move_marker(marker, new_pos)
+	_record_history(GuidesLinesHistory.MoveMarkerRecord.new(self, marker.id, old_pos, new_pos))
+
+# Low-level move — called by move_marker() and by undo/redo.
+func _do_move_marker(marker, new_pos: Vector2):
+	var delta = new_pos - marker.position
+
+	if marker.marker_type == MARKER_TYPE_SHAPE:
+		# Primitives are stored in absolute world-space coords — translate in-place.
+		for seg in marker.get_primitives():
+			seg.a += delta
+			seg.b += delta
+
+	elif marker.marker_type == MARKER_TYPE_PATH:
+		# All path points are absolute world-space positions — translate each one.
+		for i in range(marker.marker_points.size()):
+			marker.marker_points[i] += delta
+
+	marker.position = new_pos
+	marker._dirty = true
+	marker._coord_dirty = true
 	if overlay:
 		overlay.update()
 

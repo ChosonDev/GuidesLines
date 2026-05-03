@@ -5,6 +5,23 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.5] — 2026-05-03
+
+### Added — Move Mode
+
+A new **Move Markers Mode** toggle is available in the tool panel (below Delete Mode).
+
+**Behaviour:**
+- While Move Mode is active, the standard placement preview is hidden.
+- Clicking on an existing marker's centre and holding LMB picks it up; a semi-transparent preview follows the cursor.
+- Releasing LMB drops the marker at the new position (grid snapping is respected).
+- All marker types are supported: **Line**, **Shape**, and **Path**. Shape primitives and Path points are translated in world-space so the full visual geometry moves with the marker.
+- The move is fully **undoable/redoable** via the history system.
+- Move Mode and Delete Mode are **mutually exclusive** — enabling one disables the other.
+- Hotkey: **Ctrl+M** (configurable in mod settings).
+
+---
+
 ## [2.3.4] — 2026-05-03
 
 ### Added — Cut overlap mode for Shape markers

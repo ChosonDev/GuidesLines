@@ -102,7 +102,14 @@ func _process(_delta):
 	# Check if an API preview was queued
 	if tool and not tool._api_preview.empty():
 		needs_update = true
-	
+
+	# Track drag position for move mode
+	if tool and tool.move_mode and tool._move_selected_marker and tool.cached_worldui:
+		var current = tool.cached_worldui.MousePosition
+		if current != tool._move_drag_pos:
+			tool._move_drag_pos = current
+			needs_update = true
+
 	# Only update when necessary
 	if needs_update:
 		update()
@@ -118,8 +125,8 @@ func _input(event):
 			tool._finalize_path_marker(false)  # Finish as open path
 			get_tree().set_input_as_handled()
 			return
-		# Shape type: RMB rotates by 45 degrees (not in delete mode)
-		if tool.active_marker_type == tool.MARKER_TYPE_SHAPE and event.pressed and not tool.delete_mode:
+		# Shape type: RMB rotates by 45 degrees (not in delete/move mode)
+		if tool.active_marker_type == tool.MARKER_TYPE_SHAPE and event.pressed and not tool.delete_mode and not tool.move_mode:
 			tool.rotate_shape_45()
 			get_tree().set_input_as_handled()
 			return
@@ -205,6 +212,17 @@ func _input(event):
 				if tool.LOGGER:
 					tool.LOGGER.debug("MarkerOverlay: Mouse clicked at %s, delete_mode: %s, fill_mode: %s" % [pos, str(tool.delete_mode), str(tool.active_marker_type == tool.MARKER_TYPE_FILL)])
 				
+				# Move mode: start dragging the marker under the cursor
+				if tool.move_mode:
+					var marker = tool.find_marker_at(pos, 20.0)
+					if marker:
+						tool._move_selected_marker = marker
+						tool._move_drag_offset = pos - marker.position
+						tool._move_drag_pos = pos
+						update()
+					get_tree().set_input_as_handled()
+					return
+				
 				# Fill mode: click fills the region under the cursor inside a Shape polygon
 				if tool.active_marker_type == tool.MARKER_TYPE_FILL:
 					tool.handle_fill_click(pos)
@@ -219,6 +237,22 @@ func _input(event):
 					tool.place_marker(pos)
 				
 				update()  # Request redraw
+
+	# LMB released — finalize drag in move mode
+	if event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed:
+		if tool.move_mode and tool._move_selected_marker:
+			var new_pos = tool._move_drag_pos - tool._move_drag_offset
+			if tool.parent_mod.Global.Editor.IsSnapping:
+				new_pos = tool.snap_position_to_grid(new_pos)
+			tool.move_marker(tool._move_selected_marker, new_pos)
+			tool._move_selected_marker = null
+			get_tree().set_input_as_handled()
+			return
+
+	# Mouse motion — live preview while dragging in move mode
+	if event is InputEventMouseMotion and tool.move_mode and tool._move_selected_marker:
+		update()
+		return
 
 # Draw all markers and their guide lines
 # Also draws preview marker at cursor position
@@ -273,8 +307,16 @@ func _draw():
 		_draw_api_shape_preview(tool._api_preview, cam_zoom, cell_size, preview_line_width, preview_marker_size)
 		tool._api_preview = {}
 
-	# Draw preview marker at cursor (disabled in delete mode AND in fill mode)
-	if tool.is_enabled and not tool.delete_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+	# Draw move mode drag preview
+	if tool.move_mode and tool._move_selected_marker:
+		var drag_pos = tool._move_drag_pos - tool._move_drag_offset
+		if tool.parent_mod.Global.Editor.IsSnapping:
+			drag_pos = tool.snap_position_to_grid(drag_pos)
+		_draw_move_drag_preview(tool._move_selected_marker, drag_pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, preview_line_width, preview_marker_size)
+		return
+
+	# Draw preview marker at cursor (disabled in delete mode, move mode, and fill mode)
+	if tool.is_enabled and not tool.delete_mode and not tool.move_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		# Don't draw preview if mouse is in UI area
 		if _mouse_in_ui:
 			return
@@ -442,6 +484,51 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
 	draw_arc(pos, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
+
+# Draw the selected marker semi-transparently at the dragged position during Move Mode.
+func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect: Rect2, cell_size, custom_snap, preview_line_width: float, preview_marker_size: float):
+	var ALPHA = 0.55
+	var line_color   = Color(marker.draw_color.r, marker.draw_color.g, marker.draw_color.b, ALPHA)
+	var marker_color = Color(marker.draw_marker_color.r, marker.draw_marker_color.g, marker.draw_marker_color.b, ALPHA)
+	var arc_color    = Color(marker.draw_arc_color.r, marker.draw_arc_color.g, marker.draw_arc_color.b, ALPHA)
+	var LINE_WIDTH   = preview_line_width
+	var MARKER_SIZE  = preview_marker_size
+
+	if marker.marker_type == "Line":
+		var angles = [marker.angle]
+		if marker.mirror:
+			angles.append(fmod(marker.angle + 180.0, 360.0))
+		for ang in angles:
+			var line_points = _calculate_line_endpoints(drag_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
+			if line_points[0] != line_points[1]:
+				draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+
+	elif marker.marker_type == "Shape":
+		if cell_size:
+			var radius_px = marker.shape_radius * min(cell_size.x, cell_size.y)
+			var angle_rad = deg2rad(marker.shape_angle)
+			var vertices  = GeometryUtils.calculate_shape_vertices(drag_pos, radius_px, marker.shape_sides, angle_rad)
+			GuidesLinesRender.draw_polygon_outline(self, vertices, line_color, LINE_WIDTH)
+
+	elif marker.marker_type == "Path":
+		if marker.marker_points.size() >= 2:
+			var offset = drag_pos - marker.position
+			var pts = []
+			for p in marker.marker_points:
+				pts.append(p + offset)
+			for i in range(pts.size() - 1):
+				draw_line(pts[i], pts[i + 1], line_color, LINE_WIDTH)
+			if marker.path_closed and pts.size() >= 3:
+				draw_line(pts[pts.size() - 1], pts[0], line_color, LINE_WIDTH)
+			if marker.path_end_arrow:
+				var arrow_from = pts[pts.size() - 2]
+				var arrow_to   = pts[pts.size() - 1]
+				var arrow_length = GuidesLinesRender.get_adaptive_width(marker.arrow_head_length, cam_zoom)
+				var head_points = GeometryUtils.calculate_arrowhead_points(arrow_to, arrow_from, arrow_length, marker.arrow_head_angle)
+				GuidesLinesRender.draw_arrow(self, arrow_from, arrow_to, head_points, line_color, LINE_WIDTH)
+
+	draw_circle(drag_pos, MARKER_SIZE / 2.0, marker_color)
+	draw_arc(drag_pos, MARKER_SIZE / 2.0, 0, TAU, 32, arc_color, 2)
 
 # Draw preview for Path type (temp points + line to cursor)
 func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zoom, preview_line_width: float, preview_marker_size: float, active_arrow_length_px: float):
