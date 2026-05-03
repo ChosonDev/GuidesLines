@@ -42,6 +42,7 @@ const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
 const MARKER_TYPE_FILL = "Fill"
+const MARKER_TYPE_TEMPLATE = "Template"
 
 # Shape preset labels (UI-only — used to set initial sides/angle when a preset is selected)
 const SHAPE_CIRCLE = "Circle"
@@ -70,6 +71,13 @@ var conforming_mode = false  # Conforming mode — new shape dents existing shap
 var wrapping_mode = false    # Wrapping mode — new shape is dented by existing shapes (Difference applied to new shape + place B)
 var difference_mode = false  # Difference mode — don't place new shape; fill overlap into existing markers
 var cut_mode = false        # Cut mode — clip existing shapes with the new shape outline and convert them to Path markers
+
+# Template mode state
+var templates = []                # Array of { "id": int, "name": String, "data": Dictionary }
+var template_next_id = 0          # Counter for auto-naming templates
+var active_template_index = -1    # Index of selected template in templates[] (-1 = none)
+var template_capture_mode = false # When true, next map click captures a marker as a template
+var template_rotation_offset = 0.0  # Ephemeral rotation offset (degrees); reset on template select/re-select
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -197,6 +205,11 @@ func _record_history(record, max_count: int = 100) -> void:
 # Place a new marker at the specified position
 # Applies grid snapping and active custom line settings
 func place_marker(pos):
+	# Template mode: place a copy of the selected template at this position
+	if active_marker_type == MARKER_TYPE_TEMPLATE:
+		_place_template_marker(pos)
+		return
+
 	# Special handling for Path type
 	if active_marker_type == MARKER_TYPE_PATH:
 		_handle_path_placement(pos)
@@ -294,6 +307,284 @@ func place_marker(pos):
 func _handle_path_placement(pos): placement.handle_path_placement(pos)
 func _finalize_path_marker(closed): placement.finalize_path_marker(closed)
 func _cancel_path_placement(): placement.cancel_path_placement()
+
+# ============================================================================
+# TEMPLATE MODE
+# ============================================================================
+
+# Start template capture — next click on a map marker saves it as a template.
+func start_template_capture() -> void:
+	template_capture_mode = true
+	if ui:
+		ui._update_template_capture_button(true)
+	if overlay:
+		overlay.update()
+
+# Capture the marker nearest to [pos] and store it as a new template.
+func capture_marker_as_template(pos: Vector2) -> void:
+	template_capture_mode = false
+	if ui:
+		ui._update_template_capture_button(false)
+
+	var marker = find_marker_at(pos, 20.0)
+	if not marker:
+		if overlay:
+			overlay.update()
+		return
+
+	var tmpl_id = template_next_id
+	template_next_id += 1
+
+	# Snapshot all marker parameters
+	var data = {
+		"marker_type":       marker.marker_type,
+		"color":             marker.color,
+		"coordinates":       marker.show_coordinates,
+		"angle":             marker.angle,
+		"mirror":            marker.mirror,
+		"shape_radius":      marker.shape_radius,
+		"shape_angle":       marker.shape_angle,
+		"shape_sides":       marker.shape_sides,
+		"path_closed":       marker.path_closed,
+		"path_end_arrow":    marker.path_end_arrow,
+		"arrow_head_length": marker.arrow_head_length,
+		"arrow_head_angle":  marker.arrow_head_angle,
+	}
+
+	# For Path: store points relative to the first point so the shape is position-independent
+	if marker.marker_type == MARKER_TYPE_PATH and marker.marker_points.size() > 0:
+		var origin = marker.marker_points[0]
+		var rel_points = []
+		for pt in marker.marker_points:
+			rel_points.append(pt - origin)
+		data["relative_points"] = rel_points
+
+	# For Shape: if the marker was modified by Merge/Conforming/Difference/etc.,
+	# its real geometry lives in cached_draw_data["primitives"], not in shape_radius/angle/sides.
+	# Store segments in relative coords so they can be re-placed anywhere.
+	if marker.marker_type == MARKER_TYPE_SHAPE:
+		var prims = marker.get_primitives()
+		if prims.size() > 0:
+			var rel_prims = []
+			for seg in prims:
+				rel_prims.append({"a": seg.a - marker.position, "b": seg.b - marker.position})
+			data["shape_primitives"] = rel_prims
+
+	templates.append({
+		"id":   tmpl_id,
+		"name": "Template %d" % [tmpl_id + 1],
+		"data": data,
+	})
+
+	if ui:
+		ui.rebuild_template_list()
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Captured marker as template (id: %d, type: %s)" % [tmpl_id, marker.marker_type])
+
+# Select template by index (sets as active for placement).
+func select_template(index: int) -> void:
+	active_template_index = index
+	template_rotation_offset = 0.0  # Reset ephemeral rotation on every (re-)select
+	if overlay:
+		overlay.update()
+
+# Delete template by index.
+func delete_template(index: int) -> void:
+	if index < 0 or index >= templates.size():
+		return
+	templates.remove(index)
+	if active_template_index >= templates.size():
+		active_template_index = templates.size() - 1
+		template_rotation_offset = 0.0
+	if ui:
+		ui.rebuild_template_list()
+	if overlay:
+		overlay.update()
+
+# Adjust ephemeral rotation via mouse wheel.
+func adjust_template_rotation_with_wheel(direction: int) -> void:
+	if active_template_index < 0 or active_template_index >= templates.size():
+		return
+	var tmpl_type = templates[active_template_index]["data"].get("marker_type", "")
+	var step = 1.0 if tmpl_type == MARKER_TYPE_LINE else 5.0
+	template_rotation_offset = fmod(template_rotation_offset + direction * step, 360.0)
+	if template_rotation_offset < 0.0:
+		template_rotation_offset += 360.0
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Template rotation offset adjusted: %.1f°" % [template_rotation_offset])
+
+# Rotate template by 45° via RMB shortcut.
+func rotate_template_45() -> void:
+	if active_template_index < 0 or active_template_index >= templates.size():
+		return
+	template_rotation_offset = fmod(template_rotation_offset + 45.0, 360.0)
+	if overlay:
+		overlay.update()
+	if LOGGER:
+		LOGGER.debug("Template rotated 45° via RMB: offset = %.1f°" % [template_rotation_offset])
+
+# Build a shape descriptor from the currently selected template at [pos],
+# applying the ephemeral rotation offset. Handles both primitive-based
+# (Merge/Conforming/Difference-modified) and standard parametric templates.
+func _build_shape_descriptor_from_template(pos: Vector2) -> Dictionary:
+	if active_template_index < 0 or active_template_index >= templates.size():
+		return {}
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null:
+		return {}
+	var tmpl_data = templates[active_template_index]["data"]
+	var rot_rad = deg2rad(template_rotation_offset)
+	var tmp = GuideMarkerClass.new()
+	tmp.position    = pos
+	tmp.marker_type = MARKER_TYPE_SHAPE
+	tmp.shape_radius = tmpl_data.get("shape_radius", 1.0)
+	tmp.shape_angle  = fmod(tmpl_data.get("shape_angle", 0.0) + template_rotation_offset, 360.0)
+	tmp.shape_sides  = tmpl_data.get("shape_sides", DEFAULT_SHAPE_SIDES)
+	if tmpl_data.has("shape_primitives"):
+		# Inject modified primitives translated + rotated to the new position
+		var abs_prims = []
+		for rel_seg in tmpl_data["shape_primitives"]:
+			abs_prims.append({
+				"type": "seg",
+				"a": pos + rel_seg["a"].rotated(rot_rad),
+				"b": pos + rel_seg["b"].rotated(rot_rad),
+			})
+		tmp.set_primitives(abs_prims)
+	return _get_shape_descriptor(tmp, cell_size)
+
+# Place a new marker using the currently selected template at [pos].
+func _place_template_marker(pos: Vector2) -> void:
+	if active_template_index < 0 or active_template_index >= templates.size():
+		return
+
+	var tmpl_data = templates[active_template_index]["data"]
+	var final_pos = pos
+	if parent_mod.Global.Editor.IsSnapping:
+		final_pos = snap_position_to_grid(pos)
+
+	# ── SHAPE OVERLAP MODES ──────────────────────────────────────────────────
+	if tmpl_data["marker_type"] == MARKER_TYPE_SHAPE:
+		var tmpl_desc = _build_shape_descriptor_from_template(final_pos)
+		if tmpl_desc.empty():
+			return
+
+		# Difference mode — punch a hole, don't place anything
+		if difference_mode:
+			var snap = _take_difference_snapshot(tmpl_desc)
+			_do_apply_difference(tmpl_desc)
+			_record_history(GuidesLinesHistory.DifferenceRecord.new(self, tmpl_desc, snap))
+			return
+
+		# Cut mode — clip existing shapes, don't place anything
+		if cut_mode:
+			var cut_snap = _take_cut_snapshot(tmpl_desc)
+			if cut_snap.empty():
+				return
+			var result = _do_apply_cut(tmpl_desc)
+			_record_history(GuidesLinesHistory.CutRecord.new(
+					self, tmpl_desc, cut_snap, result.deleted_ids, result.created_markers_data))
+			return
+
+		# Merge mode — absorb into overlapping shapes; fall through if no overlap
+		if merge_shapes:
+			var merge_snap = _snapshot_potential_merge_targets(tmpl_desc)
+			if not merge_snap.empty():
+				var merge_absorbed = _do_apply_merge(tmpl_desc, final_pos)
+				_record_history(GuidesLinesHistory.MergeShapeRecord.new(
+						self, tmpl_desc, final_pos, merge_snap, merge_absorbed))
+				return
+			# No overlap — fall through to normal placement below
+
+	# ── BUILD MARKER DATA ────────────────────────────────────────────────────
+	var marker_data = {
+		"position":    final_pos,
+		"marker_type": tmpl_data["marker_type"],
+		"color":       tmpl_data["color"],
+		"coordinates": tmpl_data.get("coordinates", false),
+		"id":          next_id,
+	}
+
+	match tmpl_data["marker_type"]:
+		MARKER_TYPE_LINE:
+			var eff_angle = fmod(tmpl_data.get("angle", 0.0) + template_rotation_offset, 360.0)
+			if eff_angle < 0.0:
+				eff_angle += 360.0
+			marker_data["angle"]  = eff_angle
+			marker_data["mirror"] = tmpl_data.get("mirror", false)
+		MARKER_TYPE_SHAPE:
+			var eff_angle = fmod(tmpl_data.get("shape_angle", 0.0) + template_rotation_offset, 360.0)
+			if eff_angle < 0.0:
+				eff_angle += 360.0
+			marker_data["shape_radius"] = tmpl_data.get("shape_radius", 1.0)
+			marker_data["shape_angle"]  = eff_angle
+			marker_data["shape_sides"]  = tmpl_data.get("shape_sides",  DEFAULT_SHAPE_SIDES)
+		MARKER_TYPE_PATH:
+			var rel_pts = tmpl_data.get("relative_points", [Vector2.ZERO])
+			var rot_rad = deg2rad(template_rotation_offset)
+			var abs_pts = []
+			for rp in rel_pts:
+				abs_pts.append(final_pos + rp.rotated(rot_rad))
+			marker_data["marker_points"]     = abs_pts
+			marker_data["path_closed"]       = tmpl_data.get("path_closed",       false)
+			marker_data["path_end_arrow"]    = tmpl_data.get("path_end_arrow",    false)
+			marker_data["arrow_head_length"] = tmpl_data.get("arrow_head_length", 50.0)
+			marker_data["arrow_head_angle"]  = tmpl_data.get("arrow_head_angle",  30.0)
+
+	# ── PLACE WITH CONFORMING / WRAPPING ────────────────────────────────────
+	# For these modes, _do_place_marker calls the apply methods internally —
+	# but it will use freshly-built parametric primitives, which is wrong for
+	# modified templates. We temporarily disable both flags, place the marker,
+	# inject the correct primitives, then run the apply methods ourselves.
+	var clip_snaps = {}
+	if tmpl_data["marker_type"] == MARKER_TYPE_SHAPE:
+		var tmpl_desc = _build_shape_descriptor_from_template(final_pos)
+		if conforming_mode and not tmpl_desc.empty():
+			clip_snaps = _snapshot_potential_clip_targets_by_desc(tmpl_desc)
+
+	var prev_conforming = conforming_mode
+	var prev_wrapping   = wrapping_mode
+	if tmpl_data["marker_type"] == MARKER_TYPE_SHAPE and tmpl_data.has("shape_primitives"):
+		# Disable so _do_place_marker won't run them with the wrong geometry
+		conforming_mode = false
+		wrapping_mode   = false
+
+	_do_place_marker(marker_data)
+	next_id += 1
+
+	# Inject modified primitives into the placed marker (Shape + shape_primitives only)
+	if tmpl_data.has("shape_primitives") and tmpl_data["marker_type"] == MARKER_TYPE_SHAPE:
+		var placed = markers_lookup.get(marker_data["id"])
+		if placed:
+			var rot_rad = deg2rad(template_rotation_offset)
+			var abs_prims = []
+			for rel_seg in tmpl_data["shape_primitives"]:
+				abs_prims.append({
+					"type": "seg",
+					"a": final_pos + rel_seg["a"].rotated(rot_rad),
+					"b": final_pos + rel_seg["b"].rotated(rot_rad),
+				})
+			placed.set_primitives(abs_prims)
+			# Now run the deferred apply calls with correct geometry
+			conforming_mode = prev_conforming
+			wrapping_mode   = prev_wrapping
+			if conforming_mode:
+				_apply_conforming_to_existing_shapes(placed)
+			if wrapping_mode:
+				_apply_wrapping_to_new_shape(placed)
+	else:
+		# Restore flags (were never changed for non-primitives shapes)
+		conforming_mode = prev_conforming
+		wrapping_mode   = prev_wrapping
+
+	_record_history(GuidesLinesHistory.PlaceMarkerRecord.new(self, marker_data, clip_snaps))
+
+	if LOGGER:
+		LOGGER.debug("Placed template marker (template: %d, type: %s, pos: %s)" % [
+			active_template_index, marker_data["marker_type"], str(final_pos)])
 
 # ============================================================================
 # API BRIDGE METHODS
@@ -693,6 +984,11 @@ func set_delete_mode(enabled):
 	if enabled and move_mode:
 		move_mode = false
 		_move_selected_marker = null
+	# Cancel template capture when entering delete mode
+	if enabled and template_capture_mode:
+		template_capture_mode = false
+		if ui:
+			ui._update_template_capture_button(false)
 	update_ui_checkboxes_state()
 	# Force overlay update to hide/show preview
 	if overlay:
@@ -704,6 +1000,11 @@ func set_move_mode(enabled: bool):
 	# Move mode and Delete mode are mutually exclusive.
 	if enabled and delete_mode:
 		delete_mode = false
+	# Cancel template capture when entering move mode
+	if enabled and template_capture_mode:
+		template_capture_mode = false
+		if ui:
+			ui._update_template_capture_button(false)
 	update_ui_checkboxes_state()
 	if overlay:
 		overlay.update()

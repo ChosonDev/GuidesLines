@@ -13,6 +13,7 @@ const MARKER_TYPE_LINE = "Line"
 const MARKER_TYPE_SHAPE = "Shape"
 const MARKER_TYPE_PATH = "Path"
 const MARKER_TYPE_FILL = "Fill"
+const MARKER_TYPE_TEMPLATE = "Template"
 
 # Shape preset labels
 const SHAPE_CIRCLE = "Circle"
@@ -36,6 +37,10 @@ var line_settings_container = null    # Settings for Line type
 var shape_settings_container = null   # Settings for Shape type
 var path_settings_container = null    # Settings for Path type
 var fill_settings_container = null    # Settings for Fill type
+var template_settings_container = null   # Settings for Template type
+var _template_list_container = null      # VBoxContainer inside scroll for template rows
+var _add_template_btn = null             # "Add Template" / "Cancel" button
+var _template_overlap_modes_container = null  # Overlap mode buttons row (Shape templates only)
 
 func _init(tool_ref):
 	tool = tool_ref
@@ -126,6 +131,8 @@ func create_ui_panel():
 	type_selector.set_item_metadata(2, MARKER_TYPE_PATH)
 	type_selector.add_item("Fill")
 	type_selector.set_item_metadata(3, MARKER_TYPE_FILL)
+	type_selector.add_item("Template")
+	type_selector.set_item_metadata(4, MARKER_TYPE_TEMPLATE)
 	type_selector.selected = 0
 	type_selector.name = "TypeSelector"
 	type_selector.connect("item_selected", self, "_on_marker_type_changed")
@@ -159,6 +166,12 @@ func create_ui_panel():
 	fill_settings_container.name = "FillSettings"
 	fill_settings_container.visible = false
 	type_specific_container.add_child(fill_settings_container)
+
+	# Create Template settings UI
+	template_settings_container = _create_template_settings_ui()
+	template_settings_container.name = "TemplateSettings"
+	template_settings_container.visible = false
+	type_specific_container.add_child(template_settings_container)
 
 	container.add_child(type_specific_container)
 
@@ -589,6 +602,185 @@ func _create_path_settings_ui():
 
 	return container
 
+# Create UI for Template type
+func _create_template_settings_ui():
+	var container = VBoxContainer.new()
+
+	var hint = Label.new()
+	hint.text = "Click a marker on the map\nto save it as a template."
+	hint.autowrap = true
+	container.add_child(hint)
+
+	container.add_child(_create_spacer(8))
+
+	_add_template_btn = Button.new()
+	_add_template_btn.text = "Add Template"
+	_add_template_btn.name = "AddTemplateButton"
+	_add_template_btn.connect("pressed", self, "_on_add_template_pressed")
+	container.add_child(_add_template_btn)
+
+	container.add_child(_create_spacer(10))
+
+	var list_label = Label.new()
+	list_label.text = "Templates:"
+	container.add_child(list_label)
+
+	container.add_child(_create_spacer(4))
+
+	var scroll = ScrollContainer.new()
+	scroll.rect_min_size = Vector2(0, 150)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.name = "TemplateScroll"
+
+	_template_list_container = VBoxContainer.new()
+	_template_list_container.name = "TemplateListContainer"
+	_template_list_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_template_list_container)
+
+	container.add_child(scroll)
+
+	# === OVERLAP MODE (Shape templates only) ===
+	_template_overlap_modes_container = VBoxContainer.new()
+	_template_overlap_modes_container.name = "TemplateOverlapModesContainer"
+	_template_overlap_modes_container.visible = false
+
+	var sep = HSeparator.new()
+	_template_overlap_modes_container.add_child(sep)
+	_template_overlap_modes_container.add_child(_create_spacer(4))
+
+	var overlap_label = Label.new()
+	overlap_label.text = "Overlap Mode:"
+	_template_overlap_modes_container.add_child(overlap_label)
+	_template_overlap_modes_container.add_child(_create_spacer(4))
+
+	var modes_hbox = HBoxContainer.new()
+	modes_hbox.name = "TemplateShapeModesRow"
+	modes_hbox.alignment = BoxContainer.ALIGN_CENTER
+
+	var btn_defs = [
+		["NormalModeButton",     "normal64.png",     "Normal Mode - place shapes without interaction"],
+		["MergeModeButton",      "merge64.png",      "Merge Mode - new shape is merged (union) into any intersecting existing shapes"],
+		["ConformingModeButton", "conforming64.png", "Conforming Mode - new shape dents the outlines of existing shapes"],
+		["WrappingModeButton",   "wrapping64.png",   "Wrapping Mode - new shape is dented by existing shapes' outlines"],
+		["DifferenceModeButton", "difference64.png", "Difference Mode - fills the overlapping area into existing shapes without placing a new shape"],
+		["CutModeButton",        "cut64.png",        "Cut Mode - clips existing shapes with the new shape outline; intersected shapes become Path markers"],
+	]
+	var mode_keys = ["normal", "merge", "conforming", "wrapping", "difference", "cut"]
+
+	for i in range(btn_defs.size()):
+		var def = btn_defs[i]
+		var btn = Button.new()
+		btn.name = def[0]
+		btn.toggle_mode = true
+		btn.hint_tooltip = def[2]
+		btn.rect_min_size = Vector2(40, 40)
+		var icon = _load_icon(def[1], 0.5)
+		if icon:
+			btn.icon = icon
+		btn.connect("pressed", self, "_on_shape_mode_button_pressed", [mode_keys[i]])
+		modes_hbox.add_child(btn)
+
+	_template_overlap_modes_container.add_child(modes_hbox)
+	container.add_child(_template_overlap_modes_container)
+
+	return container
+
+# Rebuild the template list UI from tool.templates[]
+func rebuild_template_list() -> void:
+	if not _template_list_container:
+		return
+
+	# Clear existing rows
+	for child in _template_list_container.get_children():
+		child.queue_free()
+
+	for i in range(tool.templates.size()):
+		var tmpl = tool.templates[i]
+
+		var row = HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var lbl = Label.new()
+		lbl.text = tmpl["name"]
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl.clip_text = true
+		row.add_child(lbl)
+
+		var select_btn = Button.new()
+		select_btn.text = "Select"
+		select_btn.disabled = (tool.active_template_index == i)
+		select_btn.connect("pressed", self, "_on_template_select_pressed", [i])
+		row.add_child(select_btn)
+
+		var delete_btn = Button.new()
+		delete_btn.text = "Delete"
+		delete_btn.connect("pressed", self, "_on_template_delete_pressed", [i])
+		row.add_child(delete_btn)
+
+		_template_list_container.add_child(row)
+
+	# Show overlap modes panel only when the selected template is a Shape
+	if _template_overlap_modes_container:
+		var is_shape = false
+		if tool.active_template_index >= 0 and tool.active_template_index < tool.templates.size():
+			is_shape = tool.templates[tool.active_template_index]["data"].get("marker_type", "") == MARKER_TYPE_SHAPE
+		_template_overlap_modes_container.visible = is_shape
+		if is_shape:
+			_sync_template_overlap_mode_buttons()
+
+# Update the Add Template button text/disabled state during capture mode
+func _update_template_capture_button(capturing: bool) -> void:
+	if not _add_template_btn:
+		return
+	if capturing:
+		_add_template_btn.text = "Click a marker..."
+		_add_template_btn.disabled = true
+	else:
+		_add_template_btn.text = "Add Template"
+		_add_template_btn.disabled = false
+
+# Sync the overlap mode buttons in the Template panel to the current tool state.
+func _sync_template_overlap_mode_buttons() -> void:
+	if not _template_overlap_modes_container:
+		return
+	var modes_row = _template_overlap_modes_container.get_node_or_null("TemplateShapeModesRow")
+	if not modes_row:
+		return
+	var active_mode = "normal"
+	if tool.merge_shapes:      active_mode = "merge"
+	elif tool.conforming_mode: active_mode = "conforming"
+	elif tool.wrapping_mode:   active_mode = "wrapping"
+	elif tool.difference_mode: active_mode = "difference"
+	elif tool.cut_mode:        active_mode = "cut"
+	var button_map = {
+		"normal":     "NormalModeButton",
+		"merge":      "MergeModeButton",
+		"conforming": "ConformingModeButton",
+		"wrapping":   "WrappingModeButton",
+		"difference": "DifferenceModeButton",
+		"cut":        "CutModeButton",
+	}
+	for mode_name in button_map:
+		var btn = modes_row.get_node_or_null(button_map[mode_name])
+		if btn:
+			btn.set_block_signals(true)
+			btn.pressed = (mode_name == active_mode)
+			btn.set_block_signals(false)
+
+# ============================================================================
+# TEMPLATE CALLBACKS
+# ============================================================================
+
+func _on_add_template_pressed() -> void:
+	tool.start_template_capture()
+
+func _on_template_select_pressed(index: int) -> void:
+	tool.select_template(index)
+	rebuild_template_list()
+
+func _on_template_delete_pressed(index: int) -> void:
+	tool.delete_template(index)
+
 # Create common settings UI (Color picker + Map Display controls)
 func _create_common_settings_ui():
 	var container = VBoxContainer.new()
@@ -881,6 +1073,7 @@ func _on_shape_mode_button_pressed(mode: String):
 
 	# Update button pressed states
 	_update_shape_mode_buttons(mode)
+	_sync_template_overlap_mode_buttons()
 
 	if tool.LOGGER:
 		tool.LOGGER.info("Shape interaction mode changed to: %s" % [mode])
@@ -955,19 +1148,24 @@ func _on_path_arrow_head_angle_changed(value):
 func _on_marker_type_changed(type_index):
 	var selected_type = type_selector.get_item_metadata(type_index)
 
-	# Save current type settings before switching (not applicable for Fill)
-	if tool.active_marker_type != MARKER_TYPE_FILL:
+	# Save current type settings before switching (not applicable for Fill/Template)
+	if tool.active_marker_type != MARKER_TYPE_FILL and tool.active_marker_type != MARKER_TYPE_TEMPLATE:
 		_save_current_type_settings()
 
 	# Cancel path placement if switching away from Path
 	if tool.active_marker_type == MARKER_TYPE_PATH and selected_type != MARKER_TYPE_PATH:
 		tool._cancel_path_placement()
 
+	# Cancel template capture if switching away from Template
+	if tool.active_marker_type == MARKER_TYPE_TEMPLATE and selected_type != MARKER_TYPE_TEMPLATE:
+		tool.template_capture_mode = false
+		_update_template_capture_button(false)
+
 	# Switch to new type
 	tool.active_marker_type = selected_type
 
-	# Load settings for new type (not applicable for Fill)
-	if selected_type != MARKER_TYPE_FILL:
+	# Load settings for new type (not applicable for Fill/Template)
+	if selected_type != MARKER_TYPE_FILL and selected_type != MARKER_TYPE_TEMPLATE:
 		_load_type_settings(selected_type)
 
 	# Switch visible UI container
@@ -1011,6 +1209,9 @@ func _switch_type_ui(marker_type):
 		MARKER_TYPE_FILL:
 			if fill_settings_container:
 				fill_settings_container.visible = true
+		MARKER_TYPE_TEMPLATE:
+			if template_settings_container:
+				template_settings_container.visible = true
 
 # Load settings for specific marker type
 func _load_type_settings(marker_type):

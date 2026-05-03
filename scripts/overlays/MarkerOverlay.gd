@@ -130,6 +130,11 @@ func _input(event):
 			tool.rotate_shape_45()
 			get_tree().set_input_as_handled()
 			return
+		# Template type: RMB rotates by 45 degrees (not in delete/move mode, not in capture mode)
+		if tool.active_marker_type == tool.MARKER_TYPE_TEMPLATE and event.pressed and not tool.delete_mode and not tool.move_mode and not tool.template_capture_mode:
+			tool.rotate_template_45()
+			get_tree().set_input_as_handled()
+			return
 	
 	# Handle ESC key for Path cancellation
 	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
@@ -181,6 +186,17 @@ func _input(event):
 						tool.adjust_shape_angle_with_wheel(-1)
 					get_tree().set_input_as_handled()
 					return
+
+			# Template type: wheel rotates the ephemeral angle offset (not in capture mode)
+			elif tool.active_marker_type == tool.MARKER_TYPE_TEMPLATE and not tool.template_capture_mode:
+				if event.button_index == BUTTON_WHEEL_UP and event.pressed:
+					tool.adjust_template_rotation_with_wheel(1)
+					get_tree().set_input_as_handled()
+					return
+				elif event.button_index == BUTTON_WHEEL_DOWN and event.pressed:
+					tool.adjust_template_rotation_with_wheel(-1)
+					get_tree().set_input_as_handled()
+					return
 		
 		# Handle left click for placing/deleting markers
 		if event.button_index == BUTTON_LEFT and event.pressed:
@@ -223,6 +239,13 @@ func _input(event):
 					get_tree().set_input_as_handled()
 					return
 				
+				# Template capture mode: save clicked marker as a new template
+				if tool.template_capture_mode:
+					tool.capture_marker_as_template(pos)
+					get_tree().set_input_as_handled()
+					update()
+					return
+
 				# Fill mode: click fills the region under the cursor inside a Shape polygon
 				if tool.active_marker_type == tool.MARKER_TYPE_FILL:
 					tool.handle_fill_click(pos)
@@ -315,8 +338,8 @@ func _draw():
 		_draw_move_drag_preview(tool._move_selected_marker, drag_pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, preview_line_width, preview_marker_size)
 		return
 
-	# Draw preview marker at cursor (disabled in delete mode, move mode, and fill mode)
-	if tool.is_enabled and not tool.delete_mode and not tool.move_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+	# Draw preview marker at cursor (disabled in delete mode, move mode, fill mode, and template mode)
+	if tool.is_enabled and not tool.delete_mode and not tool.move_mode and tool.active_marker_type != tool.MARKER_TYPE_FILL and tool.active_marker_type != tool.MARKER_TYPE_TEMPLATE and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
 		# Don't draw preview if mouse is in UI area
 		if _mouse_in_ui:
 			return
@@ -327,6 +350,16 @@ func _draw():
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
 			_draw_custom_marker_preview(preview_pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width, preview_marker_size)
+
+	# Draw template preview at cursor (Template mode with a selected template, not in capture mode)
+	if tool.is_enabled and not tool.delete_mode and not tool.move_mode \
+			and tool.active_marker_type == tool.MARKER_TYPE_TEMPLATE \
+			and not tool.template_capture_mode \
+			and tool.active_template_index >= 0 \
+			and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
+		if not _mouse_in_ui:
+			var preview_pos = tool.cached_worldui.MousePosition
+			_draw_template_preview(preview_pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width, preview_marker_size)
 
 # Draw all fill regions stored in the tool.
 # Fills are drawn below marker outlines and respect the global markers_opacity.
@@ -484,6 +517,68 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 	# Draw preview marker
 	draw_circle(pos, MARKER_SIZE / 2.0, MARKER_COLOR)
 	draw_arc(pos, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
+
+# Draw semi-transparent preview of the selected template at cursor position.
+func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right: float, world_top: float, world_bottom: float, cam_zoom: Vector2, map_rect: Rect2, cell_size, preview_line_width: float, preview_marker_size: float) -> void:
+	if tool.active_template_index < 0 or tool.active_template_index >= tool.templates.size():
+		return
+	var data = tool.templates[tool.active_template_index]["data"]
+	var ALPHA        = 0.55
+	var c            = data.get("color", Color(0, 0.7, 1, 1))
+	var line_color   = Color(c.r, c.g, c.b, ALPHA)
+	var marker_color = Color(1, 0, 0, ALPHA)
+	var arc_color    = Color(0, 0, 0, ALPHA)
+	var LINE_WIDTH   = preview_line_width
+	var MARKER_SIZE  = preview_marker_size
+
+	match data.get("marker_type", ""):
+		"Line":
+			var base_angle = data.get("angle", 0.0)
+			var eff_angle = fmod(base_angle + tool.template_rotation_offset, 360.0)
+			if eff_angle < 0.0:
+				eff_angle += 360.0
+			var angles = [eff_angle]
+			if data.get("mirror", false):
+				angles.append(fmod(eff_angle + 180.0, 360.0))
+			for ang in angles:
+				var line_points = _calculate_line_endpoints(preview_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
+				if line_points[0] != line_points[1]:
+					draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+		"Shape":
+			if data.has("shape_primitives"):
+				# Modified shape — draw stored segments translated + rotated to cursor
+				var rot_rad = deg2rad(tool.template_rotation_offset)
+				for rel_seg in data["shape_primitives"]:
+					var a = preview_pos + rel_seg["a"].rotated(rot_rad)
+					var b = preview_pos + rel_seg["b"].rotated(rot_rad)
+					draw_line(a, b, line_color, LINE_WIDTH)
+			elif cell_size:
+				# Standard unmodified shape — regenerate from parameters
+				var radius_px = data.get("shape_radius", 1.0) * min(cell_size.x, cell_size.y)
+				var eff_angle = fmod(data.get("shape_angle", 0.0) + tool.template_rotation_offset, 360.0)
+				var angle_rad = deg2rad(eff_angle)
+				var vertices  = GeometryUtils.calculate_shape_vertices(preview_pos, radius_px, data.get("shape_sides", 6), angle_rad)
+				GuidesLinesRender.draw_polygon_outline(self, vertices, line_color, LINE_WIDTH)
+		"Path":
+			var rel_pts = data.get("relative_points", [])
+			if rel_pts.size() >= 2:
+				var rot_rad = deg2rad(tool.template_rotation_offset)
+				var pts = []
+				for rp in rel_pts:
+					pts.append(preview_pos + rp.rotated(rot_rad))
+				for i in range(pts.size() - 1):
+					draw_line(pts[i], pts[i + 1], line_color, LINE_WIDTH)
+				if data.get("path_closed", false) and pts.size() >= 3:
+					draw_line(pts[pts.size() - 1], pts[0], line_color, LINE_WIDTH)
+				if data.get("path_end_arrow", false) and pts.size() >= 2:
+					var arrow_from  = pts[pts.size() - 2]
+					var arrow_to    = pts[pts.size() - 1]
+					var arrow_len   = GuidesLinesRender.get_adaptive_width(data.get("arrow_head_length", 50.0), cam_zoom)
+					var head_points = GeometryUtils.calculate_arrowhead_points(arrow_to, arrow_from, arrow_len, data.get("arrow_head_angle", 30.0))
+					GuidesLinesRender.draw_arrow(self, arrow_from, arrow_to, head_points, line_color, LINE_WIDTH)
+
+	draw_circle(preview_pos, MARKER_SIZE / 2.0, marker_color)
+	draw_arc(preview_pos, MARKER_SIZE / 2.0, 0, TAU, 32, arc_color, 2)
 
 # Draw the selected marker semi-transparently at the dragged position during Move Mode.
 func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect: Rect2, cell_size, custom_snap, preview_line_width: float, preview_marker_size: float):

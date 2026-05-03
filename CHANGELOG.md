@@ -5,6 +5,29 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] — 2026-05-03
+
+### Added — Template Mode
+
+A new **Template** tool type is available in the type selector (alongside Line, Shape, Path, Fill).
+
+**Capturing templates:**
+- Click **Add Template** to enter capture mode ("Click a marker…"), then click any existing marker on the map to snapshot its configuration as a named template.
+- The template stores the full marker state, including modified Shape geometry (Merge / Conforming / Difference / Cut primitives) and Path point layouts.
+
+**Placing templates:**
+- Select a template from the list and click anywhere on the map to place a copy.
+- **Mouse wheel** rotates the template in 1° steps (Line) / 5° steps (Shape, Path); **RMB** rotates by 45°. The rotation offset resets each time a different template is selected.
+- A semi-transparent preview follows the cursor, reflecting the current rotation.
+
+**Shape Overlap Modes:**
+- When the selected template is a Shape, an **Overlap Mode** panel appears (identical to the Shape tool row: Normal, Merge, Conforming, Wrapping, Difference, Cut).
+- All six modes apply correctly during template placement, including proper geometry propagation for primitive-based (modified) shapes.
+
+Templates are stored in-session and are not persisted across map reloads.
+
+---
+
 ## [2.3.5] — 2026-05-03
 
 ### Added — Move Mode
