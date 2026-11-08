@@ -176,7 +176,7 @@ func _refresh_ui():
 		tool.ui._update_template_capture_button(false)
 	tool.update_ui()
 	if tool.overlay:
-		tool.overlay.update()
+		tool.overlay.invalidate_markers()
 
 
 func _warn(message):

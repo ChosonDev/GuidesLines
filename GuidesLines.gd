@@ -110,7 +110,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.4.2")
+			LOGGER.info("Mod starting - version 2.4.3")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -563,7 +563,7 @@ func _on_markers_visible_toggled(enabled):
 	if guides_tool:
 		guides_tool.ui._update_markers_visible_checkbox()
 		if changed and guides_tool.overlay:
-			guides_tool.overlay.update()
+			guides_tool.overlay.invalidate_markers()
 	if changed and guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "markers_visible", enabled)
 
@@ -578,6 +578,6 @@ func _on_markers_opacity_changed(value):
 		if changed:
 			guides_tool._apply_opacity_to_all(value)
 			if guides_tool.overlay:
-				guides_tool.overlay.update()
+				guides_tool.overlay.invalidate_markers()
 	if changed and guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "markers_opacity", value)

@@ -881,3 +881,147 @@ func _draw():
 	original.unlock()
 	assert_true(ink_pixels > 100, "Reference must contain rendered glyphs, not an empty image")
 	assert_true(original.get_data() == optimized.get_data(), "Text positions and outline pixels must match exactly")
+
+
+var layer_draws = [0, 0]
+
+func on_marker_layer_draw(layer: int) -> void:
+	layer_draws[layer] += 1
+
+func test_marker_layers_keep_static_geometry_during_cursor_and_spiral_preview_changes():
+	# Use real CanvasItems and draw signals: command probes alone cannot prove retention.
+	var script = GDScript.new()
+	script.source_code = "extends \"" + mod_root.plus_file("scripts/overlays/MarkerOverlay.gd") + "\"\nvar test_viewport = Rect2(0, 0, 800, 600)\nfunc get_viewport_rect():\n\treturn test_viewport\nfunc _is_mouse_over_canvas():\n\treturn true\n"
+	assert_eq(script.reload(), OK)
+	var overlay = script.new()
+	owned_nodes.append(overlay)
+	var camera = Camera2D.new()
+	owned_nodes.append(camera)
+	add_child(camera)
+	tool.cached_camera = camera
+	tool.cached_worldui = {"IsInsideBounds": true, "MousePosition": Vector2(20, 30)}
+	for x in [0, 100, 200]:
+		assert_true(api.place_spiral_shape_marker(Vector2(x, 0)) >= 0)
+	tool.show_coordinates = true
+	var line_id = api.place_line_marker(Vector2.ZERO)
+	assert_true(line_id >= 0)
+	tool.show_coordinates = false
+	assert_true(api.place_path_marker([Vector2(20, 20), Vector2(50, 20)]) >= 0)
+	tool.FillMarkerClass = load(mod_root.plus_file("scripts/guides/FillMarker.gd"))
+	tool._do_place_fill({"id": 0, "color": "#00ffff", "polygon": [[20, 20], [30, 20], [25, 30]]})
+	tool.set_marker_type("Path")
+	tool.set_path_subtype(1)
+	tool.is_enabled = true
+	overlay.tool = tool
+	tool.overlay = overlay
+	add_child(overlay)
+	overlay.set_process(false)
+	layer_draws = [0, 0]
+	overlay.connect("draw", self, "on_marker_layer_draw", [0])
+	overlay._markers_canvas.connect("draw", self, "on_marker_layer_draw", [1])
+	assert_true(overlay._markers_canvas.show_behind_parent, "Placed geometry stays below preview")
+	overlay._process(0.0)
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, [1, 1])
+	overlay._process(0.0)
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, [1, 1])
+	for i in range(3):
+		var previous = layer_draws.duplicate()
+		tool.cached_worldui.MousePosition += Vector2(10, 10)
+		overlay._process(0.0)
+		yield(VisualServer, "frame_post_draw")
+		assert_eq_deep(layer_draws, [previous[0] + 1, previous[1]])
+	var previous = layer_draws.duplicate()
+	tool.set_spiral_value(6.0, "turns")
+	overlay._process(0.0)
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, [previous[0] + 1, previous[1]])
+	previous = layer_draws.duplicate()
+	tool._do_move_marker(tool.markers[0], Vector2(-50, 20))
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, [previous[0] + 1, previous[1] + 1])
+	var history = load(mod_root.plus_file("scripts/tool/GuidesLinesHistory.gd"))
+	var move = history.MoveMarkerRecord.new(tool, tool.markers[0].id, Vector2.ZERO, Vector2(-50, 20))
+	for method in ["undo", "redo"]:
+		previous = layer_draws.duplicate()
+		move.call(method)
+		yield(VisualServer, "frame_post_draw")
+		assert_eq_deep(layer_draws, [previous[0] + 1, previous[1] + 1])
+	var persistence = load(mod_root.plus_file("scripts/tool/GuidesLinesPersistence.gd")).new()
+	persistence._mod = mod
+	var saved = {}
+	persistence.save_map(saved)
+	previous = layer_draws.duplicate()
+	assert_true(persistence.load_map(saved))
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, [previous[0] + 1, previous[1] + 1])
+	persistence._mod = null
+	for change in ["zoom", "viewport", "grid", "bounds", "opacity", "visibility"]:
+		previous = layer_draws.duplicate()
+		match change:
+			"zoom": camera.zoom = Vector2(2, 2)
+			"viewport": overlay.test_viewport.size += Vector2(50, 50)
+			"grid": tool.cached_world.Level.TileMap.CellSize = Vector2(50, 50)
+			"bounds": tool.cached_world.WorldRect.size += Vector2(100, 100)
+			"opacity": api.set_markers_opacity(0.4)
+			"visibility": api.set_markers_visible(false)
+		overlay._process(0.0)
+		yield(VisualServer, "frame_post_draw")
+		assert_eq_deep(layer_draws, [previous[0] + 1, previous[1] + 1])
+	api.set_markers_visible(true)
+	yield(VisualServer, "frame_post_draw")
+	var snap = probe()
+	tool.cached_snappy_mod = snap
+	for change in ["initial", "snap_offset", "snap_interval", "active_geometry", "radial_mode_to_corner", "custom_snap_enabled"]:
+		previous = layer_draws.duplicate()
+		match change:
+			"snap_offset": snap.snap_offset = Vector2(5, 5)
+			"snap_interval": snap.snap_interval = Vector2(20, 20)
+			"active_geometry": snap.active_geometry = 1
+			"radial_mode_to_corner": snap.radial_mode_to_corner = false
+			"custom_snap_enabled": snap.custom_snap_enabled = false
+		overlay._process(0.0)
+		yield(VisualServer, "frame_post_draw")
+		assert_eq_deep(layer_draws, [previous[0] + 1, previous[1] + 1])
+		if change == "initial":
+			assert_false(tool.markers_lookup[line_id].cached_coord_points.empty())
+		elif change == "snap_offset":
+			assert_eq(abs(tool.markers_lookup[line_id].cached_coord_points[0].grid_pos.y), 5.0, "Snap origin change must rebuild cached labels")
+	previous = layer_draws.duplicate()
+	overlay._process(0.0)
+	yield(VisualServer, "frame_post_draw")
+	assert_eq_deep(layer_draws, previous)
+	var retained = overlay._markers_canvas
+	tool.overlay = null
+	overlay.free()
+	assert_false(is_instance_valid(retained), "Freeing the overlay also frees its retained layer")
+
+func test_shape_batches_preserve_every_segment_and_cut_gap():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	var settings = geometry.SPIRAL_DEFAULTS.duplicate()
+	var points = geometry.build_spiral(settings, true).points
+	var segments = geometry.points_to_segs(points)
+	overlay._draw_shape_segments(segments, Color.blue, 5.0)
+	assert_eq(overlay.polylines.size(), 1, "One closed spiral uses one native polyline command")
+	assert_eq(overlay.lines.size(), segments.size())
+	for i in range(segments.size()):
+		assert_eq(overlay.lines[i].a, segments[i].a)
+		assert_eq(overlay.lines[i].b, segments[i].b)
+		assert_eq(overlay.lines[i].width, 5.0)
+	segments.remove(segments.size() / 2)
+	overlay.lines.clear()
+	overlay.polylines.clear()
+	var offset = Vector2(30, -20)
+	overlay._draw_shape_segments(segments, Color.blue, 7.0, offset)
+	assert_eq(overlay.polylines.size(), 2, "A removed segment leaves two separate chains")
+	assert_eq(overlay.lines.size(), segments.size(), "No extra bridge across Cut/Difference gap")
+	for i in range(segments.size()):
+		assert_eq(overlay.lines[i].a, segments[i].a + offset)
+		assert_eq(overlay.lines[i].b, segments[i].b + offset)
+		assert_eq(overlay.lines[i].width, 7.0)
+	overlay.lines.clear()
+	overlay.polylines.clear()
+	overlay._draw_shape_segments([], Color.blue, 5.0)
+	assert_true(overlay.polylines.empty(), "An explicitly empty outline stays empty")

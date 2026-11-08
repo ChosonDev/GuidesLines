@@ -170,7 +170,7 @@ Spiral regression checks also cover native polyline drawing and transform reset,
 preview/template cache reuse and invalidation, grid-relative regular templates,
 Path width-zero persistence, and spatial buckets against exhaustive clearance checks.
 
-The suite contains 105 tests. The latest regressions cover map persistence, partial
+The suite contains 107 tests. The latest regressions cover map persistence, partial
 merge failures, restored ID reservation, UI picking at distant outlines before API
 registration, preview lifetime across repeated draws, actual-geometry query bounds
 and their invalidation, clipped Line sampling, canonical placement flags and the
@@ -187,3 +187,12 @@ Refactoring coverage checks explicit placement policy during UI callbacks and re
 shape-only state snapshot independence, and reuse of preview storage. Existing tests
 still exercise preview expiry and repeated draw passes, exact boolean geometry,
 map guards, native history ordering and saved template placement.
+
+Marker-layer regressions use real CanvasItem draw signals to verify that idle frames,
+cursor motion and Spiral Path parameter changes do not redraw placed Spiral Shapes.
+They cover mutation/history/load and camera, viewport, grid and display invalidation,
+plus child-layer cleanup. Command probes check batched Shape endpoints, widths and
+Cut/Difference gaps. Run with `--test marker_layers` and `--test shape_batches`.
+On 2026-11-08, the user tested these rendering changes inside Dungeondraft with many
+different spirals and did not reproduce the previously reported system freeze.
+This observation does not establish the original freeze's root cause.

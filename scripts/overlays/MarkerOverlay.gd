@@ -3,9 +3,12 @@ extends Node2D
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
 const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
 
-# MarkerOverlay - Handles drawing and input for guide markers
+# MarkerOverlay - Owns a retained marker layer, interactive preview, and input.
 
 var tool = null
+var _markers_canvas = null
+var _draw_canvas = self
+var _last_render_state = []
 
 # Performance optimization: track when redraw is needed
 var _last_camera_pos = Vector2.ZERO
@@ -30,7 +33,18 @@ const _PATH_PREVIEW_CURSOR_COLOR = Color(1, 1, 1, 0.3)
 
 var _cached_font = null # Optim: Cache font resource
 
+# Marker mutations invalidate both layers; preview-only changes call update().
+func invalidate_markers() -> void:
+	if _markers_canvas:
+		_markers_canvas.update()
+	update()
+
 func _ready():
+	_markers_canvas = Node2D.new()
+	_markers_canvas.name = "PlacedMarkers"
+	_markers_canvas.show_behind_parent = true
+	add_child(_markers_canvas)
+	_markers_canvas.connect("draw", self, "_draw_placed_markers")
 	set_process_input(true)
 	set_process(true)
 	
@@ -42,6 +56,7 @@ func _ready():
 # Continuously update mouse position for path preview
 func _process(_delta):
 	var needs_update = false
+	var markers_changed = false
 	
 	# Track mouse position for path preview
 	if tool and tool.path_placement_active and tool.cached_worldui and tool.cached_worldui.IsInsideBounds:
@@ -75,20 +90,38 @@ func _process(_delta):
 		var cam_zoom = tool.cached_camera.zoom
 		
 		if cam_pos != _last_camera_pos or cam_zoom != _last_camera_zoom:
+			markers_changed = true
 			_last_camera_pos = cam_pos
 			_last_camera_zoom = cam_zoom
 			needs_update = true
 	
 	# Check if markers changed
 	if tool and tool.markers.size() != _last_marker_count:
+		markers_changed = true
 		_last_marker_count = tool.markers.size()
 		needs_update = true
 	
 	# Check if fills changed
 	if tool and tool.fills.size() != _last_fill_count:
+		markers_changed = true
 		_last_fill_count = tool.fills.size()
 		needs_update = true
 	
+	# Grid/map/viewport changes can alter guides and coordinate labels without a mutation.
+	if tool:
+		var snap = _get_custom_snap()
+		var snap_enabled = snap != null and snap.custom_snap_enabled
+		var render_state = [tool.cached_camera, get_viewport_rect(), _get_grid_cell_size(),
+			tool.cached_world.WorldRect if tool.cached_world else null, snap_enabled]
+		if snap_enabled:
+			render_state += [snap, snap.snap_interval, snap.snap_offset, snap.active_geometry, snap.radial_mode_to_corner]
+		if render_state != _last_render_state:
+			_last_render_state = render_state
+			# Snap origin/orientation changes also invalidate retained coordinate labels.
+			for marker in tool.markers:
+				marker._coord_dirty = true
+			markers_changed = true
+
 	# Check if placement mode changed
 	if tool:
 		var path_active = tool.path_placement_active
@@ -113,7 +146,9 @@ func _process(_delta):
 			needs_update = true
 
 	# Only update when necessary
-	if needs_update:
+	if markers_changed:
+		invalidate_markers()
+	elif needs_update:
 		update()
 
 # Handle mouse input for placing markers
@@ -279,9 +314,16 @@ func _input(event):
 		update()
 		return
 
-# Draw all markers and their guide lines
-# Also draws preview marker at cursor position
+# Separate CanvasItems retain placed geometry while the cursor preview redraws.
 func _draw():
+	_draw_layer(self, true)
+
+func _draw_placed_markers() -> void:
+	_draw_layer(_markers_canvas, false)
+	_draw_canvas = self
+
+func _draw_layer(canvas, preview: bool) -> void:
+	_draw_canvas = canvas
 	if not tool:
 		return
 	
@@ -316,17 +358,20 @@ func _draw():
 	var coord_text_offset   = GuidesLinesRender.get_adaptive_width(20.0, cam_zoom)
 	var active_arrow_length_px = GuidesLinesRender.get_adaptive_width(tool.active_arrow_head_length, cam_zoom)
 
-	# Draw fill regions under marker outlines (respects markers_opacity)
-	_draw_fills()
+	if not preview:
+		# Draw fill regions under marker outlines (respects markers_opacity)
+		_draw_fills()
 
-	# Draw all markers (hidden when markers_visible is false)
-	if not tool.parent_mod or tool.parent_mod.markers_visible:
-		for marker in tool.markers:
-			if not marker:
-				continue
+		# Draw all markers (hidden when markers_visible is false)
+		if not tool.parent_mod or tool.parent_mod.markers_visible:
+			for marker in tool.markers:
+				if not marker:
+					continue
 			
-			_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, marker_size_draw, line_width_draw, coord_marker_size, coord_text_offset)
+				_draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, custom_snap, marker_size_draw, line_width_draw, coord_marker_size, coord_text_offset)
 	
+		return
+
 	# Draw API-requested shape preview (external callers; rendered regardless of tool state)
 	if not tool._api_preview.empty():
 		_draw_api_shape_preview(tool._api_preview, cam_zoom, cell_size, preview_line_width, preview_marker_size)
@@ -370,7 +415,7 @@ func _draw_fills() -> void:
 	for fill in tool.fills:
 		if fill.polygon.size() < 3:
 			continue
-		draw_colored_polygon(PoolVector2Array(fill.polygon), fill.draw_color)
+		_draw_canvas.draw_colored_polygon(PoolVector2Array(fill.polygon), fill.draw_color)
 
 # Draw a single custom marker with its line(s) or circle
 func _draw_custom_marker(marker, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect: Rect2, cell_size, custom_snap, marker_size_draw: float, line_width_draw: float, coord_marker_size: float, coord_text_offset: float):
@@ -387,16 +432,13 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	if marker.marker_type == "Line":
 		if draw_data.has("segments"):
 			for segment in draw_data.segments:
-				draw_line(segment[0], segment[1], line_color, LINE_WIDTH)
+				_draw_canvas.draw_line(segment[0], segment[1], line_color, LINE_WIDTH)
 	
 	elif marker.marker_type == "Shape":
 		if draw_data.has("type") and draw_data.type == "shape":
 			# Single primitives list holds the complete current visual state:
 			# original outline minus clipped/diff zones, plus diff boundary segments.
-			var primitives = draw_data.get("primitives", [])
-			for item in primitives:
-				if item.type == "seg":
-					draw_line(item.a, item.b, line_color, LINE_WIDTH)
+			_draw_shape_segments(draw_data.get("primitives", []), line_color, LINE_WIDTH)
 
 
 	elif marker.marker_type == "Path":
@@ -437,7 +479,7 @@ func _draw_api_shape_preview(p: Dictionary, cam_zoom: Vector2, cell_size, previe
 	var radius_px = radius * min(cell_size.x, cell_size.y)
 	var angle_rad = deg2rad(angle)
 	var vertices  = GeometryUtils.calculate_polygon_vertices(pos, radius_px, sides, angle_rad)
-	GuidesLinesRender.draw_polygon_outline(self, vertices, color, preview_line_width)
+	GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, color, preview_line_width)
 	_draw_marker_anchor(pos, preview_marker_size, Color(color.r, color.g, color.b, 0.5), _PREVIEW_ARC_COLOR)
 
 # Draw semi-transparent preview of marker at cursor position
@@ -479,7 +521,7 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			
 			# Only draw if line segment is valid (within map bounds)
 			if line_points[0] != line_points[1]:
-				draw_line(
+				_draw_canvas.draw_line(
 					line_points[0],
 					line_points[1],
 					LINE_COLOR,
@@ -492,7 +534,7 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
 			var angle_rad = deg2rad(tool.active_shape_angle)
 			var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, tool.active_shape_sides, angle_rad)
-			GuidesLinesRender.draw_polygon_outline(self, vertices, LINE_COLOR, LINE_WIDTH)
+			GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, LINE_COLOR, LINE_WIDTH)
 
 	
 	# Draw preview marker
@@ -521,15 +563,12 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 			for ang in angles:
 				var line_points = _calculate_line_endpoints(preview_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
 				if line_points[0] != line_points[1]:
-					draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+					_draw_canvas.draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
 		"Shape":
 			if data.has("shape_primitives"):
 				# Modified shape — draw stored segments translated + rotated to cursor
-				var rot_rad = deg2rad(tool.template_rotation_offset)
-				for rel_seg in data["shape_primitives"]:
-					var a = preview_pos + rel_seg["a"].rotated(rot_rad)
-					var b = preview_pos + rel_seg["b"].rotated(rot_rad)
-					draw_line(a, b, line_color, LINE_WIDTH)
+				_draw_shape_segments(data["shape_primitives"], line_color, LINE_WIDTH,
+					preview_pos, deg2rad(tool.template_rotation_offset))
 			elif data.get("marker_subtype", "") == "Spiral":
 				if cell_size and data.get("spiral_settings") is Dictionary:
 					var settings = data.spiral_settings.duplicate()
@@ -541,7 +580,7 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 				var eff_angle = fposmod(data.get("shape_angle", 0.0) + tool.template_rotation_offset, 360.0)
 				var angle_rad = deg2rad(eff_angle)
 				var vertices  = GeometryUtils.calculate_polygon_vertices(preview_pos, radius_px, data.get("shape_sides", 6), angle_rad)
-				GuidesLinesRender.draw_polygon_outline(self, vertices, line_color, LINE_WIDTH)
+				GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, line_color, LINE_WIDTH)
 		"Path":
 			var rel_pts = data.get("relative_points", [])
 			if rel_pts.size() >= 2:
@@ -569,13 +608,12 @@ func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right,
 		for ang in angles:
 			var line_points = _calculate_line_endpoints(drag_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
 			if line_points[0] != line_points[1]:
-				draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+				_draw_canvas.draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
 
 	elif marker.marker_type == "Shape":
 		var offset = drag_pos - marker.position
 		var data = marker.get_draw_data(map_rect, cell_size)
-		for seg in data.get("primitives", []):
-			draw_line(seg.a + offset, seg.b + offset, line_color, LINE_WIDTH)
+		_draw_shape_segments(data.get("primitives", []), line_color, LINE_WIDTH, offset)
 
 	elif marker.marker_type == "Path":
 		if marker.marker_points.size() >= 2:
@@ -606,17 +644,17 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zo
 		
 		# First point is slightly larger and different color
 		if i == 0:
-			draw_circle(point, MARKER_SIZE / 1.5, _PATH_PREVIEW_FIRST_COLOR)
+			_draw_canvas.draw_circle(point, MARKER_SIZE / 1.5, _PATH_PREVIEW_FIRST_COLOR)
 		else:
-			draw_circle(point, MARKER_SIZE / 2.0, MARKER_COLOR)
+			_draw_canvas.draw_circle(point, MARKER_SIZE / 2.0, MARKER_COLOR)
 		
 		# Draw outline
-		draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
+		_draw_canvas.draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
 	
 	# Draw lines between placed points
 	if tool.path_temp_points.size() >= 2:
 		for i in range(tool.path_temp_points.size() - 1):
-			draw_line(
+			_draw_canvas.draw_line(
 				tool.path_temp_points[i],
 				tool.path_temp_points[i + 1],
 				LINE_COLOR,
@@ -626,7 +664,7 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zo
 	# Draw preview line from last point to cursor
 	if tool.path_preview_point != null and tool.path_temp_points.size() > 0:
 		var last_point = tool.path_temp_points[tool.path_temp_points.size() - 1]
-		draw_line(
+		_draw_canvas.draw_line(
 			last_point,
 			tool.path_preview_point,
 			PREVIEW_LINE_COLOR,
@@ -634,14 +672,14 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zo
 		)
 		
 		# Draw cursor preview circle
-		draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, _PATH_PREVIEW_CURSOR_COLOR)
+		_draw_canvas.draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, _PATH_PREVIEW_CURSOR_COLOR)
 		
 		# Draw arrow preview at cursor if path_end_arrow is enabled
 		if tool.active_path_end_arrow:
 			var arrow_length = active_arrow_length_px  # Pre-computed in _draw
 			var head_points = GeometryUtils.calculate_arrowhead_points(
 				tool.path_preview_point, last_point, arrow_length, tool.active_arrow_head_angle)
-			GuidesLinesRender.draw_arrow(self, last_point, tool.path_preview_point, head_points,
+			GuidesLinesRender.draw_arrow(_draw_canvas, last_point, tool.path_preview_point, head_points,
 				Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.5), LINE_WIDTH * 0.7)
 	
 	# Draw "close path" indicator if near first point
@@ -650,7 +688,7 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zo
 		if tool.path_preview_point.distance_to(first_point) < 30.0:
 			# Draw pulsing circle around first point
 			var pulse = sin(OS.get_ticks_msec() * 0.005) * 0.5 + 0.5
-			draw_arc(first_point, MARKER_SIZE, 0, TAU, 32, Color(0, 1, 0, 0.5 + pulse * 0.3), 4)
+			_draw_canvas.draw_arc(first_point, MARKER_SIZE, 0, TAU, 32, Color(0, 1, 0, 0.5 + pulse * 0.3), 4)
 
 # Calculate line endpoints - always draws to map boundaries
 func _calculate_line_endpoints(origin, angle_deg, world_left, world_right, world_top, world_bottom, map_rect):
@@ -679,30 +717,30 @@ func _draw_marker_coordinates_cached(marker, marker_size: float, text_offset: fl
 		return
 	var color = marker.draw_color
 	for point in marker.cached_coord_points:
-		draw_circle(point.grid_pos, marker_size, color)
+		_draw_canvas.draw_circle(point.grid_pos, marker_size, color)
 		_draw_text_with_outline(point.text, point.grid_pos + point.perp * text_offset, color)
 
 # Draw text with outline for better visibility
 func _draw_text_with_outline(text, position, color):
-	GuidesLinesRender.draw_text_with_outline(self, text, position, color, _cached_font)
+	GuidesLinesRender.draw_text_with_outline(_draw_canvas, text, position, color, _cached_font)
 
 
 func _draw_marker_anchor(pos: Vector2, size: float, fill_color: Color, arc_color: Color) -> void:
-	draw_circle(pos, size / 2.0, fill_color)
-	draw_arc(pos, size / 2.0, 0, TAU, 32, arc_color, 2)
+	_draw_canvas.draw_circle(pos, size / 2.0, fill_color)
+	_draw_canvas.draw_arc(pos, size / 2.0, 0, TAU, 32, arc_color, 2)
 
 func _draw_spiral_preview(pos: Vector2, settings: Dictionary, closed: bool, cell_size: Vector2, color: Color, width: float, end_arrow: bool = false, arrow_length: float = 50.0, arrow_angle: float = 30.0, zoom: Vector2 = Vector2.ONE) -> void:
 	var points = tool.spiral_preview_points(settings, closed, cell_size)
 	if points.size() < 2:
 		return
-	draw_set_transform(pos, 0.0, Vector2.ONE)
-	draw_polyline(points, color, width)
+	_draw_canvas.draw_set_transform(pos, 0.0, Vector2.ONE)
+	_draw_canvas.draw_polyline(points, color, width)
 	if not closed and end_arrow:
 		var start = points[points.size() - 2]
 		var end = points[points.size() - 1]
 		var head = GeometryUtils.calculate_arrowhead_points(end, start, GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
-		GuidesLinesRender.draw_arrow(self, start, end, head, color, width)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		GuidesLinesRender.draw_arrow(_draw_canvas, start, end, head, color, width)
+	_draw_canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_path_points(points: Array, closed: bool, end_arrow: bool, arrow_length: float, arrow_angle: float, zoom: Vector2, color: Color, width: float) -> void:
 	if points.size() < 2:
@@ -710,9 +748,27 @@ func _draw_path_points(points: Array, closed: bool, end_arrow: bool, arrow_lengt
 	var polyline = PoolVector2Array(points)
 	if closed and points.size() >= 3:
 		polyline.append(points[0])
-	draw_polyline(polyline, color, width)
+	_draw_canvas.draw_polyline(polyline, color, width)
 	if end_arrow:
 		var start = points[points.size() - 2]
 		var end = points[points.size() - 1]
 		var head = GeometryUtils.calculate_arrowhead_points(end, start, GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
-		GuidesLinesRender.draw_arrow(self, start, end, head, color, width)
+		GuidesLinesRender.draw_arrow(_draw_canvas, start, end, head, color, width)
+
+# ponytail: batch consecutive segments without reordering; fragmented outlines keep
+# multiple commands. Index endpoints if profiling justifies stitching unordered fragments.
+func _draw_shape_segments(primitives: Array, color: Color, width: float, offset: Vector2 = Vector2.ZERO, rotation: float = 0.0) -> void:
+	var points = PoolVector2Array()
+	for segment in primitives:
+		if segment.get("type", "seg") != "seg":
+			continue
+		var a = segment.a + offset if rotation == 0.0 else segment.a.rotated(rotation) + offset
+		var b = segment.b + offset if rotation == 0.0 else segment.b.rotated(rotation) + offset
+		if points.size() > 0 and points[points.size() - 1] != a:
+			_draw_canvas.draw_polyline(points, color, width)
+			points = PoolVector2Array()
+		if points.empty():
+			points.append(a)
+		points.append(b)
+	if points.size() >= 2:
+		_draw_canvas.draw_polyline(points, color, width)

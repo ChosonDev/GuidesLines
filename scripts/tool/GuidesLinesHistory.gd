@@ -50,7 +50,7 @@ class PlaceMarkerRecord:
 				tool.markers_lookup[cid].set_primitives(
 					clip_snapshots[cid]["primitives"].duplicate(true))
 		if tool.overlay:
-			tool.overlay.update()
+			tool.overlay.invalidate_markers()
 
 	func record_type():
 		return "GuidesLines.PlaceMarker"
@@ -124,7 +124,7 @@ class DifferenceRecord:
 				tool.markers_lookup[id].set_primitives(
 					snapshots[id]["primitives"].duplicate(true))
 		if tool.overlay:
-			tool.overlay.update()
+			tool.overlay.invalidate_markers()
 
 	func record_type():
 		return "GuidesLines.Difference"
@@ -195,7 +195,7 @@ class MergeShapeRecord:
 				tool.LOGGER.debug("MergeShapeRecord.undo() — restored absorbed marker id=%d" % id)
 
 		if tool.overlay:
-			tool.overlay.update()
+			tool.overlay.invalidate_markers()
 
 	func record_type():
 		return "GuidesLines.MergeShape"

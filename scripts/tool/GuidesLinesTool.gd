@@ -747,7 +747,7 @@ func _do_delete_all():
 	markers_lookup = {} # Clear lookup
 	update_ui()
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("All markers deleted")
 	# Notify external API listeners
@@ -765,7 +765,7 @@ func _undo_delete_all(saved_markers):
 			next_id = marker.id + 1
 	update_ui()
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("Restored %d markers" % [saved_markers.size()])
 
@@ -789,7 +789,7 @@ func _do_delete_marker(index):
 		markers.remove(index)
 		update_ui()
 		if overlay:
-			overlay.update()
+			overlay.invalidate_markers()
 		if LOGGER:
 			LOGGER.debug("Marker deleted at index %d" % [index])
 		# Notify external API listeners
@@ -806,7 +806,7 @@ func _undo_delete_marker(marker_data, index):
 		next_id = marker.id + 1
 	update_ui()
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("Marker restored at index %d" % [index])
 
@@ -854,7 +854,7 @@ func _do_place_marker(marker_data, use_conforming = null, use_wrapping = null):
 		_apply_wrapping_to_new_shape(marker)
 	update_ui()
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
 			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
@@ -888,7 +888,7 @@ func _undo_place_marker(marker_id):
 		
 		update_ui()
 		if overlay:
-			overlay.update()
+			overlay.invalidate_markers()
 		if LOGGER:
 			LOGGER.debug("Marker placement undone (id: %d)" % [marker_id])
 	else:
@@ -1015,7 +1015,7 @@ func move_marker(marker, new_pos: Vector2):
 func _do_move_marker(marker, new_pos: Vector2):
 	marker.set_property("position", new_pos)
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 # ============================================================================
 # FILL MODE — ENTRY POINT (called from MarkerOverlay)
@@ -1054,7 +1054,7 @@ func _do_place_fill(fill_data: Dictionary) -> void:
 	if fill.id >= next_fill_id:
 		next_fill_id = fill.id + 1
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("Fill placed (id=%d, %d vertices)" % [fill.id, fill.polygon.size()])
 
@@ -1068,7 +1068,7 @@ func _undo_place_fill(fill_id: int) -> void:
 	fills.erase(fill)
 	fills_lookup.erase(fill_id)
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("Fill placement undone (id=%d)" % fill_id)
 
@@ -1087,7 +1087,7 @@ func _do_delete_all_fills() -> void:
 	fills = []
 	fills_lookup = {}
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("All fills deleted")
 
@@ -1102,7 +1102,7 @@ func _undo_delete_all_fills(saved_fills: Array) -> void:
 		if fill.id >= next_fill_id:
 			next_fill_id = fill.id + 1
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 	if LOGGER:
 		LOGGER.debug("Restored %d fills" % [saved_fills.size()])
 
@@ -1411,7 +1411,7 @@ func _apply_wrapping_to_new_shape(new_marker):
 			GeometryUtils.clip_primitives_against_shapes(
 				new_marker.get_primitives(), [other_desc]) + diff_boundary)
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 func _snapshot_potential_merge_targets(merge_desc: Dictionary) -> Dictionary:
 	return _snapshot_overlapping_shapes(merge_desc, true)
@@ -1530,7 +1530,7 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 			LOGGER.debug("Merge: marker %d absorbed into marker %d" % [m.id, primary.id])
 
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 	return absorbed_ids
 
@@ -1558,7 +1558,7 @@ func _subtract_desc_from_markers(desc: Dictionary, exclude_id: int = -1):
 		marker.set_primitives(GeometryUtils.clip_primitives_against_shapes(
 			marker.get_primitives(), [desc]) + GeometryUtils.clip_polygon_inside_shape(desc.points, target))
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 	return _snapshot_overlapping_shapes(_build_shape_descriptor_at(pos))
@@ -1703,7 +1703,7 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 						new_id, chains[ci].size(), ci])
 
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 	return {"deleted_ids": deleted_ids, "created_markers_data": created_markers_data}
 
@@ -1752,7 +1752,7 @@ func _undo_cut(snapshots: Dictionary, deleted_ids: Array, created_markers_data: 
 
 	update_ui()
 	if overlay:
-		overlay.update()
+		overlay.invalidate_markers()
 
 
 # ============================================================================

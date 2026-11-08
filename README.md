@@ -1,14 +1,16 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.2<br>
+**Version:** 2.4.3<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.2
+### What's New in 2.4.3
 
-New **Spiral** subtypes for Shape and Path markers: create closed spiral strips or open spiral paths with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving, alongside rendering improvements and bug fixes.
+Smoother previews on maps with many markers, including complex spirals. Moving the cursor no longer rebuilds placed marker drawing commands, and connected Shape outlines use fewer drawing calls while preserving Cut/Difference gaps.
+
+**Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
 ---
 
@@ -62,7 +64,8 @@ New **Spiral** subtypes for Shape and Path markers: create closed spiral strips 
    - Perfect for alignment and perspective guides
 
 2. **Shape Markers**
-   - 6 subtypes: Circle, Square, Pentagon, Hexagon, Octagon, **Custom (N-sided)**
+   - 7 subtypes: Circle, Square, Pentagon, Hexagon, Octagon, **Custom (N-sided)**, **Spiral**
+   - Spiral subtype: closed strips with adjustable turns, radii, spacing, width and winding
    - Custom subtype: any regular polygon from 3 to 50 sides
    - Radius: 0.5 to 100 grid cells
    - Full rotation support (except circles)
@@ -73,6 +76,7 @@ New **Spiral** subtypes for Shape and Path markers: create closed spiral strips 
    - Ideal for circular rooms, polygonal features, area planning
 
 3. **Path Markers**
+   - Freeform and **Spiral** subtypes; Spiral supports single-click center placement, reversal and end arrows
    - Multi-point custom paths (minimum 2 points, no maximum)
    - Open or closed paths
    - Sequential placement with visual feedback
@@ -143,7 +147,7 @@ New **Spiral** subtypes for Shape and Path markers: create closed spiral strips 
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.2"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.3"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -645,7 +649,12 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.2 (Current) — 2026-11-08
+### v2.4.3 (Current) — 2026-11-08
+- Preview drawing is independent of placed markers and fills, reducing repeated work while moving the cursor.
+- Connected Shape outlines use batched polyline drawing while preserving Cut/Difference gaps, moved geometry and rotated templates.
+- User testing in Dungeondraft with many different spirals did not reproduce the previously reported system freeze.
+
+### v2.4.2 — 2026-11-08
 - Shape/Spiral closed strips and Path/Spiral open paths, with adjustable radii, turns, spacing, direction and rotation.
 - Shape width, Path reversal and end arrows; integration with templates, Shape overlap modes, Fill, undo/redo and map saving.
 - Rendering and geometry performance improvements, template fixes and expanded regression tests.
