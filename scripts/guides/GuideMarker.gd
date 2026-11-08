@@ -7,6 +7,8 @@ const GeometryUtils = preload("../utils/GeometryUtils.gd")
 
 var position = Vector2.ZERO
 var marker_type = "Line"  # Type of marker (Line, Shape, Path)
+var marker_subtype = ""
+var spiral_settings = {}  # Construction metadata; never replaces modified geometry.
 var angle = 0.0  # Line angle in degrees (0-360) [Line only]
 var shape_radius = 1.0  # Shape radius in grid cells (circumradius) [Shape only]
 var shape_angle = 0.0  # Shape rotation angle in degrees (0-360) [Shape only]
@@ -294,7 +296,12 @@ func _recalculate_geometry(map_rect, cell_size):
 				# Fresh shape — build full polygon outline from parameters.
 				var radius_px = shape_radius * min(cell_size.x, cell_size.y)
 				var angle_rad = deg2rad(shape_angle)
-				var pts = GeometryUtils.calculate_polygon_vertices(position, radius_px, shape_sides, angle_rad)
+				var pts = []
+				if marker_subtype == "Spiral":
+					for point in GeometryUtils.build_spiral(spiral_settings, true).points:
+						pts.append(position + point * min(cell_size.x, cell_size.y))
+				else:
+					pts = GeometryUtils.calculate_polygon_vertices(position, radius_px, shape_sides, angle_rad)
 				cached_draw_data["primitives"] = GeometryUtils.points_to_segs(pts)
 				cached_draw_data["polygon"] = pts
 		else:
@@ -312,6 +319,9 @@ func Save():
 		"id": id,
 		"show_coordinates": show_coordinates
 	}
+	if marker_subtype == "Spiral":
+		data["marker_subtype"] = marker_subtype
+		data["spiral_settings"] = spiral_settings.duplicate(true)
 	
 	# Add type-specific parameters
 	if marker_type == "Line":
@@ -341,6 +351,12 @@ func Save():
 
 # Deserialize marker data from map file (current format only)
 func Load(data):
+	if not data.get("marker_subtype", "") in ["", "Spiral"] or not data.get("spiral_settings", {}) is Dictionary:
+		return false
+	if data.get("marker_subtype", "") == "Spiral" and not data.get("marker_type") in ["Shape", "Path"]:
+		return false
+	if data.get("marker_subtype", "") == "Spiral" and GeometryUtils.spiral_error(data.get("spiral_settings"), data.get("marker_type") == "Shape") != "":
+		return false
 	# Validate the new JSON geometry before replacing any existing marker state.
 	var primitives = []
 	if data.get("marker_type", "Line") == "Shape" and data.has("shape_primitives"):
@@ -360,6 +376,8 @@ func Load(data):
 						return false
 			primitives.append({"type": "seg", "a": Vector2(seg.a[0], seg.a[1]), "b": Vector2(seg.b[0], seg.b[1])})
 	cached_draw_data = {}
+	marker_subtype = data.get("marker_subtype", "")
+	spiral_settings = data.get("spiral_settings", {}).duplicate(true)
 	if data.has("position"):
 		position = Vector2(data.position[0], data.position[1])
 	

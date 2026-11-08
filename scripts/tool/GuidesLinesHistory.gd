@@ -295,7 +295,7 @@ class CutRecord:
 			tool.LOGGER.debug("CutRecord.redo() called")
 		# Re-snapshot before redo so undo after redo uses fresh pre-redo state.
 		snapshots = tool._take_cut_snapshot(cut_desc)
-		var result = tool._do_apply_cut(cut_desc)
+		var result = tool._do_apply_cut(cut_desc, created_markers_data)
 		deleted_ids          = result.deleted_ids
 		created_markers_data = result.created_markers_data
 

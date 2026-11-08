@@ -156,7 +156,21 @@ test root; Godot clamps `res://..` preload paths. Use independently known
 expectations, numeric tolerances and deep dictionary assertions. Parameterized
 tests or inner classes require updated expected-case discovery in `run.py`.
 
-The suite contains 80 tests / 1663 assertions. The latest regressions cover map persistence, partial
+Spiral checks run with `python Mods/GuidesLines/tests/run.py --test spiral`.
+They exercise winding/fractional endpoints, centerline radii and Path reversal,
+native constant-width offsets, simple contours and center voids, curvature and
+actual turn clearance, finite input/detail limits, real sidebar signals and
+validation messages, snapped preview/arrow commands, per-type memory and cache
+invalidation, placement/move/history, all Shape overlap modes and Fill, rotated
+center-based Templates, API failures, model reset and JSON map persistence.
+These are standalone Godot checks. On 2026-11-08, the user reported testing the
+updates inside Dungeondraft without finding errors; see `TODO.md`.
+
+Spiral regression checks also cover native polyline drawing and transform reset,
+preview/template cache reuse and invalidation, grid-relative regular templates,
+Path width-zero persistence, and spatial buckets against exhaustive clearance checks.
+
+The suite contains 105 tests. The latest regressions cover map persistence, partial
 merge failures, restored ID reservation, UI picking at distant outlines before API
 registration, preview lifetime across repeated draws, actual-geometry query bounds
 and their invalidation, clipped Line sampling, canonical placement flags and the

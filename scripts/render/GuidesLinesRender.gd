@@ -56,8 +56,6 @@ static func draw_arrow(canvas: CanvasItem, start: Vector2, end: Vector2, head_po
 static func draw_polygon_outline(canvas: CanvasItem, vertices: Array, color: Color, width: float):
 	if vertices.size() < 2:
 		return
-		
-	for i in range(vertices.size()):
-		var p1 = vertices[i]
-		var p2 = vertices[(i + 1) % vertices.size()]
-		canvas.draw_line(p1, p2, color, width)
+	var points = PoolVector2Array(vertices)
+	points.append(vertices[0])
+	canvas.draw_polyline(points, color, width)

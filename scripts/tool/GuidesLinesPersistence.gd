@@ -5,6 +5,7 @@ extends Reference
 const CLASS_NAME = "GuidesLinesPersistence"
 const DATA_KEY = "Choson.GuidesLines"
 const DATA_VERSION = 1
+const GeometryUtils = preload("../utils/GeometryUtils.gd")
 
 var _mod = null
 var _world = null
@@ -211,6 +212,11 @@ func _marker(data) -> bool:
 	var kind = data.get("marker_type")
 	if not kind in ["Line", "Shape", "Path"]:
 		return false
+	if not data.get("marker_subtype", "") in ["", "Spiral"] or not data.get("spiral_settings", {}) is Dictionary:
+		return false
+	if data.get("marker_subtype", "") == "Spiral":
+		if kind == "Line" or GeometryUtils.spiral_error(data.get("spiral_settings"), kind == "Shape") != "":
+			return false
 	var numbers = ["angle"] if kind == "Line" else (["shape_radius", "shape_angle", "shape_sides"] if kind == "Shape" else ["arrow_head_length", "arrow_head_angle"])
 	var booleans = ["mirror"] if kind == "Line" else ([] if kind == "Shape" else ["path_closed", "path_end_arrow"])
 	for key in numbers:

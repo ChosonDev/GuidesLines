@@ -1,14 +1,14 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.1<br>
+**Version:** 2.4.2<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.1
+### What's New in 2.4.2
 
-Technical maintenance improves code quality, reliability and performance, with expanded regression tests. Markers, fill regions and marker templates are now saved and restored with the map.
+New **Spiral** subtypes for Shape and Path markers: create closed spiral strips or open spiral paths with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving, alongside rendering improvements and bug fixes.
 
 ---
 
@@ -143,7 +143,7 @@ Technical maintenance improves code quality, reliability and performance, with e
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.1"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.2"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -213,7 +213,7 @@ Technical maintenance improves code quality, reliability and performance, with e
 
 **Best for: complex curves, custom boundaries, organic shapes**
 
-Path markers use **interactive sequential placement**:
+Choose **Path Type: Freeform** for interactive sequential placement:
 
 1. Select **Guide Markers** tool
 2. Choose **"Path"** from dropdown
@@ -238,6 +238,67 @@ Path markers use **interactive sequential placement**:
 - Coordinate display (if enabled) shows cumulative distance from start
 - No maximum point limit (tested up to 100+ points)
 - Can't edit path after placement - use undo (Ctrl+Z) to remove and start over
+
+### Spiral Markers
+
+Choose **Shape Type: Spiral** for a closed, constant-width spiral strip, or
+**Path Type: Spiral** for an open spiral centerline. Both use an Archimedean
+spiral with constant radial spacing and are placed with one click at the center.
+Shape outlines are guide markers, not native Dungeondraft walls.
+
+| Setting | Meaning |
+| --- | --- |
+| Outer Radius / Inner Radius | Centerline radii in grid cells; Path can start at radius zero |
+| Turns | Fractional turns, from 0.01 to 8 |
+| Size by: Outer Radius | Enter outer radius; turn spacing is calculated |
+| Size by: Turn Spacing | Enter spacing; outer radius is calculated |
+| Turn Spacing | Radial centerline spacing, not the clear gap between Shape boundaries |
+| Angle | Inner endpoint angle in degrees, independent of Path reversal |
+| Clockwise (inner to outer) | Uncheck for counterclockwise winding |
+| Width (Shape) | Full strip width, with flat end caps |
+| Reverse Path | Reverse point order, including which end receives the optional arrow |
+
+The size relation is `outer_radius = inner_radius + turns * turn_spacing`.
+Shape boundaries can extend up to half the width beyond the centerline radius.
+Shape width must fit the inner curvature and leave space between turns;
+Path geometry ignores width (the API accepts zero). Invalid settings display
+an explanation and cannot be placed. There is a
+512-centerline-segment limit and automatic detail of approximately 0.02 cells;
+large radii can therefore reduce the available number of turns.
+
+Scroll rotates by 5°, **Alt+scroll** changes the selected size by 0.1 cells,
+and **right-click** rotates by 45°. Grid snapping applies only to the center,
+using the existing host/custom snap integration. Shape and Path remember their
+own spiral settings while switching types during the current tool session.
+
+Spiral Shapes support the existing overlap modes and Fill. Both subtypes support
+move/delete, undo/redo, rotated Templates and map save/load. Boolean results are
+saved as actual geometry and are not regenerated from the original settings.
+Cut fragments become ordinary Freeform Paths. Settings affect new markers;
+they do not parametrically edit existing boolean results.
+
+The public API provides `place_spiral_shape_marker(position, settings = {},
+color = null, apply_tool_modes = false)` and
+`place_spiral_path_marker(position, settings = {}, color = null, end_arrow = false)`.
+Both return the marker ID, or `-1` without placing anything on invalid input or
+when the map/grid is unavailable. Shape placement ignores Conform/Wrap by default;
+set `apply_tool_modes` to opt into those two policies. UI Merge/Difference/Cut
+remain separate tool actions.
+
+```gdscript
+var shape_id = gl.place_spiral_shape_marker(center, {
+    "outer_radius": 8.0, "inner_radius": 1.0, "turns": 2.5,
+    "width": 1.0, "clockwise": true, "angle": 45.0
+})
+var path_id = gl.place_spiral_path_marker(center, {"reverse": true}, null, true)
+```
+
+Accepted settings keys and defaults: `outer_radius: 6.0`, `inner_radius: 1.0`,
+`turns: 2.0`, `width: 1.0`, `clockwise: true`, `angle: 0.0`, `reverse: false`,
+`size_by: "radius"`. The API accepts `size_by: "spacing"` as construction metadata;
+API callers always supply radii and turns and calculate spacing with the relation
+above. Unknown keys are rejected. Saved markers expose `marker_subtype: "Spiral"`
+and a separate `spiral_settings` dictionary alongside their actual geometry.
 
 ---
 
@@ -345,11 +406,16 @@ var hit = gl.find_line_intersection(line_a, line_b, cursor_pos, 80.0)
 
 `get_shape_state()` returns a fresh snapshot containing `ready`,
 `active_shape_radius` (grid cells), `active_shape_angle` (degrees),
-`active_shape_sides` and `active_color`. Before initialization it returns
+`active_shape_sides`, `active_color`, `active_shape_preset` and an independent
+`active_shape_spiral` settings dictionary. Before initialization it returns
 `{"ready": false}`. It is suitable for polling shape previews each frame;
 consumers supporting older versions can fall back to `get_tool_state()` when
 `has_method("get_shape_state")` is false. Continue calling `set_shape_preview()`
 every frame to keep a preview alive, and `clear_shape_preview()` when leaving it.
+`set_shape_preview()` remains a regular-polygon preview. For Spiral, read the
+spiral settings explicitly; the polygon radius/angle/sides fields retain their
+regular-polygon values. `get_tool_state()` also includes `active_path_subtype`
+and an independent `active_path_spiral` dictionary.
 
 **Signals:**
 ```gdscript
@@ -579,7 +645,12 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.1 (Current) — 2026-11-04
+### v2.4.2 (Current) — 2026-11-08
+- Shape/Spiral closed strips and Path/Spiral open paths, with adjustable radii, turns, spacing, direction and rotation.
+- Shape width, Path reversal and end arrows; integration with templates, Shape overlap modes, Fill, undo/redo and map saving.
+- Rendering and geometry performance improvements, template fixes and expanded regression tests.
+
+### v2.4.1 — 2026-11-04
 - Technical maintenance: code cleanup, bug fixes, performance improvements and expanded regression tests.
 - Markers, fill regions and marker templates are saved and restored with the map.
 

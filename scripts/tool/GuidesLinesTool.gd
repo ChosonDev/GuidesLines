@@ -51,6 +51,15 @@ const SHAPE_PENTAGON = "Pentagon"
 const SHAPE_HEXAGON = "Hexagon"
 const SHAPE_OCTAGON = "Octagon"
 const SHAPE_CUSTOM = "Custom"
+const SHAPE_SPIRAL = "Spiral"
+
+var active_shape_preset = SHAPE_CIRCLE
+var active_path_subtype = "Freeform"
+var active_shape_spiral = GeometryUtils.SPIRAL_DEFAULTS.duplicate(true)
+var active_path_spiral = GeometryUtils.SPIRAL_DEFAULTS.duplicate(true)
+var _spiral_cache_settings = {}
+var _spiral_cache_closed = false
+var _spiral_cache = {}
 
 var active_marker_type = MARKER_TYPE_LINE  # Current selected marker type
 
@@ -216,7 +225,13 @@ func place_marker(pos):
 
 	# Special handling for Path type
 	if active_marker_type == MARKER_TYPE_PATH:
+		if active_path_subtype == "Spiral":
+			_place_spiral(pos)
+			return
 		_handle_path_placement(pos)
+		return
+	if active_marker_type == MARKER_TYPE_SHAPE and active_shape_preset == SHAPE_SPIRAL:
+		_place_spiral(pos)
 		return
 
 	var final_pos = pos
@@ -297,6 +312,8 @@ func capture_marker_as_template(pos: Vector2) -> void:
 	# Snapshot all marker parameters
 	var data = {
 		"marker_type":       marker.marker_type,
+		"marker_subtype":    marker.marker_subtype,
+		"spiral_settings":   marker.spiral_settings.duplicate(true),
 		"color":             marker.color,
 		"angle":             marker.angle,
 		"mirror":            marker.mirror,
@@ -315,6 +332,8 @@ func capture_marker_as_template(pos: Vector2) -> void:
 	# For Path: store points relative to the first point so the shape is position-independent
 	if marker.marker_type == MARKER_TYPE_PATH and marker.marker_points.size() > 0:
 		var origin = marker.marker_points[0]
+		if marker.marker_subtype == "Spiral":
+			origin = marker.position
 		var rel_points = []
 		for pt in marker.marker_points:
 			rel_points.append(pt - origin)
@@ -324,8 +343,21 @@ func capture_marker_as_template(pos: Vector2) -> void:
 	# its real geometry lives in cached_draw_data["primitives"], not in shape_radius/angle/sides.
 	# Store segments in relative coords so they can be re-placed anywhere.
 	if marker.marker_type == MARKER_TYPE_SHAPE:
+		var cell_size = _get_grid_cell_size()
+		marker.get_draw_data(null, cell_size)
 		var prims = marker.get_primitives()
-		if prims.size() > 0:
+		var standard = []
+		if cell_size != null:
+			standard = GeometryUtils.points_to_segs(GeometryUtils.calculate_polygon_vertices(
+				marker.position, marker.shape_radius * min(cell_size.x, cell_size.y),
+				marker.shape_sides, deg2rad(marker.shape_angle)))
+		var unmodified = cell_size != null and marker.marker_subtype != "Spiral" and prims.size() == standard.size()
+		if unmodified:
+			for i in range(prims.size()):
+				if prims[i].a != standard[i].a or prims[i].b != standard[i].b:
+					unmodified = false
+					break
+		if marker.cached_draw_data.has("primitives") and not unmodified:
 			var rel_prims = []
 			for seg in prims:
 				rel_prims.append({"a": seg.a - marker.position, "b": seg.b - marker.position})
@@ -399,6 +431,9 @@ func _build_shape_descriptor_from_template(pos: Vector2) -> Dictionary:
 	var rot_rad = deg2rad(template_rotation_offset)
 	var data = tmpl_data.duplicate()
 	data["position"] = pos
+	if data.get("marker_subtype", "") == "Spiral":
+		data["spiral_settings"] = tmpl_data.spiral_settings.duplicate(true)
+		data.spiral_settings.angle = fposmod(data.spiral_settings.angle + template_rotation_offset, 360.0)
 	if typeof(data.get("shape_angle")) == TYPE_INT or typeof(data.get("shape_angle")) == TYPE_REAL:
 		data["shape_angle"] = fposmod(data.shape_angle + template_rotation_offset, 360.0)
 	if tmpl_data.has("shape_primitives"):
@@ -436,9 +471,13 @@ func _place_template_marker(pos: Vector2) -> void:
 	var marker_data = {
 		"position":    final_pos,
 		"marker_type": tmpl_data["marker_type"],
+		"marker_subtype": tmpl_data.get("marker_subtype", ""),
+		"spiral_settings": tmpl_data.get("spiral_settings", {}).duplicate(true),
 		"color":       tmpl_data["color"],
 		"id":          next_id,
 	}
+	if marker_data.marker_subtype == "Spiral":
+		marker_data.spiral_settings.angle = fposmod(marker_data.spiral_settings.angle + template_rotation_offset, 360.0)
 
 	match tmpl_data["marker_type"]:
 		MARKER_TYPE_LINE:
@@ -512,6 +551,16 @@ func _get_shape_descriptor_from_marker_data(marker_data: Dictionary) -> Dictiona
 	var points
 	if marker_data.has("shape_primitives"):
 		points = GeometryUtils.chain_segments_to_polygon(marker_data["shape_primitives"])
+	elif marker_data.get("marker_subtype", "") == "Spiral":
+		var position = marker_data.get("position")
+		if typeof(position) != TYPE_VECTOR2:
+			return {}
+		if is_nan(position.x) or is_inf(position.x) or is_nan(position.y) or is_inf(position.y):
+			return {}
+		var result = _cached_spiral_result(marker_data.get("spiral_settings"), true)
+		points = []
+		for point in result.points:
+			points.append(marker_data.position + point * min(cell_size.x, cell_size.y))
 	else:
 		var position = marker_data.get("position")
 		var radius = marker_data.get("shape_radius")
@@ -771,6 +820,8 @@ func _do_place_marker(marker_data, use_conforming = null, use_wrapping = null):
 	marker.set_property("position", marker_data["position"])
 	marker.id = marker_data["id"] 
 	marker.set_property("marker_type", marker_data["marker_type"])
+	marker.marker_subtype = marker_data.get("marker_subtype", "")
+	marker.spiral_settings = marker_data.get("spiral_settings", {}).duplicate(true)
 	marker.color = marker_data["color"]
 	marker.update_opacity(_current_opacity())
 	marker.set_property("show_coordinates", marker_data.get("coordinates", marker_data.get("show_coordinates", false)))
@@ -1157,6 +1208,9 @@ func _get_shape_descriptor(marker, cell_size) -> Dictionary:
 ## Build a shape descriptor for a virtual (not-yet-placed) shape
 ## using current tool settings at [pos].
 func _build_shape_descriptor_at(pos: Vector2) -> Dictionary:
+	if active_shape_preset == SHAPE_SPIRAL:
+		var points = spiral_points_at(pos)
+		return {"shape_type": "poly", "points": points} if not points.empty() else {}
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null:
 		return {}
@@ -1185,13 +1239,121 @@ func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 		return false
 	return false
 
+# Spiral settings only describe construction; placed geometry remains authoritative.
+func is_spiral_active() -> bool:
+	return (active_marker_type == MARKER_TYPE_SHAPE and active_shape_preset == SHAPE_SPIRAL) or (active_marker_type == MARKER_TYPE_PATH and active_path_subtype == "Spiral")
+
+func spiral_settings() -> Dictionary:
+	return active_shape_spiral if active_marker_type == MARKER_TYPE_SHAPE else active_path_spiral
+
+func spiral_result() -> Dictionary:
+	return _cached_spiral_result(spiral_settings(), active_marker_type == MARKER_TYPE_SHAPE)
+
+func _cached_spiral_result(settings, closed: bool) -> Dictionary:
+	if not settings is Dictionary:
+		return {"points": [], "error": "Spiral settings must be a dictionary."}
+	var changed = settings.size() != _spiral_cache_settings.size()
+	for key in settings:
+		if settings[key] != _spiral_cache_settings.get(key):
+			changed = true
+			break
+	if _spiral_cache.empty() or changed or closed != _spiral_cache_closed:
+		_spiral_cache_settings = settings.duplicate(true)
+		_spiral_cache_closed = closed
+		_spiral_cache = GeometryUtils.build_spiral(settings, closed)
+	return _spiral_cache
+
+# Cache pixel coordinates too; cursor movement only changes the canvas translation.
+func spiral_preview_points(settings: Dictionary, closed: bool, cell_size: Vector2) -> PoolVector2Array:
+	var result = _cached_spiral_result(settings, closed)
+	var scale = min(cell_size.x, cell_size.y)
+	if not result.has("preview_points") or result.get("preview_scale") != scale:
+		var points = PoolVector2Array()
+		for point in result.points:
+			points.append(point * scale)
+		if closed and points.size() >= 2:
+			points.append(points[0])
+		result["preview_points"] = points
+		result["preview_scale"] = scale
+	return result.preview_points
+
+func spiral_points_at(pos: Vector2) -> Array:
+	var cell_size = _get_grid_cell_size()
+	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0 or is_nan(pos.x) or is_inf(pos.x) or is_nan(pos.y) or is_inf(pos.y):
+		return []
+	var points = []
+	for point in spiral_result().points:
+		points.append(pos + point * min(cell_size.x, cell_size.y))
+	return points
+
+func set_path_subtype(index):
+	var subtype = "Spiral" if index == 1 else "Freeform"
+	if subtype != active_path_subtype:
+		_cancel_path_placement()
+	active_path_subtype = subtype
+	type_settings[MARKER_TYPE_PATH]["subtype"] = subtype
+	if ui: ui.sync_type_settings_controls(MARKER_TYPE_PATH)
+	if overlay: overlay.update()
+
+func set_spiral_value(value, key: String):
+	if not active_marker_type in [MARKER_TYPE_SHAPE, MARKER_TYPE_PATH]:
+		return
+	var settings = spiral_settings()
+	if not key in settings and key != "spacing":
+		return
+	var spacing = (settings.outer_radius - settings.inner_radius) / settings.turns
+	if key in ["clockwise", "reverse"]:
+		settings[key] = bool(value)
+	elif key == "size_by":
+		settings[key] = "radius" if value == 0 else "spacing"
+	elif key == "spacing":
+		settings.outer_radius = settings.inner_radius + settings.turns * max(0.01, float(value))
+	else:
+		if not (value is int or value is float) or is_nan(float(value)) or is_inf(float(value)):
+			return
+		if key == "turns" and value <= 0:
+			return
+		settings[key] = float(value)
+		if settings.size_by == "spacing" and key in ["inner_radius", "turns"]:
+			settings.outer_radius = settings.inner_radius + settings.turns * spacing
+	type_settings[active_marker_type]["spiral"] = settings.duplicate(true)
+	if ui: ui.sync_spiral_controls()
+	if overlay: overlay.update()
+
+func _place_spiral(pos: Vector2):
+	var result = spiral_result()
+	if result.error != "":
+		if LOGGER: LOGGER.warn(result.error)
+		return
+	var final_pos = snap_position_to_grid(pos) if parent_mod.Global.Editor.IsSnapping else pos
+	var points = spiral_points_at(final_pos)
+	if points.empty():
+		return
+	var data = {"id": next_id, "position": final_pos, "marker_type": active_marker_type,
+		"marker_subtype": "Spiral", "spiral_settings": spiral_settings().duplicate(true), "color": active_color}
+	if active_marker_type == MARKER_TYPE_SHAPE:
+		var desc = {"shape_type": "poly", "points": points}
+		if _try_apply_non_placing_shape_mode(desc, final_pos):
+			return
+		data["shape_radius"] = spiral_settings().outer_radius
+		data["shape_angle"] = spiral_settings().angle
+		data["shape_sides"] = DEFAULT_SHAPE_SIDES
+		data["shape_primitives"] = GeometryUtils.points_to_segs(points)
+	else:
+		data["marker_points"] = points
+		data["path_closed"] = false
+		data["path_end_arrow"] = active_path_end_arrow
+		data["arrow_head_length"] = active_arrow_head_length
+		data["arrow_head_angle"] = active_arrow_head_angle
+	api_place_marker(data)
+
 # Return true if the two shapes have any overlapping area:
 # edges intersect OR one shape is fully contained inside the other.
 # Used by Difference mode (unlike clip/cut which require actual edge crossings).
 func _shapes_overlap(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 	if _shapes_intersect(desc_a, desc_b):
 		return true
-	# Check containment: one representative point of A inside B or vice-versa
+	# With no edge crossings, a boundary vertex establishes containment even for concave spirals.
 	var pt_a = _shape_sample_point(desc_a)
 	var pt_b = _shape_sample_point(desc_b)
 	if pt_a != null and _point_in_shape(pt_a, desc_b):
@@ -1200,13 +1362,10 @@ func _shapes_overlap(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 		return true
 	return false
 
-# Return a representative interior point for a shape descriptor (centroid).
+# Only used after edge-crossing rejection; the mean of concave vertices can lie outside.
 func _shape_sample_point(desc: Dictionary):
 	if desc.shape_type == "poly" and desc.points.size() > 0:
-		var sum = Vector2.ZERO
-		for p in desc.points:
-			sum += p
-		return sum / desc.points.size()
+		return desc.points[0]
 	return null
 
 # Return true if [pt] is strictly inside [desc] (boundary not counted).
@@ -1444,7 +1603,7 @@ func _take_cut_snapshot(cut_desc: Dictionary) -> Dictionary:
 ##
 ## Returns { "deleted_ids": Array[int], "created_markers_data": Array[Dictionary] }.
 ## Call _take_cut_snapshot BEFORE this to capture the pre-cut state for undo.
-func _do_apply_cut(cut_desc: Dictionary) -> Dictionary:
+func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictionary:
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null:
 		return {"deleted_ids": [], "created_markers_data": []}
@@ -1515,6 +1674,8 @@ func _do_apply_cut(cut_desc: Dictionary) -> Dictionary:
 		marker.path_end_arrow = false
 		# Clear the Shape draw cache; Path rendering reads marker_points directly.
 		marker.cached_draw_data = {}
+		marker.marker_subtype = ""
+		marker.spiral_settings = {}
 		marker._dirty = true
 		if LOGGER:
 			LOGGER.debug("Cut: marker %d converted to Path (%d points)" % [
@@ -1523,7 +1684,9 @@ func _do_apply_cut(cut_desc: Dictionary) -> Dictionary:
 		# ── Remaining chains: create new Path markers ───────────────────────
 		for ci in range(1, chains.size()):
 			var new_id = next_id
-			next_id += 1
+			if created_markers_data.size() < replay_created.size():
+				new_id = replay_created[created_markers_data.size()].id
+			next_id = max(next_id, new_id + 1)
 			var md = {
 				"position":       chains[ci][0],
 				"marker_type":    MARKER_TYPE_PATH,
@@ -1618,6 +1781,9 @@ func save_current_type_settings():
 	for key in TYPE_SETTING_FIELDS[active_marker_type]:
 		settings[key] = get(TYPE_SETTING_FIELDS[active_marker_type][key][0])
 	type_settings[active_marker_type] = settings
+	if active_marker_type in [MARKER_TYPE_SHAPE, MARKER_TYPE_PATH]:
+		settings["spiral"] = spiral_settings().duplicate(true)
+		settings["subtype"] = active_shape_preset if active_marker_type == MARKER_TYPE_SHAPE else active_path_subtype
 
 func load_type_settings(marker_type):
 	if not TYPE_SETTING_FIELDS.has(marker_type) or not type_settings.has(marker_type):
@@ -1625,6 +1791,12 @@ func load_type_settings(marker_type):
 	for key in TYPE_SETTING_FIELDS[marker_type]:
 		var field = TYPE_SETTING_FIELDS[marker_type][key]
 		set(field[0], type_settings[marker_type].get(key, field[1]))
+	if marker_type == MARKER_TYPE_SHAPE:
+		active_shape_preset = type_settings[marker_type].get("subtype", SHAPE_CIRCLE)
+		active_shape_spiral = type_settings[marker_type].get("spiral", GeometryUtils.SPIRAL_DEFAULTS).duplicate(true)
+	elif marker_type == MARKER_TYPE_PATH:
+		active_path_subtype = type_settings[marker_type].get("subtype", "Freeform")
+		active_path_spiral = type_settings[marker_type].get("spiral", GeometryUtils.SPIRAL_DEFAULTS).duplicate(true)
 	if ui:
 		ui.sync_type_settings_controls(marker_type)
 
@@ -1753,6 +1925,12 @@ func set_shape_size_mode(mode):
 		LOGGER.debug("Shape size mode changed to: %s" % [mode])
 
 func set_shape_preset(preset):
+	active_shape_preset = preset
+	type_settings[MARKER_TYPE_SHAPE]["subtype"] = preset
+	if preset == SHAPE_SPIRAL:
+		if ui: ui.sync_shape_preset(preset)
+		if overlay: overlay.update()
+		return
 	# Apply canonical defaults for the selected preset
 	match preset:
 		SHAPE_CIRCLE:
@@ -1806,6 +1984,13 @@ func adjust_angle_with_wheel(direction):
 
 # Compatibility name: adjusts the size selected by Radius/Side mode.
 func adjust_shape_radius_with_wheel(direction):
+	if is_spiral_active():
+		var settings = spiral_settings()
+		if settings.size_by == "spacing":
+			set_spiral_value((settings.outer_radius - settings.inner_radius) / settings.turns + direction * 0.1, "spacing")
+		else:
+			set_spiral_value(settings.outer_radius + direction * 0.1, "outer_radius")
+		return
 	if active_marker_type != MARKER_TYPE_SHAPE:
 		return
 	if active_shape_size_mode == "side":
@@ -1814,10 +1999,16 @@ func adjust_shape_radius_with_wheel(direction):
 		set_shape_radius(active_shape_radius + direction * 0.1)
 
 func adjust_shape_angle_with_wheel(direction):
+	if is_spiral_active():
+		set_spiral_value(fposmod(spiral_settings().angle + direction * 5.0, 360.0), "angle")
+		return
 	if active_marker_type == MARKER_TYPE_SHAPE:
 		set_shape_angle(fposmod(active_shape_angle + direction * 5.0, 360.0))
 
 func rotate_shape_45():
+	if is_spiral_active():
+		set_spiral_value(fposmod(spiral_settings().angle + 45.0, 360.0), "angle")
+		return
 	if active_marker_type == MARKER_TYPE_SHAPE:
 		set_shape_angle(fposmod(active_shape_angle + 45.0, 360.0))
 

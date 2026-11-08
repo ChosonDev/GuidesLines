@@ -196,6 +196,8 @@ func create_ui_panel():
 	container.add_child(move_check)
 
 	tool.tool_panel.Align.add_child(container)
+	sync_type_settings_controls(tool.active_marker_type)
+	sync_type_selector_to_active_type()
 
 # ============================================================================
 # UI CREATION HELPERS FOR MARKER TYPES
@@ -272,6 +274,8 @@ func _create_shape_settings_ui():
 	subtype_option.set_item_metadata(4, tool.SHAPE_OCTAGON)
 	subtype_option.add_item("Custom (N-sided)")
 	subtype_option.set_item_metadata(5, tool.SHAPE_CUSTOM)
+	subtype_option.add_item("Spiral")
+	subtype_option.set_item_metadata(6, tool.SHAPE_SPIRAL)
 
 	# Default to Circle preset (index 0)
 	subtype_option.selected = 0
@@ -331,6 +335,7 @@ func _create_shape_settings_ui():
 	# Angle SpinBox
 	var angle_hbox = _create_spinbox_row("Angle (°):", "ShapeAngleSpinBox",
 		0, 360, 1, tool.active_shape_angle, tool, "set_shape_angle", false)
+	_controls["ShapeAngleRow"] = angle_hbox
 	container.add_child(angle_hbox)
 
 	container.add_child(_create_spacer(5))
@@ -353,6 +358,7 @@ func _create_shape_settings_ui():
 	container.add_child(modes_label)
 	container.add_child(_create_spacer(5))
 
+	container.add_child(_create_spiral_settings_ui("Shape", true))
 	container.add_child(_create_overlap_modes_row("ShapeModesRow", Vector2(48, 48)))
 
 	return container
@@ -378,6 +384,16 @@ func _create_fill_settings_ui():
 # Create UI for Path marker type
 func _create_path_settings_ui():
 	var container = VBoxContainer.new()
+	var subtype = OptionButton.new()
+	subtype.add_item("Freeform")
+	subtype.add_item("Spiral")
+	subtype.connect("item_selected", tool, "set_path_subtype")
+	_controls["PathSubtypeSelector"] = subtype
+	var label = Label.new()
+	label.text = "Path Type:"
+	container.add_child(label)
+	container.add_child(subtype)
+	container.add_child(_create_spiral_settings_ui("Path", false))
 
 	# Cancel button (only visible during placement)
 	var cancel_btn = Button.new()
@@ -602,7 +618,7 @@ func _create_common_settings_ui():
 
 	return container
 
-func _create_spinbox_row(label_text, control_name, minimum, maximum, step, value, target, method, allow_greater = false):
+func _create_spinbox_row(label_text, control_name, minimum, maximum, step, value, target, method, allow_greater = false, binds = []):
 	var row = HBoxContainer.new()
 	var label = Label.new()
 	label.text = label_text
@@ -616,7 +632,7 @@ func _create_spinbox_row(label_text, control_name, minimum, maximum, step, value
 	spin.value = value
 	spin.allow_greater = allow_greater
 	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spin.connect("value_changed", target, method)
+	spin.connect("value_changed", target, method, binds)
 	_controls[control_name] = spin
 	row.add_child(spin)
 	return row
@@ -728,15 +744,16 @@ func _update_shape_size_mode_ui():
 		var preset = subtype_selector.get_item_metadata(subtype_selector.selected)
 		is_circle = (preset == tool.SHAPE_CIRCLE)
 	var size_mode_row = get_control("SizeModeRow")
+	var is_spiral = tool.active_shape_preset == tool.SHAPE_SPIRAL
 	var radius_row = get_control("RadiusRow")
 	var side_row = get_control("SideRow")
 	var mode_option   = get_control("ShapeSizeModeOption")
 	if size_mode_row:
-		size_mode_row.visible = not is_circle
+		size_mode_row.visible = not is_circle and not is_spiral
 	if radius_row:
-		radius_row.visible = (is_circle or tool.active_shape_size_mode == "radius")
+		radius_row.visible = not is_spiral and (is_circle or tool.active_shape_size_mode == "radius")
 	if side_row:
-		side_row.visible = (not is_circle and tool.active_shape_size_mode == "side")
+		side_row.visible = not is_spiral and (not is_circle and tool.active_shape_size_mode == "side")
 	if mode_option:
 		mode_option.set_block_signals(true)
 		mode_option.selected = 0 if tool.active_shape_size_mode == "radius" else 1
@@ -853,6 +870,7 @@ func sync_type_settings_controls(marker_type):
 		_update_mirror_checkbox()
 
 	elif marker_type == tool.MARKER_TYPE_SHAPE:
+		sync_shape_preset(tool.active_shape_preset)
 		_update_shape_radius_spinbox()
 		_update_shape_angle_spinbox()
 		_update_shape_sides_spinbox()
@@ -860,9 +878,13 @@ func sync_type_settings_controls(marker_type):
 		_update_shape_size_mode_ui()
 
 	elif marker_type == tool.MARKER_TYPE_PATH:
+		_set_control_value("PathSubtypeSelector", 1 if tool.active_path_subtype == "Spiral" else 0, "selected")
+		var spiral_panel = get_control("PathSpiralPanel")
+		if spiral_panel: spiral_panel.visible = tool.active_path_subtype == "Spiral"
 		_update_path_end_arrow_checkbox()
 		_update_path_arrow_head_length_spinbox()
 		_update_path_arrow_head_angle_spinbox()
+	sync_spiral_controls()
 
 func _on_marker_type_changed(type_index):
 	tool.set_marker_type(type_selector.get_item_metadata(type_index))
@@ -887,3 +909,66 @@ func sync_shape_preset(preset):
 	var sides_row = get_control("SidesRow")
 	if sides_row:
 		sides_row.visible = preset == tool.SHAPE_CUSTOM
+	var angle_row = get_control("ShapeAngleRow")
+	if angle_row: angle_row.visible = preset != tool.SHAPE_SPIRAL
+	var panel = get_control("ShapeSpiralPanel")
+	if panel: panel.visible = preset == tool.SHAPE_SPIRAL
+	_update_shape_size_mode_ui()
+	sync_spiral_controls()
+
+func _create_spiral_settings_ui(prefix: String, closed: bool):
+	var panel = VBoxContainer.new()
+	_controls[prefix + "SpiralPanel"] = panel
+	panel.visible = false
+	var mode = OptionButton.new()
+	mode.add_item("Size by: Outer Radius")
+	mode.add_item("Size by: Turn Spacing")
+	mode.connect("item_selected", tool, "set_spiral_value", ["size_by"])
+	_controls[prefix + "SpiralSizeMode"] = mode
+	panel.add_child(mode)
+	for spec in [["Outer Radius:", "outer_radius", 0.01, 1000, 0.1],
+		["Inner Radius:", "inner_radius", 0, 999, 0.1], ["Turns:", "turns", 0.01, 8, 0.05],
+		["Turn Spacing:", "spacing", 0.01, 1000, 0.1], ["Angle (°):", "angle", 0, 360, 1],
+		["Width:", "width", 0.01, 1000, 0.1]]:
+		if spec[1] == "width" and not closed:
+			continue
+		var row = _create_spinbox_row(spec[0], prefix + "Spiral_" + spec[1], spec[2], spec[3], spec[4], 1, tool, "set_spiral_value", false, [spec[1]])
+		panel.add_child(row)
+	for spec in [["Clockwise (inner to outer)", "clockwise"], ["Reverse Path", "reverse"]]:
+		if closed and spec[1] == "reverse":
+			continue
+		var check = CheckButton.new()
+		check.text = spec[0]
+		check.connect("toggled", tool, "set_spiral_value", [spec[1]])
+		_controls[prefix + "Spiral_" + spec[1]] = check
+		panel.add_child(check)
+	var hint = Label.new()
+	hint.text = "Radii / spacing: centerline, in cells.\nClick to place the spiral center."
+	hint.autowrap = true
+	panel.add_child(hint)
+	var error = Label.new()
+	error.autowrap = true
+	error.add_color_override("font_color", Color(1, 0.45, 0.3))
+	_controls[prefix + "SpiralError"] = error
+	panel.add_child(error)
+	return panel
+
+func sync_spiral_controls():
+	if not tool.is_spiral_active():
+		return
+	var prefix = "Shape" if tool.active_marker_type == tool.MARKER_TYPE_SHAPE else "Path"
+	var settings = tool.spiral_settings()
+	for key in settings:
+		if key in ["clockwise", "reverse"]:
+			_set_control_value(prefix + "Spiral_" + key, settings[key], "pressed")
+		elif key != "size_by":
+			_set_spinbox_value(prefix + "Spiral_" + key, settings[key])
+	_set_spinbox_value(prefix + "Spiral_spacing", (settings.outer_radius - settings.inner_radius) / settings.turns)
+	_set_control_value(prefix + "SpiralSizeMode", 0 if settings.size_by == "radius" else 1, "selected")
+	for key in ["outer_radius", "spacing"]:
+		var spin = get_control(prefix + "Spiral_" + key)
+		if spin: spin.editable = (settings.size_by == "radius") == (key == "outer_radius")
+	var error = get_control(prefix + "SpiralError")
+	if error:
+		error.text = tool.spiral_result().error
+		error.visible = error.text != ""

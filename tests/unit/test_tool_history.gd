@@ -6,6 +6,214 @@ var api
 var last_record
 var deleted_ids = []
 
+func test_path_spiral_ignores_shape_width_and_roundtrips():
+	var id = api.place_spiral_path_marker(Vector2.ZERO, {"width": 0})
+	assert_ne(id, -1)
+	var saved = tool.markers_lookup[id].Save()
+	var restored = tool.GuideMarkerClass.new()
+	assert_true(restored.Load(saved))
+	assert_eq(restored.spiral_settings.width, 0)
+	assert_eq_deep(restored.marker_points, tool.markers_lookup[id].marker_points)
+	assert_eq(api.place_spiral_shape_marker(Vector2.ZERO, {"width": 0}), -1)
+
+func test_regular_template_keeps_grid_parameters_but_preserves_modified_and_empty_shapes():
+	tool._do_place_marker(shape_data(1))
+	var marker = tool.markers_lookup[1]
+	marker.get_draw_data(null, tool._get_grid_cell_size())
+	tool.capture_marker_as_template(marker.position)
+	assert_false(tool.templates.back().data.has("shape_primitives"), "Drawing a regular shape must not bake its template")
+	tool.select_template(tool.templates.size() - 1)
+	var original = tool._build_shape_descriptor_from_template(Vector2.ZERO).points
+	tool.cached_world.Level.TileMap.CellSize *= 2
+	var resized = tool._build_shape_descriptor_from_template(Vector2.ZERO).points
+	assert_eq(resized.size(), original.size())
+	for i in range(original.size()):
+		assert_eq(resized[i], original[i] * 2)
+	marker.set_primitives([{"type": "seg", "a": Vector2.ZERO, "b": Vector2(2, 4)}])
+	tool.capture_marker_as_template(marker.position)
+	assert_eq(tool.templates.back().data.shape_primitives.size(), 1)
+	marker.set_primitives([])
+	tool.capture_marker_as_template(marker.position)
+	assert_true(tool.templates.back().data.has("shape_primitives"))
+	assert_true(tool.templates.back().data.shape_primitives.empty())
+
+func test_spiral_api_rejects_bad_inputs_without_ids_history_or_markers():
+	last_record = null
+	for settings in [{"turns": 0}, {"width": 9}, {"outer_radius": INF}, {"clockwise": 1}, {"typo": 2}]:
+		assert_eq(api.place_spiral_shape_marker(Vector2.ZERO, settings), -1)
+	assert_eq(api.place_spiral_path_marker(Vector2(INF, 0)), -1)
+	assert_eq(api.place_spiral_path_marker(Vector2.ZERO, {}, "red"), -1)
+	assert_eq(tool.next_id, 0)
+	assert_eq(tool.markers.size(), 0)
+	assert_null(last_record)
+	tool.cached_world = null
+	assert_eq(api.place_spiral_path_marker(Vector2.ZERO), -1)
+
+func test_spiral_placement_move_queries_and_replay_keep_exact_geometry():
+	tool.set_marker_type("Shape")
+	tool.set_shape_preset("Spiral")
+	var center = Vector2(30, 40)
+	var expected = tool.spiral_points_at(center)
+	tool.place_marker(center)
+	assert_eq(tool.markers.size(), 1)
+	var marker = tool.markers[0]
+	assert_eq(marker.marker_subtype, "Spiral")
+	assert_eq_deep(api.get_shape_polygon(marker.id).polygon, expected)
+	var placed = marker.Save()
+	var record = last_record
+	tool.active_shape_spiral.outer_radius = 8
+	record.undo()
+	assert_eq(tool.markers.size(), 0)
+	record.redo()
+	marker = tool.markers[0]
+	assert_eq_deep(marker.Save(), placed)
+	var edge = (expected[10] + expected[11]) * 0.5
+	assert_eq(api.find_nearest_marker_by_geometry(edge, 1).id, marker.id)
+	tool.move_marker(marker, center + Vector2(100, 50))
+	assert_almost_eq(marker.get_polygon()[10], expected[10] + Vector2(100, 50), Vector2.ONE * 0.001)
+	last_record.undo()
+	assert_eq(marker.position, center)
+	for i in range(expected.size()):
+		assert_almost_eq(marker.get_polygon()[i], expected[i], Vector2.ONE * 0.001)
+	tool.set_marker_type("Path")
+	tool.set_path_subtype(1)
+	tool.active_path_end_arrow = true
+	tool.active_path_spiral.reverse = true
+	expected = tool.spiral_points_at(center)
+	tool.place_marker(center)
+	marker = tool.markers.back()
+	assert_eq(marker.marker_type, "Path")
+	assert_eq(marker.position, center)
+	assert_false(marker.path_closed)
+	assert_true(marker.path_end_arrow)
+	assert_false(tool.path_placement_active)
+	assert_eq_deep(marker.marker_points, expected)
+	var path_saved = marker.Save()
+	last_record.undo()
+	last_record.redo()
+	assert_eq_deep(tool.markers.back().Save(), path_saved)
+
+func test_spiral_settings_remember_types_and_size_modes_without_affecting_polygons():
+	tool.set_marker_type("Shape")
+	tool.set_shape_preset("Square")
+	tool.set_shape_radius(3.0)
+	tool.set_shape_preset("Spiral")
+	var cached_result = tool.spiral_result()
+	cached_result["cache_probe"] = true
+	assert_true(tool.spiral_result().has("cache_probe"), "Repeated reads must reuse local generation")
+	tool.set_spiral_value(7.0, "outer_radius")
+	assert_false(tool.spiral_result().has("cache_probe"), "Parameter edits invalidate cached geometry")
+	tool.set_spiral_value(6.0, "outer_radius")
+	tool.set_spiral_value(1, "size_by")
+	tool.set_spiral_value(3.0, "spacing")
+	tool.set_spiral_value(2.5, "turns")
+	assert_eq(tool.active_shape_spiral.outer_radius, 8.5)
+	tool.adjust_shape_radius_with_wheel(1)
+	assert_almost_eq(tool.active_shape_spiral.outer_radius, 8.75, 0.00001)
+	tool.rotate_shape_45()
+	assert_eq(tool.active_shape_spiral.angle, 45.0)
+	tool.set_marker_type("Path")
+	tool.place_marker(Vector2.ZERO)
+	assert_true(tool.path_placement_active)
+	tool.set_path_subtype(1)
+	assert_false(tool.path_placement_active)
+	tool.set_spiral_value(1.5, "turns")
+	tool.set_spiral_value(false, "clockwise")
+	tool.rotate_shape_45()
+	assert_eq(tool.active_path_spiral.angle, 45.0)
+	tool.set_marker_type("Line")
+	tool.set_marker_type("Shape")
+	assert_eq(tool.active_shape_preset, "Spiral")
+	assert_eq(tool.active_shape_spiral.turns, 2.5)
+	tool.set_shape_preset("Square")
+	assert_eq(tool.active_shape_radius, 3.0)
+	tool.set_marker_type("Path")
+	assert_eq(tool.active_path_subtype, "Spiral")
+	assert_eq(tool.active_path_spiral.turns, 1.5)
+	assert_false(tool.active_path_spiral.clockwise)
+	var state = api.get_tool_state()
+	state.active_path_spiral.turns = 7
+	assert_eq(tool.active_path_spiral.turns, 1.5)
+
+func test_spiral_templates_rotate_about_center_and_replay_exact_geometry():
+	for kind in ["Shape", "Path"]:
+		tool.set_marker_type(kind)
+		if kind == "Shape": tool.set_shape_preset("Spiral")
+		else: tool.set_path_subtype(1)
+		tool.place_marker(Vector2.ZERO)
+		var original = tool.markers.back()
+		var points = original.get_polygon() if kind == "Shape" else original.marker_points.duplicate()
+		tool.capture_marker_as_template(Vector2.ZERO)
+		tool.select_template(tool.templates.size() - 1)
+		tool.template_rotation_offset = 90
+		var pos = Vector2(900, 800)
+		tool._place_template_marker(pos)
+		var copy = tool.markers.back()
+		assert_eq(copy.marker_subtype, "Spiral")
+		assert_eq(copy.position, pos)
+		assert_eq(copy.spiral_settings.angle, 90.0)
+		var transformed = copy.get_polygon() if kind == "Shape" else copy.marker_points
+		assert_eq(transformed.size(), points.size())
+		for i in range(points.size()):
+			assert_almost_eq(transformed[i], pos + points[i].rotated(PI / 2), Vector2.ONE * 0.001)
+		var saved = copy.Save()
+		last_record.undo()
+		last_record.redo()
+		assert_eq_deep(tool.markers.back().Save(), saved)
+		tool.markers.clear()
+		tool.markers_lookup.clear()
+	var empty_id = api.place_spiral_shape_marker(Vector2.ZERO)
+	tool.markers_lookup[empty_id].set_primitives([])
+	tool.capture_marker_as_template(Vector2.ZERO)
+	assert_true(tool.templates.back().data.has("shape_primitives"))
+	assert_true(tool.templates.back().data.shape_primitives.empty())
+	tool.select_template(tool.templates.size() - 1)
+	var count = tool.markers.size()
+	tool._place_template_marker(Vector2(100, 100))
+	assert_eq(tool.markers.size(), count, "Empty geometry is not regenerated by templates")
+	# A parameter-only spiral template uses the same rotated generator if supplied.
+	tool.templates.back().data.erase("shape_primitives")
+	tool.template_rotation_offset = 90
+	var desc = tool._build_shape_descriptor_from_template(Vector2(100, 100))
+	assert_false(desc.empty())
+	tool._place_template_marker(Vector2(100, 100))
+	assert_eq_deep(api.get_shape_polygon(tool.markers.back().id).polygon, desc.points)
+
+func test_spiral_boolean_modes_and_fill_use_concave_contour_and_restore_history():
+	tool.FillMarkerClass = load(mod_root.plus_file("scripts/guides/FillMarker.gd"))
+	var geometry = load(mod_root.plus_file("scripts/utils/GeometryUtils.gd"))
+	var centerline = geometry.build_spiral(geometry.SPIRAL_DEFAULTS).points
+	var hit = centerline[int(centerline.size() / 2)] * 100
+	for mode in ["normal", "merge", "conforming", "wrapping", "difference", "cut"]:
+		tool.markers.clear()
+		tool.markers_lookup.clear()
+		tool.set_shape_mode("normal")
+		var original_id = api.place_spiral_shape_marker(Vector2.ZERO)
+		var original = tool.markers_lookup[original_id]
+		var before = original.Save()
+		assert_not_null(api.compute_fill_polygon(hit))
+		assert_null(api.compute_fill_polygon(Vector2.ZERO), "The central void is not filled")
+		tool.set_marker_type("Shape")
+		tool.set_shape_preset("Square")
+		tool.set_shape_radius(0.8)
+		tool.set_shape_mode(mode)
+		tool.place_marker(hit)
+		var after = []
+		for marker in tool.markers: after.append(marker.Save())
+		assert_ne(JSON.print(after), JSON.print([before]), "Mode must affect the spiral: " + mode)
+		var action = last_record
+		action.undo()
+		assert_eq(tool.markers.size(), 1, mode)
+		assert_eq_deep(tool.markers[0].Save(), before)
+		action.redo()
+		var replayed = []
+		for marker in tool.markers: replayed.append(marker.Save())
+		assert_eq_deep(replayed, after)
+	# A concave spiral's average point falls in its void; that is not containment.
+	var spiral = {"shape_type": "poly", "points": geometry.build_spiral(geometry.SPIRAL_DEFAULTS, true).points}
+	var small_square = {"shape_type": "poly", "points": geometry.calculate_polygon_vertices(Vector2.ZERO, 0.1, 4)}
+	assert_false(tool._shapes_overlap(spiral, small_square))
+
 
 func before_each():
 	var mod = {"markers_opacity": 0.7, "guides_lines_api": null,
@@ -668,9 +876,14 @@ func test_explicit_placement_and_replay_never_expose_temporary_ui_modes():
 func test_shape_state_is_narrow_current_and_independent_and_preview_reuses_storage():
 	var state = api.get_shape_state()
 	var full = api.get_tool_state()
-	assert_eq(state.size(), 5)
+	assert_eq(state.size(), 7)
 	for key in state:
-		assert_eq(state[key], full[key])
+		if state[key] is Dictionary:
+			assert_eq_deep(state[key], full[key])
+		else:
+			assert_eq(state[key], full[key])
+	state.active_shape_spiral.outer_radius = 999
+	assert_eq(api.get_shape_state().active_shape_spiral.outer_radius, 6.0)
 	state.active_shape_angle = 999
 	tool.active_shape_angle = 37.0
 	assert_eq(api.get_shape_state().active_shape_angle, 37.0)

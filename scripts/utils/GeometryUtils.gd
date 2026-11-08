@@ -4,6 +4,111 @@ class_name GeometryUtils
 
 const TWO_PI = 6.28318530718
 
+# Spiral dimensions are grid cells; angles are degrees. Geometry stays local until placement.
+const SPIRAL_DEFAULTS = {"outer_radius": 6.0, "inner_radius": 1.0, "turns": 2.0,
+	"clockwise": true, "angle": 0.0, "width": 1.0, "reverse": false, "size_by": "radius"}
+const SPIRAL_MAX_STEPS = 512
+
+static func spiral_error(settings, closed: bool = false) -> String:
+	if not settings is Dictionary:
+		return "Spiral settings must be a dictionary."
+	for key in ["outer_radius", "inner_radius", "turns", "angle", "width"]:
+		var value = settings.get(key)
+		if not (value is int or value is float):
+			return "Spiral dimensions must be finite numbers."
+		if is_nan(float(value)) or is_inf(float(value)):
+			return "Spiral dimensions must be finite numbers."
+	for key in ["clockwise", "reverse"]:
+		if not settings.get(key) is bool:
+			return "Spiral direction must be boolean."
+	if not settings.get("size_by", "radius") in ["radius", "spacing"]:
+		return "Unknown spiral size mode."
+	if settings.inner_radius < 0 or settings.outer_radius <= settings.inner_radius or settings.outer_radius < 0.01 or settings.turns < 0.01:
+		return "Use at least 0.01 turns and an outer radius larger than the inner radius."
+	if closed and settings.width < 0.01:
+		return "Shape width must be at least 0.01 cells."
+	if settings.turns > 8 or settings.outer_radius > 1000:
+		return "Spirals support at most 8 turns and a radius of 1000 cells."
+	if closed and settings.inner_radius <= settings.width * 0.5:
+		return "Shape inner radius must exceed half its width."
+	if closed:
+		var r = float(settings.inner_radius)
+		var b = (settings.outer_radius - r) / (TWO_PI * settings.turns)
+		var curvature_radius = pow(r * r + b * b, 1.5) / (r * r + 2.0 * b * b)
+		if settings.width * 0.5 >= curvature_radius:
+			return "Shape is too wide at its inner end; increase inner radius or reduce width."
+	if closed and settings.turns >= 1 and settings.width >= (settings.outer_radius - settings.inner_radius) / settings.turns:
+		return "Shape width must be smaller than turn spacing."
+	return ""
+
+# Returns {points, error}. One bounded local result is shared by preview and placement.
+static func build_spiral(settings, closed: bool = false) -> Dictionary:
+	var error = spiral_error(settings, closed)
+	if error != "":
+		return {"points": [], "error": error}
+	var sweep = TWO_PI * settings.turns
+	# ponytail: 0.02-cell chord tolerance and 512 steps bound native offset work;
+	# increase the ceiling only after profiling larger outlines and boolean operations.
+	var step_angle = min(PI / 16.0, sqrt(0.08 / (settings.outer_radius + (settings.outer_radius - settings.inner_radius) / sweep)))
+	var steps = int(ceil(sweep / step_angle))
+	if steps > SPIRAL_MAX_STEPS:
+		return {"points": [], "error": "Spiral exceeds the 512-segment detail limit; reduce radius or turns."}
+	steps = max(steps, 2)
+	var points = []
+	var sign_angle = 1.0 if settings.clockwise else -1.0
+	for i in range(steps + 1):
+		var t = float(i) / steps
+		var angle = deg2rad(settings.angle) + sign_angle * sweep * t
+		var radius = lerp(float(settings.inner_radius), float(settings.outer_radius), t)
+		points.append(Vector2(cos(angle), sin(angle)) * radius)
+	if closed:
+		# Check separated portions before the native offset can merge overlapping turns.
+		var separation = max(2, int(ceil(PI / sweep * steps)))
+		var clearance = settings.width + 0.001
+		var clearance_sq = clearance * clearance
+		var bucket_size = clearance
+		for i in range(points.size() - 1):
+			bucket_size = max(bucket_size, points[i].distance_to(points[i + 1]))
+		# ponytail: bounded uniform buckets avoid distant segment comparisons;
+		# dense buckets remain quadratic; use a tree if the 512-step ceiling grows.
+		var buckets = {}
+		for i in range(points.size() - 1):
+			var a = points[i]
+			var b = points[i + 1]
+			var bounds = Rect2(a, Vector2.ZERO).expand(b)
+			var first = (bounds.position / bucket_size).floor()
+			var last = (bounds.end / bucket_size).floor()
+			var candidates = {}
+			for x in range(int(first.x), int(last.x) + 1):
+				for y in range(int(first.y), int(last.y) + 1):
+					for j in buckets.get(Vector2(x, y), []):
+						if i - j >= separation:
+							candidates[j] = true
+			for j in candidates:
+				var c = points[j]
+				var d = points[j + 1]
+				var distance_sq = min(min(a.distance_squared_to(closest_point_on_segment(a, c, d)),
+					b.distance_squared_to(closest_point_on_segment(b, c, d))),
+					min(c.distance_squared_to(closest_point_on_segment(c, a, b)),
+					d.distance_squared_to(closest_point_on_segment(d, a, b))))
+				if segment_segment_intersect(a, b, c, d) != null or distance_sq <= clearance_sq:
+					return {"points": [], "error": "Shape turns overlap; reduce width or increase spacing."}
+			bounds = bounds.grow(clearance)
+			first = (bounds.position / bucket_size).floor()
+			last = (bounds.end / bucket_size).floor()
+			for x in range(int(first.x), int(last.x) + 1):
+				for y in range(int(first.y), int(last.y) + 1):
+					var key = Vector2(x, y)
+					if not buckets.has(key): buckets[key] = []
+					buckets[key].append(i)
+		var outlines = Geometry.offset_polyline_2d(PoolVector2Array(points), settings.width * 0.5, Geometry.JOIN_ROUND, Geometry.END_BUTT)
+		if outlines.size() != 1 or outlines[0].size() < 3:
+			return {"points": [], "error": "Spiral could not form one closed outline."}
+		points = Array(outlines[0])
+	elif settings.reverse:
+		points.invert()
+	return {"points": points, "error": ""}
+
 # Calculate vertices for a regular polygon
 # center: Vector2 - Center point
 # radius: float - Radius (circumradius)

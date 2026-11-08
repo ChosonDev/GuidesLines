@@ -2,6 +2,7 @@ extends Node2D
 
 # Records original render commands without requiring a Dungeondraft viewport.
 var lines = []
+var polylines = []
 var circles = []
 var arcs = []
 var strings = []
@@ -31,7 +32,12 @@ func draw_set_transform(offset, rotation = 0.0, scale = Vector2.ONE):
 	transforms.append(draw_transform)
 
 func draw_line(from, to, color, width = 1.0, _antialiased = false):
-	lines.append({"a": from, "b": to, "color": color, "width": width})
+	lines.append({"a": draw_transform.xform(from), "b": draw_transform.xform(to), "color": color, "width": width})
+
+func draw_polyline(points, color, width = 1.0, _antialiased = false):
+	polylines.append(points)
+	for i in range(points.size() - 1):
+		draw_line(points[i], points[i + 1], color, width)
 
 func draw_circle(pos, radius, color):
 	circles.append({"pos": pos, "radius": radius, "color": color})

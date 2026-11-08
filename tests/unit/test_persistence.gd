@@ -9,6 +9,47 @@ var world
 var world_ui
 var signaling
 
+func test_spiral_map_templates_and_modified_outlines_round_trip_without_regeneration():
+	var api = load(mod_root.plus_file("scripts/api/guides_lines_api.gd")).new(mod, null)
+	tool.cached_world = {"WorldRect": Rect2(-1000, -1000, 2000, 2000), "Level": {"TileMap": {"CellSize": Vector2(100, 100)}}}
+	var shape_id = api.place_spiral_shape_marker(Vector2.ZERO)
+	var path_id = api.place_spiral_path_marker(Vector2(800, 800), {"turns": 1.5, "reverse": true}, Color.red, true)
+	assert_true(shape_id >= 0)
+	assert_true(path_id >= 0)
+	tool.capture_marker_as_template(Vector2.ZERO)
+	tool.capture_marker_as_template(Vector2(800, 800))
+	# Simulate a boolean edit: the saved outline must win over construction metadata.
+	tool.markers_lookup[shape_id].set_primitives([])
+	var expected = saved_json()
+	assert_true(persistence.load_map(expected))
+	assert_eq(tool.markers_lookup[shape_id].marker_subtype, "Spiral")
+	tool.markers_lookup[shape_id].get_draw_data(null, Vector2(100, 100))
+	assert_true(tool.markers_lookup[shape_id].get_primitives().empty())
+	assert_true(tool.markers_lookup[path_id].path_end_arrow)
+	assert_true(tool.markers_lookup[path_id].spiral_settings.reverse)
+	assert_eq_deep(saved_json(), expected)
+	# Templates retain their captured full geometry, including a center-based Path anchor.
+	mod.Global.Editor = {"IsSnapping": false}
+	for index in range(2):
+		tool.select_template(index)
+		tool.template_rotation_offset = 90
+		tool._place_template_marker(Vector2(500, 500))
+		assert_eq(tool.markers.back().marker_subtype, "Spiral")
+		assert_eq(tool.markers.back().position, Vector2(500, 500))
+	assert_true(persistence.load_map(saved_json()))
+	mod.Global.Editor = editor
+	api._unload()
+
+func test_spiral_persistence_rejects_invalid_metadata_before_loading_any_marker():
+	populate()
+	var valid = saved_json()
+	for settings in [{}, {"turns": "bad"}, null]:
+		var data = valid.duplicate(true)
+		data[persistence.DATA_KEY].markers[1]["marker_subtype"] = "Spiral"
+		data[persistence.DATA_KEY].markers[1]["spiral_settings"] = settings
+		assert_false(persistence.load_map(data))
+		assert_true(tool.markers.empty())
+
 
 func before_each():
 	editor = Node.new()

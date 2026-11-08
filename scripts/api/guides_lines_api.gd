@@ -188,6 +188,54 @@ func place_path_marker(points: Array, closed: bool = false, color = null) -> int
 		LOGGER.debug("API: Path marker placed id=%d points=%d closed=%s" % [marker_id, points.size(), str(closed)])
 	return marker_id
 
+## Spiral settings override GeometryUtils.SPIRAL_DEFAULTS (cells, degrees).
+## Places a closed constant-width strip. Tool modes are opt-in, like plain Shape placement.
+## Returns -1 without history or ID changes on invalid/unavailable geometry.
+func place_spiral_shape_marker(position: Vector2, settings: Dictionary = {}, color = null, apply_tool_modes: bool = false) -> int:
+	return _place_spiral_marker(position, settings, true, color, apply_tool_modes, false)
+
+## Places an open spiral; reverse changes point order and hence the arrow end.
+func place_spiral_path_marker(position: Vector2, settings: Dictionary = {}, color = null, end_arrow: bool = false) -> int:
+	return _place_spiral_marker(position, settings, false, color, false, end_arrow)
+
+func _place_spiral_marker(position, overrides, closed, color, apply_tool_modes, end_arrow) -> int:
+	if not _has_tool():
+		return -1
+	if is_nan(position.x) or is_inf(position.x) or is_nan(position.y) or is_inf(position.y) or (color != null and not color is Color):
+		return -1
+	var settings = GeometryUtils.SPIRAL_DEFAULTS.duplicate(true)
+	for key in overrides:
+		if not settings.has(key):
+			return -1
+		settings[key] = overrides[key]
+	var result = GeometryUtils.build_spiral(settings, closed)
+	if result.error != "":
+		if LOGGER: LOGGER.warn(result.error)
+		return -1
+	var tool = _tool()
+	var cell_size = tool._get_grid_cell_size()
+	if cell_size == null or cell_size.x <= 0 or cell_size.y <= 0:
+		return -1
+	var points = []
+	for point in result.points:
+		points.append(position + point * min(cell_size.x, cell_size.y))
+	var id = tool.next_id
+	var data = {"id": id, "position": position, "marker_type": "Shape" if closed else "Path",
+		"marker_subtype": "Spiral", "spiral_settings": settings, "color": color if color != null else tool.active_color}
+	if closed:
+		data["shape_radius"] = settings.outer_radius
+		data["shape_angle"] = settings.angle
+		data["shape_sides"] = 6
+		data["shape_primitives"] = GeometryUtils.points_to_segs(points)
+	else:
+		data["marker_points"] = points
+		data["path_closed"] = false
+		data["path_end_arrow"] = end_arrow
+		data["arrow_head_length"] = tool.active_arrow_head_length
+		data["arrow_head_angle"] = tool.active_arrow_head_angle
+	tool.api_place_marker(data, apply_tool_modes)
+	return id
+
 ## Places an Arrow marker from [from_pos] to [to_pos].
 ## Internally creates a Path marker with path_end_arrow = true
 ## (Arrow type was merged into Path in v2.1.6; this function remains for API compatibility).
@@ -925,6 +973,7 @@ func get_shape_state() -> Dictionary:
 	var t = _tool()
 	return {"ready": true, "active_shape_radius": t.active_shape_radius,
 		"active_shape_angle": t.active_shape_angle, "active_shape_sides": t.active_shape_sides,
+		"active_shape_preset": t.active_shape_preset, "active_shape_spiral": t.active_shape_spiral.duplicate(true),
 		"active_color": t.active_color}
 
 ## Returns a snapshot of the full current tool state as a Dictionary.
@@ -963,6 +1012,10 @@ func get_tool_state() -> Dictionary:
 		"active_shape_radius":      t.active_shape_radius,
 		"active_shape_angle":       t.active_shape_angle,
 		"active_shape_sides":       t.active_shape_sides,
+		"active_shape_preset":      t.active_shape_preset,
+		"active_path_subtype":      t.active_path_subtype,
+		"active_shape_spiral":      t.active_shape_spiral.duplicate(true),
+		"active_path_spiral":       t.active_path_spiral.duplicate(true),
 		"active_path_end_arrow":    t.active_path_end_arrow,
 		"active_arrow_head_length": t.active_arrow_head_length,
 		"active_arrow_head_angle":  t.active_arrow_head_angle,

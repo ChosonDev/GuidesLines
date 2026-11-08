@@ -2,6 +2,30 @@ extends "res://addons/gut/test.gd"
 
 var mod_root = ProjectSettings.globalize_path("res://").plus_file("..").simplify_path()
 
+func test_spiral_model_rebuilds_only_on_explicit_reset_and_rejects_bad_metadata():
+	var script = load(mod_root.plus_file("scripts/guides/GuideMarker.gd"))
+	var geometry = load(mod_root.plus_file("scripts/utils/GeometryUtils.gd"))
+	var marker = script.new(Vector2(10, 20))
+	marker.marker_type = "Shape"
+	marker.marker_subtype = "Spiral"
+	marker.spiral_settings = geometry.SPIRAL_DEFAULTS.duplicate(true)
+	marker.get_draw_data(null, Vector2(100, 100))
+	var original = marker.get_primitives().duplicate(true)
+	assert_true(original.size() > 3)
+	marker.set_primitives([])
+	marker.set_property("show_coordinates", true)
+	marker.get_draw_data(null, Vector2(100, 100))
+	assert_true(marker.get_primitives().empty())
+	marker.clear_clip()
+	marker.get_draw_data(null, Vector2(100, 100))
+	assert_eq_deep(marker.get_primitives(), original)
+	var before = marker.Save()
+	for metadata in [null, [], {"turns": "bad"}]:
+		var invalid = before.duplicate(true)
+		invalid.spiral_settings = metadata
+		assert_false(marker.Load(invalid))
+		assert_eq_deep(marker.Save(), before)
+
 
 func test_line_shape_and_path_round_trip_through_json():
 	var script = load(mod_root.plus_file("scripts/guides/GuideMarker.gd"))

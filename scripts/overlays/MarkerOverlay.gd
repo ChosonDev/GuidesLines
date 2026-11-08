@@ -149,7 +149,7 @@ func _input(event):
 			get_tree().set_input_as_handled()
 			return
 		# Shape type: RMB rotates by 45 degrees (not in delete/move mode)
-		if tool.active_marker_type == tool.MARKER_TYPE_SHAPE and event.pressed and not tool.delete_mode and not tool.move_mode:
+		if (tool.active_marker_type == tool.MARKER_TYPE_SHAPE or tool.is_spiral_active()) and event.pressed and not tool.delete_mode and not tool.move_mode:
 			tool.rotate_shape_45()
 			get_tree().set_input_as_handled()
 			return
@@ -186,7 +186,7 @@ func _input(event):
 					return
 			
 			# Shape type: wheel rotates angle, Alt+wheel adjusts radius
-			elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
+			elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE or tool.is_spiral_active():
 				if event.button_index == BUTTON_WHEEL_UP and event.pressed:
 					if event.alt:
 						if tool.LOGGER:
@@ -346,7 +346,7 @@ func _draw():
 			return
 		
 		# Special preview for Path type
-		if tool.active_marker_type == tool.MARKER_TYPE_PATH:
+		if tool.active_marker_type == tool.MARKER_TYPE_PATH and not tool.is_spiral_active():
 			_draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zoom, preview_line_width, preview_marker_size, active_arrow_length_px)
 		else:
 			var preview_pos = tool.cached_worldui.MousePosition
@@ -442,6 +442,16 @@ func _draw_api_shape_preview(p: Dictionary, cam_zoom: Vector2, cell_size, previe
 
 # Draw semi-transparent preview of marker at cursor position
 func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect, cell_size, preview_line_width: float, preview_marker_size: float):
+	if tool.is_spiral_active():
+		if tool.parent_mod.Global.Editor.IsSnapping:
+			pos = tool.snap_position_to_grid(pos)
+		var color = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
+		if cell_size:
+			_draw_spiral_preview(pos, tool.spiral_settings(), tool.active_marker_type == tool.MARKER_TYPE_SHAPE,
+				cell_size, color, preview_line_width, tool.active_path_end_arrow,
+				tool.active_arrow_head_length, tool.active_arrow_head_angle, cam_zoom)
+		_draw_marker_anchor(pos, preview_marker_size, _PREVIEW_MARKER_COLOR, _PREVIEW_ARC_COLOR)
+		return
 	var MARKER_COLOR = _PREVIEW_MARKER_COLOR
 	var LINE_COLOR = Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.7)
 
@@ -520,6 +530,11 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 					var a = preview_pos + rel_seg["a"].rotated(rot_rad)
 					var b = preview_pos + rel_seg["b"].rotated(rot_rad)
 					draw_line(a, b, line_color, LINE_WIDTH)
+			elif data.get("marker_subtype", "") == "Spiral":
+				if cell_size and data.get("spiral_settings") is Dictionary:
+					var settings = data.spiral_settings.duplicate()
+					settings.angle = fposmod(settings.get("angle", 0.0) + tool.template_rotation_offset, 360.0)
+					_draw_spiral_preview(preview_pos, settings, true, cell_size, line_color, LINE_WIDTH)
 			elif cell_size:
 				# Standard unmodified shape — regenerate from parameters
 				var radius_px = data.get("shape_radius", 1.0) * min(cell_size.x, cell_size.y)
@@ -676,13 +691,26 @@ func _draw_marker_anchor(pos: Vector2, size: float, fill_color: Color, arc_color
 	draw_circle(pos, size / 2.0, fill_color)
 	draw_arc(pos, size / 2.0, 0, TAU, 32, arc_color, 2)
 
+func _draw_spiral_preview(pos: Vector2, settings: Dictionary, closed: bool, cell_size: Vector2, color: Color, width: float, end_arrow: bool = false, arrow_length: float = 50.0, arrow_angle: float = 30.0, zoom: Vector2 = Vector2.ONE) -> void:
+	var points = tool.spiral_preview_points(settings, closed, cell_size)
+	if points.size() < 2:
+		return
+	draw_set_transform(pos, 0.0, Vector2.ONE)
+	draw_polyline(points, color, width)
+	if not closed and end_arrow:
+		var start = points[points.size() - 2]
+		var end = points[points.size() - 1]
+		var head = GeometryUtils.calculate_arrowhead_points(end, start, GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
+		GuidesLinesRender.draw_arrow(self, start, end, head, color, width)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func _draw_path_points(points: Array, closed: bool, end_arrow: bool, arrow_length: float, arrow_angle: float, zoom: Vector2, color: Color, width: float) -> void:
 	if points.size() < 2:
 		return
-	for index in range(points.size() - 1):
-		draw_line(points[index], points[index + 1], color, width)
+	var polyline = PoolVector2Array(points)
 	if closed and points.size() >= 3:
-		draw_line(points[points.size() - 1], points[0], color, width)
+		polyline.append(points[0])
+	draw_polyline(polyline, color, width)
 	if end_arrow:
 		var start = points[points.size() - 2]
 		var end = points[points.size() - 1]

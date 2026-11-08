@@ -8,6 +8,117 @@ var changes = []
 var geometry
 var owned_nodes = []
 
+func test_spiral_preview_cache_tracks_grid_settings_and_parametric_templates():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	tool.set_marker_type("Shape")
+	tool.set_shape_preset("Spiral")
+	var cell = tool._get_grid_cell_size()
+	var points = tool.spiral_preview_points(tool.active_shape_spiral, true, cell)
+	tool._spiral_cache["probe"] = true
+	for pos in [Vector2(-80, 60), Vector2(30, -40)]:
+		overlay.lines.clear()
+		overlay._draw_spiral_preview(pos, tool.active_shape_spiral, true, cell, Color.white, 5)
+		assert_true(tool._spiral_cache.has("probe"), "Cursor movement reuses generated geometry")
+		assert_eq(overlay.lines[0].a, pos + points[0])
+		assert_eq(overlay.draw_transform, Transform2D.IDENTITY)
+	var scaled = tool.spiral_preview_points(tool.active_shape_spiral, true, cell * 2)
+	assert_eq(scaled[0], points[0] * 2)
+	assert_true(tool._spiral_cache.has("probe"), "Grid changes only rescale cached geometry")
+	tool.templates = [{"data": {"marker_type": "Shape", "marker_subtype": "Spiral",
+		"spiral_settings": tool.active_shape_spiral.duplicate()}}]
+	tool.select_template(0)
+	tool.template_rotation_offset = 45
+	var desc = tool._build_shape_descriptor_from_template(Vector2.ZERO)
+	tool._spiral_cache["template_probe"] = true
+	for pos in [Vector2(-25, 70), Vector2(100, 120)]:
+		overlay.lines.clear()
+		overlay._draw_template_preview(pos, -1000, 1000, -1000, 1000, Vector2.ONE, tool.cached_world.WorldRect, cell, 5, 10)
+		assert_true(tool._spiral_cache.has("template_probe"), "Parametric template preview reuses generation")
+		assert_eq(overlay.lines[0].a, pos + desc.points[0])
+	tool.template_rotation_offset = 90
+	tool._build_shape_descriptor_from_template(Vector2.ZERO)
+	assert_false(tool._spiral_cache.has("template_probe"), "Template rotation invalidates geometry")
+	overlay.lines.clear()
+	overlay._draw_custom_marker_preview(Vector2.ZERO, -1000, 1000, -1000, 1000,
+		Vector2.ONE, tool.cached_world.WorldRect, null, 5, 10)
+	assert_true(overlay.lines.empty(), "Wait for grid initialization before previewing a spiral")
+
+func test_spiral_panel_signals_visibility_validation_and_type_memory():
+	make_panel()
+	tool.set_marker_type("Shape")
+	tool.ui.get_control("ShapeSubtypeSelector").emit_signal("item_selected", 6)
+	assert_true(tool.ui.get_control("ShapeSpiralPanel").visible)
+	assert_false(tool.ui.get_control("RadiusRow").visible)
+	assert_false(tool.ui.get_control("SideRow").visible)
+	assert_false(tool.ui.get_control("SizeModeRow").visible)
+	assert_false(tool.ui.get_control("ShapeAngleRow").visible)
+	tool.ui.get_control("ShapeSpiral_turns").value = 2.5
+	assert_eq(tool.active_shape_spiral.turns, 2.5)
+	tool.ui.get_control("ShapeSpiralSizeMode").emit_signal("item_selected", 1)
+	assert_false(tool.ui.get_control("ShapeSpiral_outer_radius").editable)
+	assert_true(tool.ui.get_control("ShapeSpiral_spacing").editable)
+	tool.ui.get_control("ShapeSpiral_spacing").value = 3
+	assert_eq(tool.active_shape_spiral.outer_radius, 8.5)
+	tool.ui.get_control("ShapeSpiral_width").value = 4
+	assert_true(tool.ui.get_control("ShapeSpiralError").visible)
+	assert_ne(tool.ui.get_control("ShapeSpiralError").text, "")
+	tool.place_marker(Vector2.ZERO)
+	assert_true(tool.markers.empty())
+	tool.ui.get_control("ShapeSpiral_width").value = 1
+	assert_false(tool.ui.get_control("ShapeSpiralError").visible)
+	tool.set_marker_type("Path")
+	tool.ui.get_control("PathSubtypeSelector").emit_signal("item_selected", 1)
+	tool.ui.get_control("PathSpiral_reverse").pressed = true
+	tool.ui.get_control("PathSpiral_clockwise").pressed = false
+	assert_true(tool.active_path_spiral.reverse)
+	assert_false(tool.active_path_spiral.clockwise)
+	tool.set_marker_type("Shape")
+	assert_eq(tool.ui.get_control("ShapeSpiral_turns").value, 2.5)
+	assert_true(tool.ui.get_control("ShapeSpiral_clockwise").pressed)
+	tool.create_ui_panel()
+	assert_true(tool.ui.get_control("ShapeSpiralPanel").visible)
+	assert_eq(tool.ui.get_control("ShapeSubtypeSelector").selected, 6)
+	tool.ui.get_control("ShapeSubtypeSelector").emit_signal("item_selected", 1)
+	assert_false(tool.ui.get_control("ShapeSpiralPanel").visible)
+	assert_true(tool.ui.get_control("ShapeAngleRow").visible)
+
+func test_spiral_preview_matches_snapped_placement_and_arrow_at_each_zoom():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	tool.cached_snappy_mod = probe()
+	mod.Global.Editor.IsSnapping = true
+	var pos = Vector2(113, 222)
+	var center = tool.snap_position_to_grid(pos)
+	for kind in ["Shape", "Path"]:
+		tool.set_marker_type(kind)
+		if kind == "Shape": tool.set_shape_preset("Spiral")
+		else: tool.set_path_subtype(1)
+		tool.active_path_end_arrow = true
+		tool.active_path_spiral.reverse = true
+		var expected = tool.spiral_points_at(center)
+		var cached = tool.spiral_result().points
+		for zoom in [Vector2.ONE, Vector2(3, 3)]:
+			overlay.lines.clear()
+			overlay.polylines.clear()
+			overlay._draw_custom_marker_preview(pos, -1000, 1000, -1000, 1000, zoom, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
+			assert_eq(overlay.polylines.size(), 1, "One native polyline per spiral")
+			assert_eq(overlay.draw_transform, Transform2D.IDENTITY, "Restore canvas state before anchors")
+			var edge_count = expected.size() if kind == "Shape" else expected.size() - 1
+			assert_eq(overlay.lines.size(), edge_count + (3 if kind == "Path" else 0))
+			for i in range(edge_count):
+				assert_eq(overlay.lines[i].a, expected[i])
+				assert_eq(overlay.lines[i].b, expected[(i + 1) % expected.size()])
+			if kind == "Path":
+				assert_eq(overlay.lines[edge_count + 1].a, expected.back())
+		assert_eq(cached, tool.spiral_result().points)
+		tool.place_marker(pos)
+		var marker = tool.markers.back()
+		assert_eq(marker.position, center)
+		assert_eq_deep(marker.get_polygon() if kind == "Shape" else marker.marker_points, expected)
+		tool.markers.clear()
+		tool.markers_lookup.clear()
+
 
 func before_each():
 	var file = File.new()

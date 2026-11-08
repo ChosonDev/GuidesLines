@@ -5,20 +5,41 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.2]
+## [2.4.2] — 2026-11-08
 
 ### Fixed
+- Preserve grid-relative parameters when capturing unmodified regular Shape templates;
+  retain exact edited and explicitly empty outlines.
+- Path spirals ignore the Shape-only width minimum, including API placement and reload.
+- Concave Shape containment uses a boundary vertex after edge-crossing rejection,
+  avoiding false overlap with a spiral's central void.
+- Cut redo retains IDs of additional Path fragments. Cut fragments discard spiral
+  construction metadata; undo restores the original Shape and metadata.
 - Reject incomplete parametric Shape templates and descriptors instead of fabricating
   radius, angle or sides. Validate position and finite shape parameters before geometry.
 - Test setup requires the local pinned GUT checkout instead of downloading it implicitly.
 
 ### Changed
+- Spiral previews reuse cached pixel polylines and canvas translation; parameter-only
+  Shape templates share the bounded geometry cache. Polygon/Path outlines use native
+  polyline drawing, and spiral clearance checks use spatial buckets before exact tests.
 - Pass conform/wrap placement policies explicitly through API and history replay,
   preserving the live UI flags throughout callbacks.
 - Reuse API preview storage while preserving per-frame refresh and expiry behavior.
 
 ### Added
-- Public `get_shape_state()` returns an independent five-key shape snapshot for
+- Shape/Spiral closed constant-width strips and Path/Spiral open centerlines,
+  with fractional turns, winding, inner/outer radii, spacing-based sizing,
+  rotation, Shape width, Path reversal and optional end arrows.
+- Shared bounded Godot 3 geometry for snapped single-click placement and preview,
+  native polyline offsets, overlap/inner-curvature validation and sidebar errors.
+- Spiral geometry and construction metadata survive map persistence, boolean
+  edits, history and rotated templates. Existing saved markers remain supported.
+- Public `place_spiral_shape_marker()` and `place_spiral_path_marker()` API;
+  tool-state snapshots include independent spiral settings and selected subtypes.
+- Standalone spiral tests cover geometry, real UI signals, preview drawing,
+  boolean modes, fill, IDs/history, templates and JSON map round trips.
+- Public `get_shape_state()` returns an independent shape snapshot for
   preview consumers without allocating the full tool state.
 - Public `place_shape_marker_plain()` places a full Shape independently of active
   Conform/Wrap modes, preserving those settings and neighboring markers on replay.
