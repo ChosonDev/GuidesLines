@@ -170,7 +170,7 @@ Spiral regression checks also cover native polyline drawing and transform reset,
 preview/template cache reuse and invalidation, grid-relative regular templates,
 Path width-zero persistence, and spatial buckets against exhaustive clearance checks.
 
-The suite contains 107 tests. The latest regressions cover map persistence, partial
+The suite contains 109 tests. The latest regressions cover map persistence, partial
 merge failures, restored ID reservation, UI picking at distant outlines before API
 registration, preview lifetime across repeated draws, actual-geometry query bounds
 and their invalidation, clipped Line sampling, canonical placement flags and the
@@ -196,3 +196,7 @@ Cut/Difference gaps. Run with `--test marker_layers` and `--test shape_batches`.
 On 2026-11-08, the user tested these rendering changes inside Dungeondraft with many
 different spirals and did not reproduce the previously reported system freeze.
 This observation does not establish the original freeze's root cause.
+
+Fill regressions cover eight nested circles in both marker orders, partial overlaps
+and inner holes through the public API and the native GuidesLines Fill handler.
+On 2026-11-09, the user confirmed the nested-ring fix works inside Dungeondraft.

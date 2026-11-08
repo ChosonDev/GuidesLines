@@ -14,7 +14,7 @@ extends Reference
 #
 #   MULTIPLE shapes contain pos  →  INTERSECTION fill:
 #     pos sits in the zone where all hit shapes overlap each other.
-#     Fill = A ∩ B ∩ C … (precisely that shared region).
+#     Fill = (A ∩ B ∩ C …) minus shapes that do not contain pos.
 #     Example:
 #       A, B, C partially overlap, pos in the common zone  →  fill A ∩ B ∩ C
 #
@@ -137,7 +137,7 @@ func _compute_exclusive_fill(pos: Vector2, primary_entry: Dictionary) -> Array:
 	return _subtract_shapes(pos, primary_pts, shapes_to_subtract)
 
 # ─── Branch B: INTERSECTION FILL ──────────────────────────────────────────────
-# pos is inside the overlap zone of all hit shapes. Fill = A ∩ B ∩ C …
+# Intersect all hit shapes, then subtract non-hit shapes to preserve inner holes.
 
 func _compute_intersection_fill(pos: Vector2, hit_entries: Array) -> Array:
 	var result: PoolVector2Array = PoolVector2Array(hit_entries[0].desc.points)
@@ -155,7 +155,19 @@ func _compute_intersection_fill(pos: Vector2, hit_entries: Array) -> Array:
 		if result.empty():
 			return []
 
-	return Array(result)
+	var hit_ids = {}
+	for entry in hit_entries:
+		hit_ids[entry.marker.id] = true
+	var cell_size = tool._get_grid_cell_size()
+	var intersection_desc = {"shape_type": "poly", "points": Array(result)}
+	var shapes_to_subtract = []
+	for marker in tool.markers:
+		if marker.marker_type != tool.MARKER_TYPE_SHAPE or hit_ids.has(marker.id):
+			continue
+		var desc = tool._get_shape_descriptor(marker, cell_size)
+		if not desc.empty() and tool._shapes_overlap(intersection_desc, desc):
+			shapes_to_subtract.append(desc.points)
+	return _subtract_shapes(pos, Array(result), shapes_to_subtract)
 
 ## Iteratively subtract each polygon in [subtract_list] from [base_pts] using
 ## Geometry.clip_polygons_2d (returns the parts of base outside the subtracted shape).

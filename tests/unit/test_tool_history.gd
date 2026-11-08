@@ -6,6 +6,54 @@ var api
 var last_record
 var deleted_ids = []
 
+func test_fill_nested_circles_excludes_inner_regions_in_both_marker_orders():
+	tool.FillMarkerClass = load(mod_root.plus_file("scripts/guides/FillMarker.gd"))
+	for radius in range(8, 0, -1):
+		assert_ne(api.place_shape_marker_plain(Vector2.ZERO, float(radius), 0.0, 64), -1)
+	for _order in range(2):
+		for radius in range(8, 0, -1):
+			var pos = Vector2((radius - 0.5) * 100, 0)
+			var result = api.compute_fill_polygon(pos)
+			assert_not_null(result)
+			if result == null: continue
+			var polygon = result.polygon
+			assert_eq(result.marker_ids.size(), 9 - radius)
+			assert_true(Geometry.is_point_in_polygon(pos, polygon))
+			assert_eq(Geometry.is_point_in_polygon(Vector2.ZERO, polygon), radius == 1)
+			var expected_area = 32.0 * sin(TAU / 64) * (radius * radius - (radius - 1) * (radius - 1)) * 10000
+			assert_almost_eq(tool._fill_handler._polygon_area(polygon), expected_area, 2.0)
+			for sample_radius in range(1, 9):
+				var sample = Vector2((sample_radius - 0.5) * 100, 0).rotated(0.37)
+				assert_eq(Geometry.is_point_in_polygon(sample, polygon), sample_radius == radius)
+			var fill = tool.FillMarkerClass.new()
+			fill.Load(tool._fill_handler.handle_fill_click(pos))
+			assert_eq_deep(fill.polygon, polygon)
+		tool.markers.invert()
+
+func test_fill_intersection_subtracts_non_hit_overlap_and_hole():
+	assert_ne(api.place_shape_marker_plain(Vector2.ZERO, sqrt(2.0), 45.0, 4), -1)
+	assert_ne(api.place_shape_marker_plain(Vector2(100, 0), sqrt(2.0), 45.0, 4), -1)
+	var pos = Vector2(25, 0)
+	var result = api.compute_fill_polygon(pos)
+	assert_not_null(result)
+	if result == null: return
+	assert_almost_eq(tool._fill_handler._polygon_area(result.polygon), 20000.0, 1.0)
+	assert_ne(api.place_shape_marker_plain(Vector2(100, 0), sqrt(2.0) * 0.5, 45.0, 4), -1)
+	assert_ne(api.place_shape_marker_plain(Vector2(25, 60), sqrt(2.0) * 0.1, 45.0, 4), -1)
+	for _order in range(2):
+		result = api.compute_fill_polygon(pos)
+		assert_not_null(result)
+		if result == null: continue
+		assert_eq(result.fill_type, "intersection")
+		assert_eq(result.marker_ids.size(), 2)
+		assert_almost_eq(tool._fill_handler._polygon_area(result.polygon), 14600.0, 1.0)
+		assert_true(Geometry.is_point_in_polygon(pos, result.polygon))
+		assert_false(Geometry.is_point_in_polygon(Vector2(75, 0), result.polygon))
+		assert_false(Geometry.is_point_in_polygon(Vector2(25, 60), result.polygon))
+		assert_true(Geometry.is_point_in_polygon(Vector2(75, 75), result.polygon))
+		assert_false(Geometry.is_point_in_polygon(Vector2(-50, 0), result.polygon))
+		tool.markers.invert()
+
 func test_path_spiral_ignores_shape_width_and_roundtrips():
 	var id = api.place_spiral_path_marker(Vector2.ZERO, {"width": 0})
 	assert_ne(id, -1)

@@ -5,6 +5,19 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.4] — 2026-11-09
+
+### Fixed
+- Fill and `GuidesLinesApi.compute_fill_polygon()` now subtract overlapping Shapes
+  that do not contain the click point after intersecting the hit Shapes. This
+  preserves inner holes at every nesting level and fixes BuildingPlanner floor
+  fills covering entire inner circles instead of only the selected ring.
+
+### Tests
+- Add regression coverage for eight nested circles in both marker orders, partial
+  overlaps and inner holes. All 109 standalone Godot 3.4 tests pass.
+- User testing in Dungeondraft confirmed that the nested-ring fix works.
+
 ## [2.4.3] — 2026-11-08
 
 ### Changed

@@ -1,14 +1,14 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.3<br>
+**Version:** 2.4.4<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.3
+### What's New in 2.4.4
 
-Smoother previews on maps with many markers, including complex spirals. Moving the cursor no longer rebuilds placed marker drawing commands, and connected Shape outlines use fewer drawing calls while preserving Cut/Difference gaps.
+Fill now preserves inner holes at every nesting level. Filling between concentric Shape markers affects only the selected ring, including when filling floors through BuildingPlanner.
 
 **Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
@@ -147,7 +147,7 @@ Smoother previews on maps with many markers, including complex spirals. Moving t
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.3"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.4"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -649,7 +649,11 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.3 (Current) — 2026-11-08
+### v2.4.4 (Current) — 2026-11-09
+- Fill and `GuidesLinesApi.compute_fill_polygon()` preserve inner holes in nested and overlapping Shapes, fixing floor fills between inner rings in BuildingPlanner.
+- The nested-ring fix was confirmed working by user testing in Dungeondraft.
+
+### v2.4.3 — 2026-11-08
 - Preview drawing is independent of placed markers and fills, reducing repeated work while moving the cursor.
 - Connected Shape outlines use batched polyline drawing while preserving Cut/Difference gaps, moved geometry and rotated templates.
 - User testing in Dungeondraft with many different spirals did not reproduce the previously reported system freeze.

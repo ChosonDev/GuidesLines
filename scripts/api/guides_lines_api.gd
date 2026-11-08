@@ -822,7 +822,8 @@ func _notify_all_markers_deleted() -> void:
 ## Computes the fill polygon that would be produced if the user clicked at
 ## [coords] in Fill mode.  Uses the same logic as GuidesLinesFill:
 ##   - ONE shape contains coords  →  exclusive fill (primary minus overlaps)
-##   - MULTIPLE shapes contain coords  →  intersection fill (A ∩ B ∩ C …)
+##   - MULTIPLE shapes contain coords  →  intersection fill (A ∩ B ∩ C …),
+##     minus overlapping shapes that do not contain coords (including inner holes)
 ##
 ## Returns a Dictionary on success:
 ##   { "polygon":    Array[Vector2]  — world-space polygon vertices,
