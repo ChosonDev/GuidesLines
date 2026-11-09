@@ -4,7 +4,7 @@ extends Reference
 # Save/Load methods for history snapshots; only this class owns the map format.
 const CLASS_NAME = "GuidesLinesPersistence"
 const DATA_KEY = "Choson.GuidesLines"
-const DATA_VERSION = 1
+const DATA_VERSION = 2
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
 
 var _mod = null
@@ -48,6 +48,10 @@ func _disconnect_editor():
 
 
 func _unload():
+	if _mod != null and _mod.guides_tool != null:
+		if _mod.guides_tool.ui:
+			_mod.guides_tool.ui.release_text_focus()
+		_mod.guides_tool.cancel_template_capture()
 	_disconnect_editor()
 	if is_instance_valid(_signaling) and _signaling.is_connected("unload", self, "_unload"):
 		_signaling.disconnect("unload", self, "_unload")
@@ -73,6 +77,9 @@ func save_map(map_data: Dictionary):
 		data.fills.append(fill.Save())
 	for template in tool.templates:
 		var saved = template.duplicate(true)
+		if saved.get("kind", "") == "group":
+			data.templates.append(saved)
+			continue
 		var params = saved.data
 		params.color = "#" + params.color.to_html()
 		for key in ["relative_points", "shape_primitives"]:
@@ -98,7 +105,7 @@ func load_map(map_data: Dictionary) -> bool:
 	if not map_data.has(DATA_KEY):
 		return true
 	var data = map_data[DATA_KEY]
-	if not data is Dictionary or not _number(data.get("version")) or data.version != DATA_VERSION:
+	if not data is Dictionary or not _number(data.get("version")) or not data.version in [1, DATA_VERSION]:
 		_warn("Map data version is incompatible; GuidesLines data was not loaded.")
 		return false
 	if not _valid_data(data):
@@ -124,6 +131,10 @@ func load_map(map_data: Dictionary) -> bool:
 	for saved in data.templates:
 		var template = saved.duplicate(true)
 		template.id = int(template.id)
+		if template.get("kind", "") == "group":
+			tool.templates.append(template)
+			tool.template_next_id = max(tool.template_next_id, int(template.id) + 1)
+			continue
 		var params = template.data
 		params.color = Color(params.color.lstrip("#"))
 		if params.has("relative_points"):
@@ -147,6 +158,8 @@ func load_map(map_data: Dictionary) -> bool:
 
 func _reset():
 	var tool = _mod.guides_tool
+	if tool.ui:
+		tool.ui.release_text_focus()
 	tool.markers = []
 	tool.markers_lookup = {}
 	tool.fills = []
@@ -157,7 +170,8 @@ func _reset():
 	tool.template_next_id = 0
 	tool.active_template_index = -1
 	tool.template_rotation_offset = 0.0
-	tool.template_capture_mode = false
+	tool.template_scale = 1.0
+	tool.cancel_template_capture()
 	tool.path_placement_active = false
 	tool.path_temp_points = []
 	tool.path_preview_point = null
@@ -184,20 +198,20 @@ func _warn(message):
 		_mod.LOGGER.warn(message)
 
 
-func _number(value) -> bool:
+static func _number(value) -> bool:
 	# Godot 3 Vector2 components are 32-bit floats, even when JSON numbers are doubles.
 	return (value is int or value is float) and not is_nan(float(value)) and not is_inf(float(value)) and abs(value) <= 3.402823e38
 
 
-func _id(value) -> bool:
+static func _id(value) -> bool:
 	return _number(value) and value >= 0 and value < 9007199254740991 and floor(value) == value
 
 
-func _point(value) -> bool:
+static func _point(value) -> bool:
 	return value is Array and value.size() == 2 and _number(value[0]) and _number(value[1])
 
 
-func _color(value) -> bool:
+static func _color(value) -> bool:
 	if not value is String or value.length() != 9 or not value.begins_with("#"):
 		return false
 	for character in value.substr(1).to_lower():
@@ -206,7 +220,7 @@ func _color(value) -> bool:
 	return true
 
 
-func _marker(data) -> bool:
+static func _marker(data) -> bool:
 	if not data is Dictionary or not _id(data.get("id")) or not _point(data.get("position")) or not _color(data.get("color")):
 		return false
 	var kind = data.get("marker_type")
@@ -240,11 +254,27 @@ func _marker(data) -> bool:
 	return true
 
 
-func _points(points, minimum) -> bool:
+static func _points(points, minimum) -> bool:
 	if not points is Array or points.size() < minimum:
 		return false
 	for point in points:
 		if not _point(point):
+			return false
+	return true
+
+
+static func valid_group_items(items) -> bool:
+	if not items is Array or items.size() < 2:
+		return false
+	for item in items:
+		if not item is Dictionary or item.has("id"):
+			return false
+		var marker = item.duplicate(true)
+		marker["id"] = 0
+		if not _marker(marker):
+			return false
+		# Group Shapes always retain their actual outline, even when it is empty.
+		if marker.marker_type == "Shape" and not marker.has("shape_primitives"):
 			return false
 	return true
 
@@ -266,7 +296,15 @@ func _valid_data(data) -> bool:
 			if key == "fills" and (not _color(saved.get("color")) or not _points(saved.get("polygon"), 3)):
 				return false
 			if key == "templates":
-				if not saved.get("name") is String or not saved.get("data") is Dictionary:
+				if not saved.get("name") is String:
+					return false
+				if saved.get("kind", "") == "group":
+					if data.version < 2 or not valid_group_items(saved.get("items")):
+						return false
+					continue
+				if saved.has("kind"):
+					return false
+				if not saved.get("data") is Dictionary:
 					return false
 				var params = saved.data.duplicate(true)
 				if params.has("relative_points") and not _points(params.relative_points, 0):

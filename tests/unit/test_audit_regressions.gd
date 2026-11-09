@@ -8,6 +8,271 @@ var changes = []
 var geometry
 var owned_nodes = []
 
+func test_template_api_preview_renders_exact_world_geometry_and_shape_requests_replace_batches():
+	add_shape(10)
+	var path = api.place_arrow_marker(Vector2(300, 0), Vector2(500, 0), 25, 30)
+	tool.start_group_capture()
+	tool.template_group_ids = {10: true, path: true}
+	assert_true(tool.save_group_template())
+	assert_true(api.set_template_transform(90, 2))
+	var pos = Vector2(500, 500)
+	var expected = api.get_template_markers(pos)
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	for zoom in [Vector2.ONE, Vector2(3, 3)]:
+		assert_true(api.set_template_preview(pos))
+		overlay.lines.clear()
+		overlay._draw_api_shape_preview(tool._api_preview, zoom, tool._get_grid_cell_size(), 5, 10)
+		assert_eq(overlay.lines.size(), 8)
+		for i in range(4):
+			assert_eq(overlay.lines[i].a, expected[0].shape_primitives[i].a)
+			assert_eq(overlay.lines[i].b, expected[0].shape_primitives[i].b)
+		assert_eq(overlay.lines[4].a, expected[1].marker_points[0])
+		assert_eq(overlay.lines[4].b, expected[1].marker_points[1])
+	api.set_shape_preview(pos, 1.0, 0.0, 4)
+	assert_false(tool._api_preview.has("markers"))
+	assert_false(api.set_template_preview(Vector2(INF, 0)))
+	assert_true(tool._api_preview.empty())
+	tool.capture_marker_as_template(Vector2.ZERO)
+	assert_true(api.select_template(tool.templates.back().id))
+	assert_true(api.set_template_transform(90, 2))
+	var single = api.get_template_markers(pos)[0]
+	overlay.lines.clear()
+	overlay._draw_template_preview(pos, -1000, 1000, -1000, 1000, Vector2.ONE, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
+	for i in range(4):
+		assert_eq(overlay.lines[i].a, single.shape_primitives[i].a)
+		assert_eq(overlay.lines[i].b, single.shape_primitives[i].b)
+
+func test_template_rename_fields_commit_cancel_and_restore_host_shortcuts_on_lifecycle_changes():
+	var editor_script = GDScript.new()
+	editor_script.source_code = "extends Node\nvar SearchHasFocus = false\nvar IsSnapping = false\n"
+	assert_eq(editor_script.reload(), OK)
+	var editor = editor_script.new()
+	owned_nodes.append(editor)
+	mod.Global.Editor = editor
+	var marker_id = api.place_line_marker(Vector2.ZERO)
+	tool.capture_marker_as_template(Vector2.ZERO)
+	tool._do_move_marker(add_shape(10), Vector2(500, 0))
+	tool.start_group_capture()
+	tool.template_group_ids = {marker_id: true, 10: true}
+	assert_true(tool.save_group_template())
+	make_panel()
+	tool.set_marker_type("Template")
+	var rows = tool.ui._template_list_container.get_children()
+	for index in range(2):
+		var edit = rows[index].get_child(0).get_child(0)
+		edit.grab_focus()
+		assert_true(tool.ui.text_field_has_focus())
+		assert_true(editor.SearchHasFocus)
+		edit.text = "  Saved %d  " % index
+		edit.emit_signal("text_entered", edit.text)
+		assert_false(edit.has_focus())
+		assert_false(editor.SearchHasFocus)
+		assert_eq(tool.templates[index].name, "Saved %d" % index)
+		assert_eq(edit.text, tool.templates[index].name)
+		edit.grab_focus()
+		edit.text = "Discard this name"
+		var escape = InputEventKey.new()
+		escape.scancode = KEY_ESCAPE
+		escape.pressed = true
+		edit.emit_signal("gui_input", escape)
+		assert_eq(tool.templates[index].name, "Saved %d" % index)
+		assert_eq(edit.text, tool.templates[index].name)
+		assert_false(editor.SearchHasFocus)
+		edit.grab_focus()
+		edit.text = "   "
+		edit.release_focus()
+		assert_eq(edit.text, tool.templates[index].name)
+	assert_eq(rows[1].get_child(0).get_child(1).text, "(2)")
+	var first = rows[0].get_child(0).get_child(0)
+	var second = rows[1].get_child(0).get_child(0)
+	first.grab_focus()
+	first.text = "Saved on blur"
+	second.grab_focus()
+	assert_eq(tool.templates[0].name, "Saved on blur")
+	assert_true(editor.SearchHasFocus, "Switching fields keeps shortcuts blocked")
+	tool.Disable()
+	assert_false(editor.SearchHasFocus)
+	assert_false(tool.ui.text_field_has_focus())
+	first.grab_focus()
+	tool.set_marker_type("Line")
+	assert_false(editor.SearchHasFocus)
+	tool.set_marker_type("Template")
+	first.grab_focus()
+	first.text = "Saved before rebuilding"
+	tool.ui.rebuild_template_list()
+	assert_eq(tool.templates[0].name, "Saved before rebuilding")
+	assert_false(editor.SearchHasFocus)
+	yield(get_tree(), "idle_frame")
+	first = tool.ui._template_list_container.get_child(0).get_child(0).get_child(0)
+	first.grab_focus()
+	var persistence = load(mod_root.plus_file("scripts/tool/GuidesLinesPersistence.gd")).new()
+	persistence._mod = mod
+	persistence._reset()
+	assert_false(editor.SearchHasFocus, "Map reset restores the previous Editor")
+	assert_true(tool.templates.empty())
+	var unrelated = LineEdit.new()
+	owned_nodes.append(unrelated)
+	add_child(unrelated)
+	unrelated.grab_focus()
+	editor.SearchHasFocus = true
+	tool.ui.release_text_focus()
+	assert_true(unrelated.has_focus())
+	assert_true(editor.SearchHasFocus, "Another tool retains ownership")
+	persistence._unload()
+	assert_true(editor.SearchHasFocus)
+	yield(get_tree(), "idle_frame")
+
+func test_group_panel_signals_capture_counts_cancel_focus_and_transform_reset():
+	make_panel()
+	tool.set_marker_type("Template")
+	add_shape(1)
+	api.place_path_marker([Vector2(400, 0), Vector2(500, 0)])
+	var ui = tool.ui
+	ui._create_group_btn.emit_signal("pressed")
+	assert_true(tool.template_group_capture)
+	assert_eq(ui._create_group_btn.text, "Save Group (0)")
+	assert_true(ui._create_group_btn.disabled)
+	assert_true(ui._add_template_btn.disabled)
+	assert_true(ui._cancel_group_btn.visible)
+	tool.toggle_group_marker(Vector2.ZERO)
+	assert_eq(ui._create_group_btn.text, "Save Group (1)")
+	assert_true(ui._create_group_btn.disabled)
+	tool.toggle_group_marker(Vector2(450, 0))
+	assert_false(ui._create_group_btn.disabled)
+	ui._create_group_btn.emit_signal("pressed")
+	assert_eq(tool.templates.size(), 1)
+	assert_true(ui._group_transform_container.visible)
+	assert_false(ui._template_overlap_modes_container.visible)
+	assert_false(ui._cancel_group_btn.visible)
+	assert_eq(ui._create_group_btn.text, "Create Group")
+	ui.get_control("GroupRotation").value = 90
+	ui.get_control("GroupScale").value = 200
+	assert_eq(tool.template_rotation_offset, 90.0)
+	assert_eq(tool.template_scale, 2.0)
+	tool.rotate_template_45()
+	assert_eq(ui.get_control("GroupRotation").value, 135.0)
+	tool.adjust_template_rotation_with_wheel(1)
+	assert_eq(ui.get_control("GroupRotation").value, 140.0)
+	tool.reset_group_transform()
+	assert_eq(ui.get_control("GroupRotation").value, 0.0)
+	assert_eq(ui.get_control("GroupScale").value, 100.0)
+	ui.get_control("GroupScale").get_line_edit().grab_focus()
+	assert_true(ui.text_field_has_focus())
+	var temporary_actions = []
+	var shortcut_events = {}
+	for action in ["guideslines_activate_tool", "guideslines_toggle_delete_mode", "guideslines_toggle_move_mode"]:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+			temporary_actions.append(action)
+		var shortcut = InputEventKey.new()
+		shortcut.scancode = KEY_F13 + shortcut_events.size()
+		shortcut_events[action] = shortcut
+		InputMap.action_add_event(action, shortcut)
+		shortcut.pressed = true
+		Input.parse_input_event(shortcut)
+		shortcut = shortcut.duplicate()
+		shortcut.pressed = false
+		Input.parse_input_event(shortcut)
+		assert_true(Input.is_action_just_released(action, true))
+	mod.tool_created = true
+	mod.Global["World"] = null
+	mod.Global["WorldUI"] = null
+	var previous_world = tool.cached_world
+	mod.update(0.0)
+	assert_false(tool.delete_mode, "Typing must suppress polling-based mod shortcuts")
+	assert_false(tool.move_mode)
+	tool.cached_world = previous_world
+	for action in shortcut_events:
+		InputMap.action_erase_event(action, shortcut_events[action])
+	for action in temporary_actions:
+		InputMap.erase_action(action)
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	add_child(overlay)
+	overlay.set_process(false)
+	overlay.set_process_input(false)
+	tool.is_enabled = true
+	overlay.tool = tool
+	var escape = InputEventKey.new()
+	escape.scancode = KEY_ESCAPE
+	escape.pressed = true
+	# Keyboard input belongs to the focused numeric field.
+	overlay._input(escape)
+	assert_eq(tool.templates.size(), 1)
+	ui.get_control("GroupScale").get_line_edit().release_focus()
+	assert_false(ui.text_field_has_focus())
+	ui._create_group_btn.emit_signal("pressed")
+	assert_false(ui._group_transform_container.visible)
+	assert_true(ui._template_list_container.get_children().back().get_child(2).disabled)
+	overlay._input(escape)
+	assert_false(tool.template_capture_mode)
+	assert_true(tool.template_group_ids.empty())
+	ui._create_group_btn.emit_signal("pressed")
+	ui._cancel_group_btn.emit_signal("pressed")
+	assert_false(tool.template_capture_mode)
+	yield(get_tree(), "idle_frame")
+
+func test_group_preview_matches_snapped_placement_paths_shapes_rays_and_arrow_at_each_zoom():
+	var shape = add_shape(10)
+	shape.set_primitives([{"type": "seg", "a": Vector2(-20, 10), "b": Vector2(40, 30)}])
+	var path = api.place_arrow_marker(Vector2(100, 0), Vector2(300, 0), 25, 30)
+	var line = api.place_line_marker(Vector2(-100, 100), 25, true)
+	tool.start_group_capture()
+	tool.template_group_ids = {10: true, path: true, line: true}
+	assert_true(tool.save_group_template())
+	tool.set_group_transform(1.5)
+	tool.set_group_transform(37, true)
+	tool.cached_snappy_mod = probe()
+	mod.Global.Editor.IsSnapping = true
+	var cursor = Vector2(113, 222)
+	var snapped = tool.snap_position_to_grid(cursor)
+	var batch = tool.build_group_markers(snapped)
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	for zoom in [Vector2.ONE, Vector2(3, 3)]:
+		overlay.lines.clear()
+		overlay._draw_template_preview(cursor, -1000, 1000, -1000, 1000, zoom, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
+		var preview = overlay.lines.duplicate(true)
+		assert_eq(preview.size(), 7, "Shape edge, Path edge plus arrow, mirrored Line")
+		assert_eq(preview[0].a, batch[0].shape_primitives[0].a)
+		assert_eq(preview[0].b, batch[0].shape_primitives[0].b)
+		assert_eq(preview[1].a, batch[1].marker_points[0])
+		assert_eq(preview[1].b, batch[1].marker_points[1])
+		assert_almost_eq(preview[3].a.distance_to(preview[3].b), batch[1].arrow_head_length * zoom.x, 0.001)
+		tool._place_template_marker(cursor)
+		var first_id = tool.markers.back().id - 2
+		assert_eq(tool.markers_lookup[first_id].position, batch[0].position)
+		assert_eq_deep(tool.markers_lookup[first_id].get_primitives(), batch[0].shape_primitives)
+		assert_eq_deep(tool.markers_lookup[first_id + 1].marker_points, batch[1].marker_points)
+		for j in range(2):
+			var ray = tool.markers_lookup[first_id + 2].get_draw_data(tool.cached_world.WorldRect, tool._get_grid_cell_size()).segments[j]
+			assert_eq(preview[5 + j].a, ray[0])
+			assert_eq(preview[5 + j].b, ray[1])
+
+func test_group_selection_highlight_survives_sidebar_hover_and_preserves_saved_colors():
+	var marker = add_shape(10)
+	marker.set_primitives([{"type": "seg", "a": Vector2(10, 20), "b": Vector2(30, 40)}])
+	var before = marker.Save()
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	var camera = Camera2D.new()
+	owned_nodes.append(camera)
+	tool.cached_camera = camera
+	tool.is_enabled = true
+	tool.start_group_capture()
+	tool.template_group_ids = {10: true}
+	overlay._mouse_in_ui = true
+	overlay._draw()
+	assert_eq(overlay.lines.size(), 1)
+	assert_eq(overlay.lines[0].a, Vector2(10, 20))
+	assert_eq(overlay.lines[0].b, Vector2(30, 40))
+	assert_almost_eq(overlay.lines[0].color.a, 0.3, 0.0001)
+	assert_eq_deep(marker.Save(), before)
+	tool.cancel_template_capture()
+	overlay.lines.clear()
+	overlay._draw()
+	assert_true(overlay.lines.empty())
+
 func test_spiral_preview_cache_tracks_grid_settings_and_parametric_templates():
 	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
 	overlay.tool = tool

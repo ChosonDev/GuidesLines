@@ -110,7 +110,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.4.4")
+			LOGGER.info("Mod starting - version 2.4.5")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -266,17 +266,18 @@ func update(_delta):
 		tool_created = true
 	
 	# Hotkey to activate the Guide Markers tool
-	if tool_created and Input.is_action_just_released("guideslines_activate_tool", true):
+	var editing_template_text = guides_tool != null and guides_tool.ui.text_field_has_focus()
+	if tool_created and not editing_template_text and Input.is_action_just_released("guideslines_activate_tool", true):
 		Global.Editor.Toolset.Quickswitch("GuidesLinesTool")
 
 	# Hotkey to toggle Delete Mode
-	if tool_created and guides_tool and Input.is_action_just_released("guideslines_toggle_delete_mode", true):
+	if tool_created and guides_tool and not editing_template_text and Input.is_action_just_released("guideslines_toggle_delete_mode", true):
 		var new_state = not guides_tool.delete_mode
 		guides_tool.set_delete_mode(new_state)
 
 
 	# Hotkey to toggle Move Mode
-	if tool_created and guides_tool and Input.is_action_just_released("guideslines_toggle_move_mode", true):
+	if tool_created and guides_tool and not editing_template_text and Input.is_action_just_released("guideslines_toggle_move_mode", true):
 		var new_state = not guides_tool.move_mode
 		guides_tool.set_move_mode(new_state)
 

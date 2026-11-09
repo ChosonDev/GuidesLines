@@ -172,6 +172,8 @@ func _is_mouse_over_canvas() -> bool:
 func _input(event):
 	if not tool or not tool.is_enabled:
 		return
+	if event is InputEventKey and tool.ui and tool.ui.text_field_has_focus():
+		return
 	if event is InputEventMouse and not _is_mouse_over_canvas():
 		# Release still finishes an existing drag after the pointer leaves the canvas.
 		if not (event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed):
@@ -196,6 +198,10 @@ func _input(event):
 	
 	# Handle ESC key for Path cancellation
 	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
+		if tool.template_capture_mode:
+			tool.cancel_template_capture()
+			get_tree().set_input_as_handled()
+			return
 		if tool.path_placement_active:
 			tool._cancel_path_placement()
 			get_tree().set_input_as_handled()
@@ -278,7 +284,10 @@ func _input(event):
 				
 				# Template capture mode: save clicked marker as a new template
 				if tool.template_capture_mode:
-					tool.capture_marker_as_template(pos)
+					if tool.template_group_capture:
+						tool.toggle_group_marker(pos)
+					else:
+						tool.capture_marker_as_template(pos)
 					get_tree().set_input_as_handled()
 					update()
 					return
@@ -376,6 +385,21 @@ func _draw_layer(canvas, preview: bool) -> void:
 	if not tool._api_preview.empty():
 		_draw_api_shape_preview(tool._api_preview, cam_zoom, cell_size, preview_line_width, preview_marker_size)
 
+	# Selection stays visible while the pointer is over the sidebar Save button.
+	if tool.is_enabled and tool.template_group_capture and (not tool.parent_mod or tool.parent_mod.markers_visible):
+		for id in tool.template_group_ids:
+			if not tool.markers_lookup.has(id): continue
+			var marker = tool.markers_lookup[id]
+			marker.get_draw_data(map_rect, cell_size)
+			var data = {"marker_type": marker.marker_type, "position": marker.position,
+				"angle": marker.angle, "mirror": marker.mirror, "shape_primitives": marker.get_primitives(),
+				"marker_points": marker.marker_points, "path_closed": marker.path_closed,
+				"path_end_arrow": marker.path_end_arrow, "arrow_head_length": marker.arrow_head_length,
+				"arrow_head_angle": marker.arrow_head_angle}
+			_draw_group_geometry(data, Color(0.65, 1, 1, 0.3), line_width_draw + GuidesLinesRender.get_adaptive_width(4, cam_zoom),
+				world_left, world_right, world_top, world_bottom, cam_zoom, map_rect)
+			_draw_canvas.draw_arc(marker.position, marker_size_draw, 0, TAU, 32, Color(0.65, 1, 1, 0.5), line_width_draw)
+
 	# Draw move mode drag preview
 	if tool.move_mode and tool._move_selected_marker:
 		var drag_pos = tool._move_drag_pos - tool._move_drag_offset
@@ -471,6 +495,13 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 func _draw_api_shape_preview(p: Dictionary, cam_zoom: Vector2, cell_size, preview_line_width: float, preview_marker_size: float) -> void:
 	if cell_size == null:
 		return
+	if p.has("markers"):
+		var map_rect = tool.cached_world.WorldRect
+		for data in p.markers:
+			var c = data.color
+			_draw_group_geometry(data, Color(c.r, c.g, c.b, 0.55), preview_line_width, map_rect.position.x, map_rect.end.x, map_rect.position.y, map_rect.end.y, cam_zoom, map_rect)
+		_draw_marker_anchor(p.pos, preview_marker_size, _PREVIEW_MARKER_COLOR, _PREVIEW_ARC_COLOR)
+		return
 	var pos    = p.get("pos",    Vector2.ZERO)
 	var radius = p.get("radius", 1.0)
 	var angle  = p.get("angle",  0.0)
@@ -544,6 +575,18 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right: float, world_top: float, world_bottom: float, cam_zoom: Vector2, map_rect: Rect2, cell_size, preview_line_width: float, preview_marker_size: float) -> void:
 	if tool.active_template_index < 0 or tool.active_template_index >= tool.templates.size():
 		return
+	if tool.is_group_template() or tool.template_scale != 1.0:
+		if tool.parent_mod.Global.Editor and tool.parent_mod.Global.Editor.IsSnapping:
+			preview_pos = tool.snap_position_to_grid(preview_pos)
+		var batch = tool.build_template_markers(preview_pos, tool.active_template_index, tool.template_rotation_offset, tool.template_scale)
+		if tool.ui:
+			tool.ui.set_group_error("Cannot place group: check scale and marker dimensions." if batch.empty() else "")
+		for data in batch:
+			var color = Color(data.color.r, data.color.g, data.color.b, 0.55)
+			_draw_group_geometry(data, color, preview_line_width, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect)
+			_draw_marker_anchor(data.position, preview_marker_size, _PREVIEW_MARKER_COLOR, _PREVIEW_ARC_COLOR)
+		_draw_marker_anchor(preview_pos, preview_marker_size, Color(0.65, 1, 1, 0.55), _PREVIEW_ARC_COLOR)
+		return
 	var data = tool.templates[tool.active_template_index]["data"]
 	var ALPHA        = 0.55
 	var c            = data.get("color", Color(0, 0.7, 1, 1))
@@ -591,6 +634,20 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 				_draw_path_points(pts, data.get("path_closed", false), data.get("path_end_arrow", false), data.get("arrow_head_length", 50.0), data.get("arrow_head_angle", 30.0), cam_zoom, line_color, LINE_WIDTH)
 
 	_draw_marker_anchor(preview_pos, MARKER_SIZE, marker_color, arc_color)
+
+func _draw_group_geometry(data: Dictionary, color: Color, width: float, world_left, world_right, world_top, world_bottom, cam_zoom: Vector2, map_rect: Rect2) -> void:
+	match data.marker_type:
+		"Line":
+			var angles = [data.get("angle", 0.0)]
+			if data.get("mirror", false): angles.append(angles[0] + 180.0)
+			for angle in angles:
+				var points = _calculate_line_endpoints(data.position, angle, world_left, world_right, world_top, world_bottom, map_rect)
+				if points[0] != points[1]:
+					_draw_canvas.draw_line(points[0], points[1], color, width)
+		"Shape":
+			_draw_shape_segments(data.get("shape_primitives", []), color, width)
+		"Path":
+			_draw_path_points(data.marker_points, data.get("path_closed", false), data.get("path_end_arrow", false), data.get("arrow_head_length", 50.0), data.get("arrow_head_angle", 30.0), cam_zoom, color, width)
 
 # Draw the selected marker semi-transparently at the dragged position during Move Mode.
 func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right, world_top, world_bottom, cam_zoom, map_rect: Rect2, cell_size, custom_snap, preview_line_width: float, preview_marker_size: float):

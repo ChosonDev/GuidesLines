@@ -5,6 +5,37 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.5] — 2026-11-09
+
+### Added
+- Group templates in the Template panel: toggle multiple marker selections with
+  faint contour highlights, save/cancel, and preview the entire composition with
+  shared rotation, uniform scale and center snapping.
+- Group stamps create independent markers in one undo/redo action, preserving
+  actual Shape/Path geometry and ignoring Shape overlap modes.
+- Map format 2 stores group templates and reads existing format 1 maps.
+- Inline renaming for single and group templates: Enter/focus loss saves, Escape
+  cancels, and names persist with the map. Name and group transform fields use
+  the host Editor's SearchHasFocus guard and suppress GuidesLines shortcuts.
+- Public Template/group API: selection, transform state, resolved world geometry,
+  plain stamps, previews and exact-geometry Shape boolean operations. Single
+  templates now also support uniform scale in the sidebar and placement preview.
+
+### Validation
+- Regression checks cover selection, sidebar controls, preview/placement parity,
+  geometry, history, malformed data and map format migration in Godot 3.4.
+- All 127 standalone tests pass (7607 assertions), including template API transforms,
+  exact-geometry booleans, final bounds anchors, placement history and preview rendering.
+- User reported the current changes working in Dungeondraft on 2026-11-09.
+
+### Fixed
+- Recenter modified Shape anchors at the bounds center of their final segment
+  geometry after Merge, Difference, Conforming and Wrapping, without translating
+  the outline. Empty outlines retain their previous anchor; Cut keeps Path anchors.
+- Restore anchor positions with boolean undo/redo snapshots, and require exact
+  outline equality for the Merge no-op shortcut instead of matching centers and
+  vertex counts.
+
 ## [2.4.4] — 2026-11-09
 
 ### Fixed

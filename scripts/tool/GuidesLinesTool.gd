@@ -9,6 +9,7 @@ const GuidesLinesHistory = preload("GuidesLinesHistory.gd")
 const GuidesLinesToolUI = preload("GuidesLinesToolUI.gd")
 const GuidesLinesPlacement = preload("GuidesLinesPlacement.gd")
 const GuidesLinesFill = preload("GuidesLinesFill.gd")
+const GuidesLinesPersistence = preload("GuidesLinesPersistence.gd")
 
 # ============================================================================
 # VARIABLES
@@ -82,11 +83,14 @@ var difference_mode = false  # Difference mode — don't place new shape; fill o
 var cut_mode = false        # Cut mode — clip existing shapes with the new shape outline and convert them to Path markers
 
 # Template mode state
-var templates = []                # Array of { "id": int, "name": String, "data": Dictionary }
+var templates = []                # Single-marker {data} or group {kind, items} snapshots.
 var template_next_id = 0          # Counter for auto-naming templates
 var active_template_index = -1    # Index of selected template in templates[] (-1 = none)
 var template_capture_mode = false # When true, next map click captures a marker as a template
 var template_rotation_offset = 0.0  # Ephemeral rotation offset (degrees); reset on template select/re-select
+var template_scale = 1.0
+var template_group_capture = false
+var template_group_ids = {}  # Ephemeral selection; never persisted with the map.
 
 # Type-specific settings storage (each type stores its own parameters)
 var type_settings = {
@@ -166,11 +170,21 @@ func Enable():
 # Disable tool when deselected
 func Disable():
 	is_enabled = false
+	if ui:
+		ui.release_text_focus()
+	cancel_template_capture()
 	if LOGGER:
 		LOGGER.info("Guide Markers tool DISABLED")
 
 # Main update loop - manages overlay and drawing
 func Update(_delta):
+	if template_group_capture:
+		# ponytail: O(selected IDs) scan also catches API deletion/undo. Use mutation
+		# notifications if profiling shows large selections need incremental pruning.
+		for id in template_group_ids.keys():
+			if not markers_lookup.has(id):
+				refresh_group_selection()
+				break
 	# API-placed markers also need an overlay while the tool is disabled.
 	if not overlay and cached_worldui:
 		_create_overlay()
@@ -288,11 +302,231 @@ func _cancel_path_placement(): placement.cancel_path_placement()
 
 # Start template capture — next click on a map marker saves it as a template.
 func start_template_capture() -> void:
+	if ui:
+		ui.release_text_focus()
+	cancel_template_capture()
+	set_move_mode(false)
+	set_delete_mode(false)
 	template_capture_mode = true
 	if ui:
 		ui._update_template_capture_button(true)
 	if overlay:
 		overlay.update()
+
+func is_group_template() -> bool:
+	return active_template_index >= 0 and active_template_index < templates.size() and templates[active_template_index].get("kind", "") == "group"
+
+func cancel_template_capture() -> void:
+	template_capture_mode = false
+	template_group_capture = false
+	template_group_ids.clear()
+	if ui:
+		ui._update_template_capture_button(false)
+	if overlay:
+		overlay.update()
+
+func start_group_capture() -> void:
+	start_template_capture()
+	template_group_capture = true
+	if ui:
+		ui._update_template_capture_button(true)
+
+func toggle_group_marker(pos: Vector2) -> void:
+	if not template_group_capture:
+		return
+	var marker = find_marker_at(pos, 20.0)
+	if marker != null:
+		if template_group_ids.has(marker.id):
+			template_group_ids.erase(marker.id)
+		else:
+			template_group_ids[marker.id] = true
+	refresh_group_selection()
+
+func refresh_group_selection() -> void:
+	for id in template_group_ids.keys():
+		if not markers_lookup.has(id):
+			template_group_ids.erase(id)
+	if ui:
+		ui._update_template_capture_button(template_capture_mode)
+	if overlay:
+		overlay.update()
+
+func save_group_template() -> bool:
+	refresh_group_selection()
+	var cell_size = _get_grid_cell_size()
+	if not template_group_capture or template_group_ids.size() < 2 or cell_size == null or min(cell_size.x, cell_size.y) <= 0:
+		return false
+	var unit = min(cell_size.x, cell_size.y)
+	var bounds = null
+	var items = []
+	# Stable map order makes the result independent of selection order.
+	for marker in markers:
+		if not template_group_ids.has(marker.id):
+			continue
+		marker.get_draw_data(cached_world.WorldRect if cached_world else null, cell_size)
+		var points = [marker.position]
+		if marker.marker_type == MARKER_TYPE_SHAPE:
+			for seg in marker.get_primitives():
+				points.append(seg.a)
+				points.append(seg.b)
+		elif marker.marker_type == MARKER_TYPE_PATH:
+			points += marker.marker_points
+		for point in points:
+			bounds = Rect2(point, Vector2.ZERO) if bounds == null else bounds.expand(point)
+		items.append(marker.Save())
+	var pivot = bounds.position + bounds.size * 0.5
+	for item in items:
+		item.erase("id")
+		item.position = _group_local_point(item.position, pivot, unit)
+		if item.has("marker_points"):
+			for i in range(item.marker_points.size()):
+				item.marker_points[i] = _group_local_point(item.marker_points[i], pivot, unit)
+		if item.has("shape_primitives"):
+			for seg in item.shape_primitives:
+				seg.a = _group_local_point(seg.a, pivot, unit)
+				seg.b = _group_local_point(seg.b, pivot, unit)
+		if item.has("arrow_head_length"):
+			item.arrow_head_length /= unit
+	if not GuidesLinesPersistence.valid_group_items(items):
+		if ui:
+			ui.set_group_error("Cannot save group: one or more markers have invalid geometry.")
+		return false
+	templates.append({"id": template_next_id, "name": "Group %d" % [template_next_id + 1], "kind": "group", "items": items})
+	template_next_id += 1
+	cancel_template_capture()
+	select_template(templates.size() - 1)
+	if ui:
+		ui.rebuild_template_list()
+	return true
+
+func _group_local_point(point: Array, pivot: Vector2, unit: float) -> Array:
+	var local = (Vector2(point[0], point[1]) - pivot) / unit
+	return [local.x, local.y]
+
+func set_group_transform(value: float, rotation: bool = false) -> void:
+	if is_nan(value) or is_inf(value) or (not rotation and (value < 0.01 or value > 100.0)):
+		return
+	if rotation:
+		template_rotation_offset = fposmod(value, 360.0)
+	else:
+		template_scale = value
+	if ui:
+		ui.sync_group_transform()
+	if overlay:
+		overlay.update()
+
+func reset_group_transform() -> void:
+	template_scale = 1.0
+	set_group_transform(0.0, true)
+
+# Both preview and placement consume this exact geometry. Items are JSON-native
+# marker snapshots in group-local cells; no transform mutates the stored source.
+func build_group_markers(pos: Vector2) -> Array:
+	if not is_group_template():
+		return []
+	return build_template_markers(pos, active_template_index, template_rotation_offset, template_scale)
+
+# Explicit arguments let API consumers resolve a template without changing sidebar state.
+func build_template_markers(pos: Vector2, index: int, rotation_offset: float, scale_factor: float) -> Array:
+	var cell_size = _get_grid_cell_size()
+	if index < 0 or index >= templates.size() or cell_size == null or min(cell_size.x, cell_size.y) <= 0:
+		return []
+	if not GuidesLinesPersistence._number(scale_factor) or scale_factor < 0.01 or scale_factor > 100.0 or not GuidesLinesPersistence._number(rotation_offset):
+		return []
+	var template = templates[index]
+	var items = template.items if template.get("kind", "") == "group" else _single_template_items(template.data, min(cell_size.x, cell_size.y))
+	var unit = min(cell_size.x, cell_size.y) * scale_factor
+	var rotation = deg2rad(rotation_offset)
+	var result = []
+	for source in items:
+		var data = source.duplicate(true)
+		data["id"] = next_id + result.size()
+		if data.marker_type == MARKER_TYPE_SHAPE:
+			data["shape_radius"] = data.get("shape_radius", 1.0)
+			data["shape_angle"] = data.get("shape_angle", 0.0)
+			data["shape_sides"] = int(data.get("shape_sides", 6))
+		elif data.marker_type == MARKER_TYPE_PATH:
+			data["path_closed"] = data.get("path_closed", false)
+		data.position = _group_world_point(data.position, pos, unit, rotation)
+		for key in ["angle", "shape_angle"]:
+			if data.has(key):
+				data[key] = fposmod(data[key] + rotation_offset, 360.0)
+		if data.has("shape_radius"):
+			data.shape_radius *= scale_factor
+		if data.get("marker_subtype", "") == "Spiral":
+			for key in ["inner_radius", "outer_radius", "width"]:
+				data.spiral_settings[key] *= scale_factor
+			data.spiral_settings.angle = fposmod(data.spiral_settings.angle + rotation_offset, 360.0)
+		if data.has("marker_points"):
+			for i in range(data.marker_points.size()):
+				data.marker_points[i] = _group_world_point(data.marker_points[i], pos, unit, rotation)
+		if data.has("shape_primitives"):
+			for seg in data.shape_primitives:
+				seg.a = _group_world_point(seg.a, pos, unit, rotation)
+				seg.b = _group_world_point(seg.b, pos, unit, rotation)
+		if data.has("arrow_head_length"):
+			data.arrow_head_length *= unit
+		# Validate the complete batch before any map mutation or ID allocation.
+		if not GuidesLinesPersistence._marker(data):
+			return []
+		data.position = Vector2(data.position[0], data.position[1])
+		data.color = Color(data.color.lstrip("#"))
+		if template.get("kind", "") != "group":
+			data.color = template.data.color
+		if data.has("marker_points"):
+			for i in range(data.marker_points.size()):
+				data.marker_points[i] = Vector2(data.marker_points[i][0], data.marker_points[i][1])
+		if data.has("shape_primitives"):
+			for seg in data.shape_primitives:
+				seg["type"] = "seg"
+				seg.a = Vector2(seg.a[0], seg.a[1])
+				seg.b = Vector2(seg.b[0], seg.b[1])
+		result.append(data)
+	return result
+
+func _single_template_items(source: Dictionary, unit: float) -> Array:
+	var data = source.duplicate(true)
+	data["position"] = [0, 0]
+	data.color = "#" + data.color.to_html()
+	if data.marker_type == MARKER_TYPE_PATH:
+		data["marker_points"] = []
+		for point in data.get("relative_points", []):
+			data.marker_points.append([point.x / unit, point.y / unit])
+		data.erase("relative_points")
+		data["arrow_head_length"] = data.get("arrow_head_length", 50.0) / unit
+	if data.marker_type == MARKER_TYPE_SHAPE:
+		var segments = source.get("shape_primitives", [])
+		if not source.has("shape_primitives"):
+			var params = source.duplicate(true)
+			params["position"] = Vector2.ZERO
+			var desc = _get_shape_descriptor_from_marker_data(params)
+			if desc.empty(): return []
+			segments = GeometryUtils.points_to_segs(desc.points)
+		data["shape_primitives"] = []
+		for segment in segments:
+			data.shape_primitives.append({"a": [segment.a.x / unit, segment.a.y / unit], "b": [segment.b.x / unit, segment.b.y / unit]})
+	return [data]
+
+func _group_world_point(point: Array, pos: Vector2, unit: float, rotation: float) -> Array:
+	var world = pos + (Vector2(point[0], point[1]) * unit).rotated(rotation)
+	return [world.x, world.y]
+
+func _place_group_template(pos: Vector2) -> void:
+	if parent_mod.Global.Editor == null:
+		return
+	if parent_mod.Global.Editor.IsSnapping:
+		pos = snap_position_to_grid(pos)
+	var batch = build_group_markers(pos)
+	if batch.empty():
+		if ui:
+			ui.set_group_error("Cannot place group: check scale and marker dimensions.")
+		return
+	for data in batch:
+		_do_place_marker(data, false, false)
+	next_id += batch.size()
+	_record_history(GuidesLinesHistory.PlaceGroupRecord.new(self, batch))
+	if ui:
+		ui.set_group_error("")
 
 # Capture the marker nearest to [pos] and store it as a new template.
 func capture_marker_as_template(pos: Vector2) -> void:
@@ -378,19 +612,37 @@ func capture_marker_as_template(pos: Vector2) -> void:
 
 # Select template by index (sets as active for placement).
 func select_template(index: int) -> void:
+	cancel_template_capture()
 	active_template_index = index
 	template_rotation_offset = 0.0  # Reset ephemeral rotation on every (re-)select
+	template_scale = 1.0
+	if ui:
+		ui.sync_group_transform()
 	if overlay:
 		overlay.update()
+
+# Rename by stable ID so pending edits cannot target a shifted list index.
+func rename_template(template_id: int, value) -> bool:
+	if not value is String:
+		return false
+	var name = value.strip_edges()
+	if name.empty() or name.length() > 128 or "\n" in name or "\r" in name or "\t" in name:
+		return false
+	for template in templates:
+		if template.id == template_id:
+			template.name = name
+			return true
+	return false
 
 # Delete template by index.
 func delete_template(index: int) -> void:
 	if index < 0 or index >= templates.size():
 		return
 	templates.remove(index)
-	if active_template_index >= templates.size():
-		active_template_index = templates.size() - 1
-		template_rotation_offset = 0.0
+	if index == active_template_index:
+		select_template(min(index, templates.size() - 1))
+	elif index < active_template_index:
+		active_template_index -= 1
 	if ui:
 		ui.rebuild_template_list()
 	if overlay:
@@ -400,9 +652,11 @@ func delete_template(index: int) -> void:
 func adjust_template_rotation_with_wheel(direction: int) -> void:
 	if active_template_index < 0 or active_template_index >= templates.size():
 		return
-	var tmpl_type = templates[active_template_index]["data"].get("marker_type", "")
+	var tmpl_type = templates[active_template_index].get("data", {}).get("marker_type", "")
 	var step = 1.0 if tmpl_type == MARKER_TYPE_LINE else 5.0
 	template_rotation_offset = fposmod(template_rotation_offset + direction * step, 360.0)
+	if ui:
+		ui.sync_group_transform()
 	if overlay:
 		overlay.update()
 	if LOGGER:
@@ -413,6 +667,8 @@ func rotate_template_45() -> void:
 	if active_template_index < 0 or active_template_index >= templates.size():
 		return
 	template_rotation_offset = fposmod(template_rotation_offset + 45.0, 360.0)
+	if ui:
+		ui.sync_group_transform()
 	if overlay:
 		overlay.update()
 	if LOGGER:
@@ -451,6 +707,24 @@ func _build_shape_descriptor_from_template(pos: Vector2) -> Dictionary:
 # Place a new marker using the currently selected template at [pos].
 func _place_template_marker(pos: Vector2) -> void:
 	if active_template_index < 0 or active_template_index >= templates.size():
+		return
+	if is_group_template():
+		_place_group_template(pos)
+		return
+	if template_scale != 1.0:
+		if parent_mod.Global.Editor.IsSnapping:
+			pos = snap_position_to_grid(pos)
+		var batch = build_template_markers(pos, active_template_index, template_rotation_offset, template_scale)
+		if batch.empty(): return
+		var data = batch[0]
+		var snapshots = {}
+		if data.marker_type == MARKER_TYPE_SHAPE:
+			var desc = _get_shape_descriptor_from_marker_data(data)
+			if desc.empty() or _try_apply_non_placing_shape_mode(desc, pos): return
+			if conforming_mode: snapshots = _snapshot_potential_clip_targets_by_desc(desc)
+		_do_place_marker(data)
+		next_id += 1
+		_record_history(GuidesLinesHistory.PlaceMarkerRecord.new(self, data, snapshots))
 		return
 
 	var tmpl_data = templates[active_template_index]["data"]
@@ -905,6 +1179,8 @@ func set_show_coordinates(enabled):
 		parent_mod.guides_lines_api.emit_signal("settings_changed", "marker_coordinates", enabled)
 
 func set_delete_mode(enabled):
+	if enabled and ui:
+		ui.release_text_focus()
 	delete_mode = enabled
 	# Delete mode and Fill type are mutually exclusive — reset dropdown to Line.
 	if enabled and active_marker_type == MARKER_TYPE_FILL:
@@ -915,15 +1191,15 @@ func set_delete_mode(enabled):
 		_move_selected_marker = null
 	# Cancel template capture when entering delete mode
 	if enabled and template_capture_mode:
-		template_capture_mode = false
-		if ui:
-			ui._update_template_capture_button(false)
+		cancel_template_capture()
 	update_ui_checkboxes_state()
 	# Force overlay update to hide/show preview
 	if overlay:
 		overlay.update()
 
 func set_move_mode(enabled: bool):
+	if enabled and ui:
+		ui.release_text_focus()
 	move_mode = enabled
 	_move_selected_marker = null
 	# Fill regions are not draggable; return to the marker tool as Delete mode does.
@@ -934,9 +1210,7 @@ func set_move_mode(enabled: bool):
 		delete_mode = false
 	# Cancel template capture when entering move mode
 	if enabled and template_capture_mode:
-		template_capture_mode = false
-		if ui:
-			ui._update_template_capture_button(false)
+		cancel_template_capture()
 	update_ui_checkboxes_state()
 	if overlay:
 		overlay.update()
@@ -1390,6 +1664,7 @@ func _apply_wrapping_to_new_shape(new_marker):
 	var cell_size = _get_grid_cell_size()
 	if cell_size == null:
 		return
+	var changed = false
 	for other in markers:
 		if other.id == new_marker.id or other.marker_type != MARKER_TYPE_SHAPE:
 			continue
@@ -1410,6 +1685,9 @@ func _apply_wrapping_to_new_shape(new_marker):
 		new_marker.set_primitives(
 			GeometryUtils.clip_primitives_against_shapes(
 				new_marker.get_primitives(), [other_desc]) + diff_boundary)
+		changed = true
+	if changed:
+		new_marker.recenter_shape_anchor()
 	if overlay:
 		overlay.invalidate_markers()
 
@@ -1427,9 +1705,8 @@ func _snapshot_overlapping_shapes(desc: Dictionary, include_meta: bool = false) 
 		var other = _get_shape_descriptor(marker, cell_size)
 		if other.empty() or not _shapes_overlap(desc, other):
 			continue
-		var snap = {"primitives": marker.get_primitives().duplicate(true)}
+		var snap = {"primitives": marker.get_primitives().duplicate(true), "position": marker.position}
 		if include_meta:
-			snap["position"] = marker.position
 			snap["color"] = marker.color
 			snap["saved_marker"] = marker.Save()
 		snapshots[marker.id] = snap
@@ -1456,26 +1733,17 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 	if overlapping.empty():
 		return []
 
-	# ── 1.5. Early exit if virtual shape is nearly identical to the only overlapping marker ─
-	# This prevents degenerate polygons when merging identical shapes.
+	# Exact world-space equality is a safe no-op. Equal centers and vertex counts
+	# alone do not imply equal geometry (e.g. concentric squares of different sizes).
 	if overlapping.size() == 1:
 		var primary_desc = _get_shape_descriptor(overlapping[0], cell_size)
 		if not primary_desc.empty():
-			# Check if shapes are approximately identical (same vertex count and similar geometry)
-			if primary_desc.points.size() == merge_desc.points.size():
-				var pos_delta = overlapping[0].position.distance_to(new_pos)
-				if pos_delta < 1.0:  # Positions are nearly identical (< 1 pixel apart)
-					# Shapes are essentially identical - no merge needed
-					if LOGGER:
-						LOGGER.debug("Merge: virtual shape is identical to marker %d — no merge needed" % [overlapping[0].id])
-					return []
+			if primary_desc.points == merge_desc.points:
+				return []
 
 	# ── 2. Build one unified polygon from virtual shape + all overlapping markers ─
 	# Start with the virtual (placed) shape's points.
 	var running_pts: Array = merge_desc.points.duplicate()
-	# Weighted-average centre: start from the virtual shape's centre.
-	var center_sum: Vector2 = new_pos
-	var center_count: int = 1
 	var merged_markers = []
 
 	for marker in overlapping:
@@ -1485,15 +1753,12 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 		var merged_segs = GeometryUtils.merge_polygons_outline(running_pts, desc.points)
 		if merged_segs.empty():
 			# No geometric overlap (e.g. tangent touch with zero area) — skip this
-			# marker entirely so its position does not skew the centroid.
+			# marker entirely; its geometry was not included in the result.
 			continue
 		var chained = GeometryUtils.chain_segments_to_polygon(merged_segs)
 		if chained.empty():
-			# Fallback: keep previous running polygon without shifting centroid.
+			# Keep the previous running polygon when chaining fails.
 			continue
-		# Merge succeeded — accumulate centroid only now.
-		center_sum += marker.position
-		center_count += 1
 		merged_markers.append(marker)
 		running_pts = chained
 
@@ -1507,13 +1772,12 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 
 	# ── 3. Write the final outline and position to the primary marker ─────────
 	var final_segs = GeometryUtils.points_to_segs(running_pts)
-	var final_pos  = center_sum / float(center_count)
 
 	var primary = merged_markers[0]
 	primary.set_primitives(final_segs)
-	primary.position = final_pos
+	primary.recenter_shape_anchor()
 	if LOGGER:
-		LOGGER.debug("Merge: primary marker %d updated, pos %s" % [primary.id, str(final_pos)])
+		LOGGER.debug("Merge: primary marker %d updated, pos %s" % [primary.id, str(primary.position)])
 
 	# Remove only markers whose geometry was successfully included.
 	var absorbed_ids: Array = []
@@ -1557,6 +1821,7 @@ func _subtract_desc_from_markers(desc: Dictionary, exclude_id: int = -1):
 			continue
 		marker.set_primitives(GeometryUtils.clip_primitives_against_shapes(
 			marker.get_primitives(), [desc]) + GeometryUtils.clip_polygon_inside_shape(desc.points, target))
+		marker.recenter_shape_anchor()
 	if overlay:
 		overlay.invalidate_markers()
 
@@ -1807,8 +2072,9 @@ func set_marker_type(marker_type):
 	if active_marker_type == MARKER_TYPE_PATH and marker_type != MARKER_TYPE_PATH:
 		_cancel_path_placement()
 	if active_marker_type == MARKER_TYPE_TEMPLATE and marker_type != MARKER_TYPE_TEMPLATE:
-		template_capture_mode = false
-		if ui: ui._update_template_capture_button(false)
+		if ui:
+			ui.release_text_focus()
+		cancel_template_capture()
 	active_marker_type = marker_type
 	load_type_settings(marker_type)
 	if ui: ui.sync_type_selector_to_active_type()

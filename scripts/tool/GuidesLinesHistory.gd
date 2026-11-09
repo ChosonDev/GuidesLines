@@ -10,6 +10,27 @@ extends Reference
 # HISTORY RECORDS FOR UNDO/REDO SUPPORT
 # ============================================================================
 
+# One template stamp is one history action; replay never consults tool modes.
+class PlaceGroupRecord:
+	var tool
+	var markers_data
+
+	func _init(tool_ref, data):
+		tool = tool_ref
+		markers_data = data.duplicate(true)
+
+	func redo():
+		for data in markers_data:
+			tool._do_place_marker(data, false, false)
+			tool.next_id = max(tool.next_id, data.id + 1)
+
+	func undo():
+		for data in markers_data:
+			tool._undo_place_marker(data.id)
+
+	func record_type():
+		return "GuidesLines.PlaceGroup"
+
 # History record for placing a marker.
 # clip_snapshots stores the primitives of every marker that was modified as a
 # side-effect of this placement (conforming mode).
@@ -17,7 +38,7 @@ extends Reference
 class PlaceMarkerRecord:
 	var tool
 	var marker_data
-	# { marker_id: {"primitives": [...]} }
+	# { marker_id: {"primitives": [...], "position": Vector2} }
 	var clip_snapshots = {}
 	var conforming = false
 	var wrapping = false
@@ -49,6 +70,7 @@ class PlaceMarkerRecord:
 			if tool.markers_lookup.has(cid):
 				tool.markers_lookup[cid].set_primitives(
 					clip_snapshots[cid]["primitives"].duplicate(true))
+				tool.markers_lookup[cid].position = clip_snapshots[cid].get("position", tool.markers_lookup[cid].position)
 		if tool.overlay:
 			tool.overlay.invalidate_markers()
 
@@ -107,7 +129,7 @@ class DeleteAllMarkersRecord:
 class DifferenceRecord:
 	var tool
 	var diff_desc   # in-memory Dictionary (has Vector2 values)
-	# { marker_id: {"primitives":[...]} }
+	# { marker_id: {"primitives": [...], "position": Vector2} }
 	var snapshots
 
 	func _init(tool_ref, p_desc, p_snapshots):
@@ -123,6 +145,7 @@ class DifferenceRecord:
 			if tool.markers_lookup.has(id):
 				tool.markers_lookup[id].set_primitives(
 					snapshots[id]["primitives"].duplicate(true))
+				tool.markers_lookup[id].position = snapshots[id].get("position", tool.markers_lookup[id].position)
 		if tool.overlay:
 			tool.overlay.invalidate_markers()
 

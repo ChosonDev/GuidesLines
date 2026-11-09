@@ -23,6 +23,13 @@ var template_settings_container = null   # Settings for Template type
 var _template_list_container = null      # VBoxContainer inside scroll for template rows
 var _add_template_btn = null             # "Add Template" / "Cancel" button
 var _template_overlap_modes_container = null  # Overlap mode buttons row (Shape templates only)
+var _create_group_btn = null
+var _cancel_group_btn = null
+var _group_transform_container = null
+var _group_error = null
+var _text_focus_edit = null
+var _text_focus_editor = null
+var _previous_search_focus = false
 
 func _init(tool_ref):
 	tool = tool_ref
@@ -84,6 +91,7 @@ func update_ui_checkboxes_state():
 func create_ui_panel():
 	if not tool.tool_panel:
 		return
+	release_text_focus()
 
 	_controls.clear()
 	var container = VBoxContainer.new()
@@ -198,6 +206,8 @@ func create_ui_panel():
 	tool.tool_panel.Align.add_child(container)
 	sync_type_settings_controls(tool.active_marker_type)
 	sync_type_selector_to_active_type()
+	rebuild_template_list()
+	_update_template_capture_button(tool.template_capture_mode)
 
 # ============================================================================
 # UI CREATION HELPERS FOR MARKER TYPES
@@ -443,6 +453,7 @@ func _create_template_settings_ui():
 
 	var hint = Label.new()
 	hint.text = "Click a marker on the map\nto save it as a template."
+	hint.text += "\nCreate Group: click markers to toggle selection, then save."
 	hint.autowrap = true
 	container.add_child(hint)
 
@@ -454,6 +465,31 @@ func _create_template_settings_ui():
 	_controls["AddTemplateButton"] = _add_template_btn
 	_add_template_btn.connect("pressed", self, "_on_add_template_pressed")
 	container.add_child(_add_template_btn)
+	_create_group_btn = Button.new()
+	_create_group_btn.text = "Create Group"
+	_create_group_btn.connect("pressed", self, "_on_create_group_pressed")
+	container.add_child(_create_group_btn)
+	_cancel_group_btn = Button.new()
+	_cancel_group_btn.text = "Cancel"
+	_cancel_group_btn.visible = false
+	_cancel_group_btn.connect("pressed", tool, "cancel_template_capture")
+	container.add_child(_cancel_group_btn)
+
+	_group_transform_container = VBoxContainer.new()
+	_group_transform_container.visible = false
+	_group_transform_container.add_child(_create_spinbox_row("Rotation (°):", "GroupRotation", 0, 360, 1, 0, self, "_on_group_rotation_changed"))
+	_group_transform_container.add_child(_create_spinbox_row("Scale (%):", "GroupScale", 1, 10000, 1, 100, self, "_on_group_scale_changed"))
+	for name in ["GroupRotation", "GroupScale"]:
+		_connect_text_focus(get_control(name).get_line_edit())
+	var reset = Button.new()
+	reset.text = "Reset Transform"
+	reset.connect("pressed", tool, "reset_group_transform")
+	_group_transform_container.add_child(reset)
+	container.add_child(_group_transform_container)
+	_group_error = Label.new()
+	_group_error.autowrap = true
+	_group_error.visible = false
+	container.add_child(_group_error)
 
 	container.add_child(_create_spacer(10))
 
@@ -501,6 +537,7 @@ func _create_template_settings_ui():
 func rebuild_template_list() -> void:
 	if not _template_list_container:
 		return
+	release_text_focus()
 
 	# Clear existing rows
 	for child in _template_list_container.get_children():
@@ -510,46 +547,145 @@ func rebuild_template_list() -> void:
 		var tmpl = tool.templates[i]
 
 		var row = HBoxContainer.new()
+		row.set_meta("template_index", i)
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-		var lbl = Label.new()
-		lbl.text = tmpl["name"]
-		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lbl.clip_text = true
-		row.add_child(lbl)
+		var name_row = HBoxContainer.new()
+		name_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var edit = LineEdit.new()
+		edit.text = tmpl.name
+		edit.max_length = 128
+		edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		edit.hint_tooltip = "Rename template: Enter to save, Escape to cancel."
+		edit.editable = not tool.template_capture_mode
+		_connect_text_focus(edit)
+		edit.connect("text_entered", self, "_on_template_name_entered", [edit])
+		edit.connect("focus_exited", self, "_on_template_name_exited", [edit, tmpl.id])
+		edit.connect("gui_input", self, "_on_template_name_input", [edit, tmpl.id])
+		name_row.add_child(edit)
+		if tmpl.get("kind", "") == "group":
+			var count = Label.new()
+			count.text = "(%d)" % tmpl.items.size()
+			count.hint_tooltip = "%d markers" % tmpl.items.size()
+			name_row.add_child(count)
+		row.add_child(name_row)
 
 		var select_btn = Button.new()
 		select_btn.text = "Select"
-		select_btn.disabled = (tool.active_template_index == i)
+		select_btn.disabled = tool.template_capture_mode or tool.active_template_index == i
 		select_btn.connect("pressed", self, "_on_template_select_pressed", [i])
 		row.add_child(select_btn)
 
 		var delete_btn = Button.new()
 		delete_btn.text = "Delete"
+		delete_btn.disabled = tool.template_capture_mode
 		delete_btn.connect("pressed", self, "_on_template_delete_pressed", [i])
 		row.add_child(delete_btn)
 
 		_template_list_container.add_child(row)
 
-	# Show overlap modes panel only when the selected template is a Shape
-	if _template_overlap_modes_container:
-		var is_shape = false
-		if tool.active_template_index >= 0 and tool.active_template_index < tool.templates.size():
-			is_shape = tool.templates[tool.active_template_index]["data"].get("marker_type", "") == tool.MARKER_TYPE_SHAPE
-		_template_overlap_modes_container.visible = is_shape
-		if is_shape:
-			_sync_template_overlap_mode_buttons()
+	sync_group_transform()
 
 # Update the Add Template button text/disabled state during capture mode
 func _update_template_capture_button(capturing: bool) -> void:
 	if not _add_template_btn:
 		return
-	if capturing:
+	if capturing and not tool.template_group_capture:
 		_add_template_btn.text = "Click a marker..."
 		_add_template_btn.disabled = true
 	else:
 		_add_template_btn.text = "Add Template"
-		_add_template_btn.disabled = false
+		_add_template_btn.disabled = capturing
+	if _create_group_btn:
+		_create_group_btn.text = "Save Group (%d)" % tool.template_group_ids.size() if tool.template_group_capture else "Create Group"
+		_create_group_btn.disabled = (tool.template_group_ids.size() < 2) if tool.template_group_capture else capturing
+		_cancel_group_btn.visible = capturing
+	sync_group_transform()
+	# Selection/deletion of saved templates cannot interrupt an unfinished capture.
+	if _template_list_container:
+		for row in _template_list_container.get_children():
+			if row.is_queued_for_deletion(): continue
+			row.get_child(0).get_child(0).editable = not capturing
+			row.get_child(1).disabled = capturing or row.get_meta("template_index") == tool.active_template_index
+			row.get_child(2).disabled = capturing
+
+func _on_create_group_pressed() -> void:
+	if tool.template_group_capture:
+		tool.save_group_template()
+	else:
+		tool.start_group_capture()
+
+func sync_group_transform() -> void:
+	if _group_transform_container:
+		_group_transform_container.visible = tool.active_template_index >= 0 and tool.active_template_index < tool.templates.size() and not tool.template_capture_mode
+	if _template_overlap_modes_container:
+		var is_shape = false
+		if tool.active_template_index >= 0 and tool.active_template_index < tool.templates.size():
+			is_shape = not tool.template_capture_mode and not tool.is_group_template() and tool.templates[tool.active_template_index].data.get("marker_type", "") == tool.MARKER_TYPE_SHAPE
+		_template_overlap_modes_container.visible = is_shape
+		if is_shape:
+			_sync_template_overlap_mode_buttons()
+	_set_spinbox_value("GroupRotation", tool.template_rotation_offset)
+	_set_spinbox_value("GroupScale", tool.template_scale * 100.0)
+	set_group_error("")
+
+func set_group_error(message: String) -> void:
+	if _group_error:
+		_group_error.text = message
+		_group_error.visible = message != ""
+
+func _on_group_rotation_changed(value: float) -> void:
+	tool.set_group_transform(value, true)
+
+func _on_group_scale_changed(value: float) -> void:
+	tool.set_group_transform(value / 100.0)
+
+func text_field_has_focus() -> bool:
+	return is_instance_valid(_text_focus_edit) and _text_focus_edit.is_visible_in_tree() and _text_focus_edit.has_focus()
+
+func _connect_text_focus(edit: LineEdit) -> void:
+	edit.connect("focus_entered", self, "_on_text_focus_entered", [edit])
+	edit.connect("focus_exited", self, "_on_text_focus_exited", [edit])
+	edit.connect("tree_exiting", self, "_on_text_focus_exited", [edit])
+
+func _on_text_focus_entered(edit: LineEdit) -> void:
+	_text_focus_edit = edit
+	var editor = tool.parent_mod.Global.Editor
+	if editor != null and (editor is Dictionary or is_instance_valid(editor)) and editor.get("SearchHasFocus") != null:
+		_text_focus_editor = editor
+		_previous_search_focus = editor.SearchHasFocus
+		editor.SearchHasFocus = true
+
+func _on_text_focus_exited(edit: LineEdit) -> void:
+	if edit != _text_focus_edit:
+		return
+	if _text_focus_editor != null and (_text_focus_editor is Dictionary or is_instance_valid(_text_focus_editor)):
+		_text_focus_editor.SearchHasFocus = _previous_search_focus
+	_text_focus_editor = null
+	_text_focus_edit = null
+
+func release_text_focus() -> void:
+	if is_instance_valid(_text_focus_edit):
+		_text_focus_edit.release_focus()
+
+func _on_template_name_entered(_text: String, edit: LineEdit) -> void:
+	edit.release_focus()
+
+func _on_template_name_exited(edit: LineEdit, template_id: int) -> void:
+	tool.rename_template(template_id, edit.text)
+	_restore_template_name(edit, template_id)
+
+func _restore_template_name(edit: LineEdit, template_id: int) -> void:
+	for template in tool.templates:
+		if template.id == template_id:
+			edit.text = template.name
+			return
+
+func _on_template_name_input(event: InputEvent, edit: LineEdit, template_id: int) -> void:
+	if event is InputEventKey and event.pressed and event.scancode == KEY_ESCAPE:
+		_restore_template_name(edit, template_id)
+		edit.release_focus()
+		edit.accept_event()
 
 # Sync the overlap mode buttons in the Template panel to the current tool state.
 func _sync_template_overlap_mode_buttons() -> void:

@@ -239,6 +239,22 @@ func set_primitives(segs: Array):
 func get_primitives() -> Array:
 	return cached_draw_data.get("primitives", [])
 
+# Change only the pivot after a boolean edit; the world-space outline stays fixed.
+func recenter_shape_anchor() -> void:
+	if marker_type != "Shape":
+		return
+	var minimum = null
+	var maximum = null
+	for segment in get_primitives():
+		if segment.get("type", "seg") != "seg": continue
+		for point in [segment.a, segment.b]:
+			if is_nan(point.x) or is_inf(point.x) or is_nan(point.y) or is_inf(point.y): return
+			minimum = point if minimum == null else Vector2(min(minimum.x, point.x), min(minimum.y, point.y))
+			maximum = point if maximum == null else Vector2(max(maximum.x, point.x), max(maximum.y, point.y))
+	if minimum != null:
+		# Half each endpoint before adding to avoid overflow at large coordinates.
+		position = minimum * 0.5 + maximum * 0.5
+
 # Derived from actual geometry, never the original radius or current anchor.
 func get_geometry_bounds(map_rect, cell_size):
 	var data = get_draw_data(map_rect, cell_size)

@@ -2,6 +2,40 @@ extends "res://addons/gut/test.gd"
 
 var mod_root = ProjectSettings.globalize_path("res://").plus_file("..").simplify_path()
 
+func test_boolean_anchor_uses_all_extremes_without_moving_segments_and_preserves_empty_or_invalid_geometry():
+	var script = load(mod_root.plus_file("scripts/guides/GuideMarker.gd"))
+	var marker = script.new(Vector2(999, 999))
+	marker.marker_type = "Shape"
+	var segments = [{"type": "seg", "a": Vector2(-100, -20), "b": Vector2(-50, 10)},
+		{"type": "seg", "a": Vector2(200, 30), "b": Vector2(300, 80)}]
+	marker.set_primitives(segments.duplicate(true))
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(100, 30))
+	assert_eq_deep(marker.get_primitives(), segments)
+	var restored = script.new()
+	assert_true(restored.Load(JSON.parse(JSON.print(marker.Save())).result))
+	assert_eq(restored.position, Vector2(100, 30))
+	assert_eq_deep(restored.get_primitives(), segments)
+	marker.get_primitives().invert()
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(100, 30), "Segment order does not affect the center")
+	marker.set_primitives([])
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(100, 30), "An empty outline retains its last anchor")
+	marker.set_primitives([{"type": "seg", "a": Vector2.ZERO, "b": Vector2(INF, 1)}])
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(100, 30))
+	var geometry = load(mod_root.plus_file("scripts/utils/GeometryUtils.gd"))
+	var concave = [Vector2.ZERO, Vector2(100, 0), Vector2(100, 20), Vector2(20, 20), Vector2(20, 100), Vector2(0, 100)]
+	marker.set_primitives(geometry.points_to_segs(concave))
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(50, 50))
+	assert_false(Geometry.is_point_in_polygon(marker.position, concave), "Bounds center may lie outside a concave region")
+	marker.marker_type = "Path"
+	marker.position = Vector2(10, 20)
+	marker.recenter_shape_anchor()
+	assert_eq(marker.position, Vector2(10, 20), "Path anchors retain their existing semantics")
+
 func test_spiral_model_rebuilds_only_on_explicit_reset_and_rejects_bad_metadata():
 	var script = load(mod_root.plus_file("scripts/guides/GuideMarker.gd"))
 	var geometry = load(mod_root.plus_file("scripts/utils/GeometryUtils.gd"))

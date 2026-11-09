@@ -27,6 +27,10 @@ python Mods/GuidesLines/tests/run.py --setup
 python Mods/GuidesLines/tests/run.py
 python Mods/GuidesLines/tests/run.py --test test_square_vertices
 python Mods/GuidesLines/tests/run.py --test runtime
+python Mods/GuidesLines/tests/run.py --test group
+python -X utf8 Mods/GuidesLines/tests/run.py --test template_rename
+python -X utf8 Mods/GuidesLines/tests/run.py --test template_api
+python -X utf8 Mods/GuidesLines/tests/run.py --test boolean_anchor
 python Mods/GuidesLines/tests/check_runner.py
 python Mods/GuidesLines/tests/check_runtime.py
 ```
@@ -79,12 +83,19 @@ primitives without replacing existing state, and reset through `clear_clip()`.
 
 `test_persistence.gd` exercises the real `GuidesLinesPersistence` class with the
 real tool/models/history and an explicit host signal source. It checks full JSON
-round trips for all marker types, fills and templates; exact version rejection
+round trips for all marker types, fills and templates; incompatible version rejection
 and complete replacement on the next save; atomic malformed-data rejection;
 integer ID lookup/counter repair; independent save snapshots; native
 `OnSaveBegin(path, is_backup)` handling; late WorldUI, map changes and connection
 cleanup; and delete undo/redo plus template placement after loading. This verifies
 the signal contract in isolation, not Dungeondraft's save UI or disk I/O.
+
+Group template checks also cover JSON-native local grid coordinates, format 1
+migration to format 2, capture toggling/cancellation, numeric-field shortcut guards,
+selection highlights, snapped render/placement parity, shared transforms and one
+undo/redo record for each stamp. They do not replace Dungeondraft runtime checks.
+Rename checks exercise real LineEdit signals, Enter/blur/Escape, invalid and
+Unicode names, stable IDs, JSON persistence and the Editor.SearchHasFocus lifecycle.
 
 `test_tool_history.gd` exercises original tool/history/API code for delete undo,
 delete-all undo, rotated template redo, conforming redo after UI settings change,

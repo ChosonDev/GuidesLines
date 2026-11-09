@@ -6,6 +6,355 @@ var api
 var last_record
 var deleted_ids = []
 
+func test_boolean_anchor_centers_final_geometry_and_replays_original_position_in_all_shape_modes():
+	for mode in ["Merge", "Difference", "Conform", "Wrap"]:
+		tool.markers.clear()
+		tool.markers_lookup.clear()
+		tool.next_id = 11
+		var original = tool.GuideMarkerClass.new(Vector2(10, 10))
+		original.marker_type = "Shape"
+		original.id = 10
+		var polygon = [Vector2.ZERO, Vector2(100, 0), Vector2(100, 80), Vector2(0, 80)]
+		if mode == "Wrap":
+			polygon = [Vector2(0, -20), Vector2(100, -20), Vector2(100, 100), Vector2(0, 100)]
+		original.set_primitives(tool.GeometryUtils.points_to_segs(polygon))
+		tool.markers.append(original)
+		tool.markers_lookup[10] = original
+		var before = marker_state()
+		var cutter = [Vector2(60, -10), Vector2(120, -10), Vector2(120, 90), Vector2(60, 90)]
+		var expected = Vector2(30, 40)
+		if mode == "Merge":
+			cutter = [Vector2(60, 0), Vector2(300, 0), Vector2(300, 80), Vector2(60, 80)]
+			expected = Vector2(150, 40)
+		elif mode == "Wrap":
+			cutter = [Vector2(-50, 0), Vector2(50, 0), Vector2(50, 80), Vector2(-50, 80)]
+			expected = Vector2(-25, 40)
+		var data = shape_data(11, Vector2(60, 20))
+		data["shape_primitives"] = tool.GeometryUtils.points_to_segs(cutter)
+		var result = api.apply_marker_geometry(data, mode)
+		assert_false(result.empty(), mode)
+		var changed = tool.markers_lookup[result.marker_id] if mode == "Wrap" else original
+		assert_almost_eq(changed.position.x, expected.x, 0.001, mode)
+		assert_almost_eq(changed.position.y, expected.y, 0.001, mode)
+		if mode == "Wrap":
+			assert_eq(original.position, Vector2(10, 10), "Wrapping leaves neighbors untouched")
+		if mode == "Merge":
+			assert_eq(result.affected_markers[0].new_position, expected)
+		var after = marker_state()
+		var action = last_record
+		for _cycle in range(2):
+			action.undo()
+			assert_eq_deep(marker_state(), before)
+			action.redo()
+			assert_eq_deep(marker_state(), after)
+		# Baked templates now rotate around the final outline's center.
+		tool.capture_marker_as_template(changed.position)
+		tool.select_template(tool.templates.size() - 1)
+		var resolved = api.get_template_markers(Vector2(500, 500), -1, 180, 1)[0]
+		var points = []
+		for segment in resolved.shape_primitives:
+			points += [segment.a, segment.b]
+		var bounds = tool.GeometryUtils.polygon_intersection_bounds(points)
+		assert_almost_eq((bounds.position + bounds.size * 0.5).x, 500.0, 0.001)
+		assert_almost_eq((bounds.position + bounds.size * 0.5).y, 500.0, 0.001)
+
+func test_boolean_anchor_merge_does_not_skip_different_shapes_with_equal_anchor_and_vertex_count():
+	var marker = add_shape(10)
+	marker.set_primitives(tool.GeometryUtils.points_to_segs([Vector2.ZERO, Vector2(100, 0), Vector2(100, 80), Vector2(0, 80)]))
+	var data = shape_data(11, marker.position)
+	data["shape_primitives"] = tool.GeometryUtils.points_to_segs([Vector2(-50, -20), Vector2(150, -20), Vector2(150, 100), Vector2(-50, 100)])
+	var result = api.apply_marker_geometry(data, "Merge")
+	assert_false(result.empty())
+	assert_eq(marker.position, Vector2(50, 40))
+	assert_true(marker.get_geometry_bounds(null, tool._get_grid_cell_size()).size.x > 199.0)
+
+func test_template_api_resolves_selected_and_explicit_ids_without_mutating_source_and_stamps_one_action():
+	var line = api.place_line_marker(Vector2.ZERO, 30, true)
+	var path = api.place_arrow_marker(Vector2(100, 0), Vector2(300, 0), 25, 30)
+	tool.start_group_capture()
+	tool.template_group_ids = {line: true, path: true}
+	assert_true(tool.save_group_template())
+	var id = tool.templates[0].id
+	assert_true(api.select_template(id))
+	assert_eq(api.get_placement_state().active_marker_type, "Template")
+	assert_true(api.set_template_transform(30, 2))
+	var source = tool.templates.duplicate(true)
+	var copy = api.get_templates()
+	copy[0].items.clear()
+	assert_eq_deep(tool.templates, source)
+	var state = api.get_placement_state()
+	assert_eq(state.template_scale, 2.0)
+	assert_eq(state.template_rotation_offset, 30.0)
+	var next = tool.next_id
+	var batch = api.get_template_markers(Vector2(1000, 1000), -1, 60, 0.5)
+	assert_eq(batch.size(), 2)
+	assert_false(batch[0].has("id"))
+	assert_eq(batch[0].angle, 120.0)
+	assert_almost_eq(batch[0].position.y, 850.0, 0.001)
+	assert_almost_eq(batch[1].marker_points[1].y, 1150.0, 0.001)
+	assert_eq(batch[0].outline_points.size(), 3)
+	assert_false(batch[0].closed)
+	assert_eq(tool.next_id, next)
+	var explicit = api.get_template_markers(Vector2.ZERO, id)
+	assert_eq(explicit[0].angle, 30.0)
+	assert_almost_eq(explicit[0].position.x, -150.0, 0.001)
+	assert_almost_eq(explicit[0].position.y, 0.0, 0.001)
+	assert_eq_deep(tool.templates, source)
+	assert_eq(tool.template_scale, 2.0)
+	assert_eq(tool.template_rotation_offset, 30.0)
+	assert_true(api.begin_history_capture())
+	var placed = api.place_template(Vector2(1000, 1000), -1, 60, 0.5)
+	var actions = api.end_history_capture()
+	assert_eq(placed, [next, next + 1])
+	assert_eq(actions.size(), 1)
+	assert_eq(tool.markers_lookup[next].position, batch[0].position)
+	assert_eq_deep(tool.markers_lookup[next + 1].marker_points, batch[1].marker_points)
+	actions[0].undo()
+	assert_eq(tool.markers.size(), 2)
+	actions[0].redo()
+	assert_eq(tool.markers.size(), 4)
+	for invalid in [[NAN, 1.0], [0.0, -1.0], [0.0, 101.0]]:
+		assert_false(api.set_template_transform(invalid[0], invalid[1]))
+	assert_false(api.select_template(999))
+	assert_true(api.get_template_markers(Vector2.ZERO, 999).empty())
+	assert_true(api.place_template(Vector2(INF, 0)).empty())
+	assert_eq(tool.markers.size(), 4)
+
+func test_template_api_single_shape_scaling_and_exact_geometry_boolean_modes_restore_on_undo():
+	var original = add_shape(10)
+	original.set_primitives([{"type": "seg", "a": Vector2(-100, -50), "b": Vector2(100, -50)},
+		{"type": "seg", "a": Vector2(100, -50), "b": Vector2(100, 50)},
+		{"type": "seg", "a": Vector2(100, 50), "b": Vector2(-100, 50)},
+		{"type": "seg", "a": Vector2(-100, 50), "b": Vector2(-100, -50)}])
+	tool.capture_marker_as_template(Vector2.ZERO)
+	assert_true(api.select_template(tool.templates[0].id))
+	assert_true(api.set_template_transform(90, 2))
+	var resolved = api.get_template_markers(Vector2(500, 500))[0]
+	assert_eq(resolved.polygon.size(), 4)
+	assert_almost_eq(resolved.shape_primitives[0].a.x, 600.0, 0.001)
+	assert_almost_eq(resolved.shape_primitives[0].a.y, 300.0, 0.001)
+	tool._place_template_marker(Vector2(500, 500))
+	assert_eq_deep(tool.markers.back().get_primitives(), resolved.shape_primitives)
+	last_record.undo()
+	for mode in ["Normal", "Merge", "Conform", "Wrap", "Difference"]:
+		var marker = api.get_template_markers(Vector2(100, 0), -1, -90, 0.5)[0]
+		var before = marker_state()
+		assert_true(api.begin_history_capture())
+		var result = api.apply_marker_geometry(marker, mode)
+		var actions = api.end_history_capture()
+		assert_false(result.empty(), mode)
+		for i in range(actions.size() - 1, -1, -1): actions[i].undo()
+		assert_eq_deep(marker_state(), before)
+	var count = tool.markers.size()
+	for invalid in [{}, {"marker_type": "Shape", "position": Vector2(INF, 0), "color": Color.red},
+		{"marker_type": "Path", "position": Vector2.ZERO, "color": Color.red, "marker_points": [Vector2.ZERO]}]:
+		assert_true(api.apply_marker_geometry(invalid).empty())
+	assert_eq(tool.markers.size(), count)
+
+func test_template_rename_validates_names_and_preserves_geometry_and_active_transform():
+	var marker_id = api.place_line_marker(Vector2.ZERO)
+	tool.capture_marker_as_template(Vector2.ZERO)
+	add_shape(10, Vector2(500, 0))
+	tool.start_group_capture()
+	tool.template_group_ids = {marker_id: true, 10: true}
+	assert_true(tool.save_group_template())
+	var items = tool.templates[1].items.duplicate(true)
+	var data = tool.templates[0].data.duplicate(true)
+	tool.set_group_transform(2)
+	tool.set_group_transform(45, true)
+	assert_true(tool.rename_template(tool.templates[0].id, "  Вісь кімнати  "))
+	assert_true(tool.rename_template(tool.templates[1].id, "Кімната — шаблон"))
+	assert_eq(tool.templates[0].name, "Вісь кімнати")
+	assert_eq(tool.templates[1].name, "Кімната — шаблон")
+	assert_eq_deep(tool.templates[0].data, data)
+	assert_eq_deep(tool.templates[1].items, items)
+	assert_eq(tool.active_template_index, 1)
+	assert_eq(tool.template_scale, 2.0)
+	assert_eq(tool.template_rotation_offset, 45.0)
+	for invalid in [null, 42, "", "  ", "a\nb", "a\rb", "a\tb", "x".repeat(129)]:
+		assert_false(tool.rename_template(tool.templates[1].id, invalid))
+	assert_eq(tool.templates[1].name, "Кімната — шаблон")
+	assert_false(tool.rename_template(-1, "Missing"))
+	var group_id = tool.templates[1].id
+	tool.delete_template(0)
+	assert_true(tool.rename_template(group_id, "Renamed after deleting an earlier row"))
+	assert_eq(tool.templates[0].name, "Renamed after deleting an earlier row")
+
+func test_group_capture_toggles_contours_snapshots_actual_geometry_and_cancels():
+	var shape = add_shape(10)
+	var path_id = api.place_path_marker([Vector2(400, 0), Vector2(500, 0)])
+	var originals = marker_state()
+	tool.start_group_capture()
+	assert_true(tool.template_capture_mode)
+	assert_false(tool.save_group_template())
+	tool.toggle_group_marker(Vector2(0, -141.42136))
+	assert_true(tool.template_group_ids.has(10), "Outline hit selects the Shape")
+	tool.toggle_group_marker(Vector2(0, -141.42136))
+	assert_true(tool.template_group_ids.empty())
+	tool.toggle_group_marker(shape.position)
+	tool.toggle_group_marker(Vector2(450, 0))
+	tool.toggle_group_marker(Vector2(1800, 1800))
+	assert_eq(tool.template_group_ids.size(), 2)
+	shape.set_primitives([])
+	assert_true(tool.save_group_template())
+	assert_true(tool.is_group_template())
+	assert_false(tool.template_capture_mode)
+	assert_true(tool.template_group_ids.empty())
+	assert_eq(tool.templates[0].items.size(), 2)
+	assert_true(tool.templates[0].items[0].shape_primitives.empty(), "Capture reflects geometry at Save time")
+	assert_false(tool.templates[0].items[0].has("id"))
+	assert_eq_deep(api.get_marker(path_id), originals[path_id])
+	var stored = tool.templates.duplicate(true)
+	tool._do_move_marker(shape, Vector2(900, 900))
+	assert_eq_deep(tool.templates, stored)
+	for exit_mode in ["move", "delete", "type", "disable"]:
+		tool.set_move_mode(false)
+		tool.set_delete_mode(false)
+		tool.set_marker_type("Template")
+		tool.start_group_capture()
+		tool.toggle_group_marker(Vector2(450, 0))
+		match exit_mode:
+			"move": tool.set_move_mode(true)
+			"delete": tool.set_delete_mode(true)
+			"type": tool.set_marker_type("Path")
+			"disable": tool.Disable()
+		assert_false(tool.template_capture_mode)
+		assert_false(tool.template_group_capture)
+		assert_true(tool.template_group_ids.empty())
+	tool.start_group_capture()
+	tool.template_group_ids[path_id] = true
+	api.delete_marker(path_id)
+	tool.refresh_group_selection()
+	assert_true(tool.template_group_ids.empty())
+
+func test_group_transform_uses_one_pivot_grid_units_and_immutable_source():
+	var line_id = api.place_line_marker(Vector2.ZERO, 30, true, Color.red)
+	var path_id = api.place_arrow_marker(Vector2(100, 0), Vector2(300, 0), 25, 30)
+	tool.start_group_capture()
+	tool.template_group_ids = {line_id: true, path_id: true}
+	assert_true(tool.save_group_template())
+	var original = tool.templates.duplicate(true)
+	# Bounds are [0, 300] x {0}; center is (150, 0), independent of ray length.
+	tool.set_group_transform(2.0)
+	tool.set_group_transform(90, true)
+	var result = tool.build_group_markers(Vector2(1000, 1000))
+	assert_eq(result.size(), 2)
+	assert_almost_eq(result[0].position.x, 1000.0, 0.001)
+	assert_almost_eq(result[0].position.y, 700.0, 0.001)
+	assert_eq(result[0].angle, 120.0)
+	assert_true(result[0].mirror)
+	assert_eq(result[0].color, Color.red)
+	assert_almost_eq(result[1].marker_points[0].y, 900.0, 0.001)
+	assert_almost_eq(result[1].marker_points[1].y, 1300.0, 0.001)
+	assert_eq(result[1].arrow_head_length, 50.0)
+	tool.cached_world.Level.TileMap.CellSize = Vector2(200, 300)
+	var larger = tool.build_group_markers(Vector2.ZERO)
+	assert_almost_eq(larger[0].position.y, -600.0, 0.001)
+	assert_eq(larger[1].arrow_head_length, 100.0)
+	assert_eq_deep(tool.templates, original)
+	tool.reset_group_transform()
+	assert_eq(tool.template_scale, 1.0)
+	assert_eq(tool.template_rotation_offset, 0.0)
+
+func test_group_regular_shape_snapshots_scale_every_edge_and_template_deletion_keeps_selection():
+	var a = add_shape(10)
+	var b = add_shape(11, Vector2(400, 0))
+	var outline = a.get_primitives().duplicate(true)
+	tool.capture_marker_as_template(b.position)
+	tool.start_group_capture()
+	tool.template_group_ids = {10: true, 11: true}
+	assert_true(tool.save_group_template())
+	assert_eq(tool.templates[1].items[0].shape_primitives.size(), 4)
+	# Both equal squares have their combined bounds centered at (200, 0).
+	tool.set_group_transform(2)
+	tool.set_group_transform(90, true)
+	var batch = tool.build_group_markers(Vector2(1000, 1000))
+	for i in range(outline.size()):
+		var expected_a = Vector2(1000 - 2 * outline[i].a.y, 1000 + 2 * (outline[i].a.x - 200))
+		var expected_b = Vector2(1000 - 2 * outline[i].b.y, 1000 + 2 * (outline[i].b.x - 200))
+		assert_almost_eq(batch[0].shape_primitives[i].a.x, expected_a.x, 0.001)
+		assert_almost_eq(batch[0].shape_primitives[i].a.y, expected_a.y, 0.001)
+		assert_almost_eq(batch[0].shape_primitives[i].b.x, expected_b.x, 0.001)
+		assert_almost_eq(batch[0].shape_primitives[i].b.y, expected_b.y, 0.001)
+	assert_eq(batch[0].shape_radius, 4.0)
+	tool.delete_template(0)
+	assert_eq(tool.active_template_index, 0)
+	assert_true(tool.is_group_template())
+	assert_eq(tool.template_scale, 2.0)
+	tool.delete_template(0)
+	assert_eq(tool.active_template_index, -1)
+	assert_eq(tool.template_scale, 1.0)
+	assert_eq(tool.template_rotation_offset, 0.0)
+
+func test_group_placement_is_one_history_record_and_ignores_all_boolean_modes():
+	var a = add_shape(10)
+	var b = add_shape(11, Vector2(300, 0))
+	a.set_primitives([{"type": "seg", "a": Vector2(-10, -20), "b": Vector2(30, 40)}])
+	b.set_primitives([])
+	tool.start_group_capture()
+	tool.template_group_ids = {10: true, 11: true}
+	assert_true(tool.save_group_template())
+	var before = marker_state()
+	tool.next_id = 20
+	for name in ["merge_shapes", "difference_mode", "cut_mode", "conforming_mode", "wrapping_mode"]:
+		tool.set(name, true)
+	tool.set_group_transform(2.0)
+	tool.set_group_transform(90.0, true)
+	var expected = tool.build_group_markers(Vector2(500, 500))
+	assert_true(api.begin_history_capture())
+	tool._place_template_marker(Vector2(500, 500))
+	var records = api.end_history_capture()
+	assert_eq(records.size(), 1)
+	assert_eq(records[0].record_type(), "GuidesLines.PlaceGroup")
+	assert_eq(tool.next_id, 22)
+	assert_eq(tool.markers.size(), 4)
+	assert_eq_deep(api.get_marker(10), before[10])
+	assert_eq_deep(api.get_marker(11), before[11])
+	assert_eq_deep(tool.markers_lookup[20].get_primitives(), expected[0].shape_primitives)
+	assert_true(tool.markers_lookup[21].get_primitives().empty())
+	var after = marker_state()
+	tool.templates.clear()
+	tool.template_rotation_offset = 12
+	tool.template_scale = 7
+	for _cycle in range(2):
+		records[0].undo()
+		assert_eq_deep(marker_state(), before)
+		records[0].redo()
+		assert_eq_deep(marker_state(), after)
+
+func test_group_spirals_keep_actual_outlines_and_validate_entire_batch_before_placement():
+	var shape_id = api.place_spiral_shape_marker(Vector2.ZERO)
+	var path_id = api.place_spiral_path_marker(Vector2(900, 0), {"reverse": true}, Color.red, true)
+	tool.markers_lookup[shape_id].set_primitives([])
+	tool.start_group_capture()
+	tool.template_group_ids = {shape_id: true, path_id: true}
+	assert_true(tool.save_group_template())
+	tool.set_group_transform(0.5)
+	tool.set_group_transform(45, true)
+	var batch = tool.build_group_markers(Vector2.ZERO)
+	assert_eq(batch.size(), 2)
+	assert_true(batch[0].shape_primitives.empty())
+	assert_eq(batch[0].spiral_settings.outer_radius, 3.0)
+	assert_eq(batch[1].spiral_settings.angle, 45.0)
+	assert_true(batch[1].spiral_settings.reverse)
+	assert_true(batch[1].path_end_arrow)
+	var before = marker_state()
+	var next_id = tool.next_id
+	last_record = null
+	# A finite scale can still exceed the existing Spiral dimension limit.
+	tool.set_group_transform(100.0)
+	tool.templates[0].items[1].spiral_settings.outer_radius = 20.0
+	assert_true(tool.build_group_markers(Vector2.ZERO).empty())
+	tool._place_template_marker(Vector2.ZERO)
+	assert_eq_deep(marker_state(), before)
+	assert_eq(tool.next_id, next_id)
+	assert_null(last_record)
+	for invalid in [0.0, -1.0, INF, NAN, 101.0]:
+		tool.set_group_transform(invalid)
+		assert_eq(tool.template_scale, 100.0)
+	tool.cached_world = null
+	assert_true(tool.build_group_markers(Vector2.ZERO).empty())
+
 func test_fill_nested_circles_excludes_inner_regions_in_both_marker_orders():
 	tool.FillMarkerClass = load(mod_root.plus_file("scripts/guides/FillMarker.gd"))
 	for radius in range(8, 0, -1):
@@ -602,7 +951,7 @@ func test_merge_partial_failures_preserve_skipped_markers_including_first_candid
 		for failure in ["outline", "chain"]:
 			var script = GDScript.new()
 			var source = original_script.source_code
-			for relative in ["../utils/GeometryUtils.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd"]:
+			for relative in ["../utils/GeometryUtils.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd", "GuidesLinesPersistence.gd"]:
 				source = source.replace('preload("' + relative + '")', 'preload("' + mod_root.plus_file("scripts/tool").plus_file(relative).simplify_path() + '")')
 			var expression = "GeometryUtils.merge_polygons_outline(running_pts, desc.points)" if failure == "outline" else "GeometryUtils.chain_segments_to_polygon(merged_segs)"
 			assert_true(source.find(expression) >= 0, "Fault injection must target the real merge step")

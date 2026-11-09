@@ -1,14 +1,18 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.4<br>
+**Version:** 2.4.5<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.4
+### What's New in 2.4.5
 
-Fill now preserves inner holes at every nesting level. Filling between concentric Shape markers affects only the selected ring, including when filling floors through BuildingPlanner.
+Create group templates with marker selection highlights, shared rotation and scale,
+and one undo/redo action per stamp. Rename single and group templates directly in
+the list while typing safely with tool shortcuts suppressed. Templates are saved
+with the map, and the expanded public API lets BuildingPlanner Room consume them.
+Boolean Shape edits now recenter their anchors on the final outline's bounds.
 
 **Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
@@ -122,8 +126,41 @@ Fill now preserves inner holes at every nesting level. Filling between concentri
 
 - Line, Shape and Path markers, Fill regions and captured templates are stored inside the map file.
 - Saved geometry includes outlines modified by boolean operations, colors and marker parameters.
-- Map data has its own format version, independent of the mod release version. Only an exact format-version match is loaded; incompatible or malformed blocks load no GuidesLines objects. The next map save replaces the entire GuidesLines block using the current format, including when the current collection is empty.
+- After Merge, Difference, Conforming or Wrapping changes a Shape, its anchor is
+  recentered between the final outline's left/right and top/bottom extremes.
+  The outline stays in place; undo/redo restores both geometry and anchor.
+  Empty outlines keep the last anchor. The bounds center may lie outside a
+  concave region. Cut converts Shapes to Paths and keeps their start-point anchors.
+- Map data has its own format version, independent of the mod release version. Format 2 adds group templates and also reads format 1 maps; saving upgrades them to format 2. Incompatible or malformed blocks load no GuidesLines objects. The next map save replaces the entire GuidesLines block using the current format, including when the current collection is empty.
 - In-progress placement, dragging, previews and undo history are session state and are not saved. Templates belong to their map.
+
+### Group templates
+
+Template names (single markers and groups) are editable directly in the list.
+Press Enter or leave the name field to save; Escape restores the previous name.
+Names are trimmed, must contain 1–128 characters, and are saved with the map.
+Tool shortcuts are suppressed while editing names or group transform fields.
+Leaving the field, switching tools/maps or unloading restores normal input.
+
+In **Template**, click **Create Group**, then click marker anchors or outlines to
+select them. Selected markers have a faint cyan outline; click again to deselect.
+**Save Group (N)** becomes available after selecting at least two markers. Empty
+clicks keep the selection. **Cancel**, Escape, Move/Delete, switching marker type
+or leaving the tool discards the unfinished selection.
+
+The saved group appears in the existing template list with its marker count.
+Select it to preview the whole group at the cursor. **Rotation**, **Scale (%)**
+(1–10000%) and **Reset Transform** affect the entire preview around its shared
+center. The wheel rotates by 5°, right-click adds 45°, and Ctrl+wheel retains
+camera zoom. Numeric field focus suppresses GuidesLines shortcuts. Only the group
+center snaps; member offsets stay intact. Sizes and distances use grid units,
+so changing grid size resizes the entire composition uniformly.
+
+Click to place independent copies in one undo/redo action. The source markers and
+saved template stay unchanged. Groups support Line, Shape and Path, including
+spirals, arrows and boolean-edited outlines. Group placement ignores Shape overlap
+modes to preserve its geometry. Fill regions are not selectable group members.
+Groups are saved with their map; there are no persistent group links after placement.
 
 ---
 
@@ -147,7 +184,7 @@ Fill now preserves inner holes at every nesting level. Filling between concentri
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.4"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.5"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -421,6 +458,50 @@ spiral settings explicitly; the polygon radius/angle/sides fields retain their
 regular-polygon values. `get_tool_state()` also includes `active_path_subtype`
 and an independent `active_path_spiral` dictionary.
 
+**Template and group API:**
+
+`get_placement_state()` adds `active_marker_type`, `active_template_index`,
+`active_template_id` (-1 when none), `template_capture_mode`,
+`template_rotation_offset` (degrees) and `template_scale` (1 = 100%) to the Shape
+snapshot. Poll it when an external tool can consume the active Template tab.
+`get_templates()` returns independent map-scoped snapshots with stable IDs and
+names; groups have `kind = "group"` and `items`, singles have `data`.
+
+```gdscript
+var templates = gl.get_templates()
+if not templates.empty():
+	gl.select_template(templates[0].id) # Also activates the Template tab.
+	gl.set_template_transform(30.0, 1.5) # Absolute sidebar rotation / uniform scale.
+
+# World-space snapshots; does not place, allocate IDs, snap or modify sidebar state.
+var markers = gl.get_template_markers(position, -1, 15.0, 2.0)
+# -1: selected template, adds 15 degrees and multiplies sidebar scale by 2.
+# Explicit stable template ID: rotation/scale start at 0 degrees / 1x instead.
+
+# Same transform; one plain stamp and one history record. Returns new IDs or [].
+var ids = gl.place_template(position, -1, 15.0, 2.0)
+
+# One-frame preview, using the same geometry. Refresh each frame while active.
+gl.set_template_preview(position, 15.0, 2.0)
+gl.clear_shape_preview() # Clears the shared Shape/Template preview channel.
+```
+
+Resolved markers contain no IDs. Positions, Path `marker_points` and Shape
+`shape_primitives` use world-space Vector2 values; colors are Color values.
+Shapes additionally expose `polygon`; Paths/Lines expose `outline_points` and
+`closed`. Line outlines are clipped to map bounds. Group members share one pivot
+at the center of their captured bounds. Scaling changes sizes and member offsets
+together. Single templates support the same uniform scaling, including their UI.
+
+`apply_marker_geometry(marker, mode = "Normal")` consumes a resolved marker and
+records its placement/edit. Shape modes are `Normal`, `Merge`, `Conform`, `Wrap`
+and `Difference`; boolean result dictionaries match the existing Shape methods.
+Normal returns `marker_id` and `marker_polygon`. Merge without overlaps returns
+empty `affected_markers`/`absorbed_marker_ids` and leaves placement to the caller.
+Line/Path accept Normal only. Invalid input returns `{}` before mutation.
+Use `begin_history_capture()` / `end_history_capture()` around sequential edits
+when another mod owns the compound undo action. Room Builder demonstrates this.
+
 **Signals:**
 ```gdscript
 gl.connect("marker_placed", self, "_on_marker_placed")  # (marker_id, position)
@@ -649,7 +730,15 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.4 (Current) — 2026-11-09
+### v2.4.5 (Current) — 2026-11-09
+- Group templates with toggle selection, contour highlights, shared rotation/scale and one undo/redo action per stamp.
+- Inline renaming of single/group templates with shortcut suppression while typing.
+- Public template/group geometry, transform, preview and placement API for BuildingPlanner Room and other consumers.
+- Map format 2 stores group templates and reads format 1 maps.
+- Boolean Shape edits recenter anchors on final geometry bounds and restore positions through undo/redo.
+- All 127 standalone Godot tests pass; the user confirmed the current changes working in Dungeondraft.
+
+### v2.4.4 — 2026-11-09
 - Fill and `GuidesLinesApi.compute_fill_polygon()` preserve inner holes in nested and overlapping Shapes, fixing floor fills between inner rings in BuildingPlanner.
 - The nested-ring fix was confirmed working by user testing in Dungeondraft.
 

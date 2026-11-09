@@ -1,6 +1,7 @@
 extends Reference
 
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
+const Persistence = preload("../tool/GuidesLinesPersistence.gd")
 
 # GuidesLinesApi - External API for the GuidesLines mod
 #
@@ -931,6 +932,161 @@ func get_shape_polygon(marker_id: int):
 # TOOL STATE & PREVIEW
 # ============================================================================
 
+## Independent map-scoped template snapshots; IDs are stable until deletion/map change.
+func get_templates() -> Array:
+	return _tool().templates.duplicate(true) if _has_tool() else []
+
+func select_template(template_id: int) -> bool:
+	if not _has_tool(): return false
+	for index in range(_tool().templates.size()):
+		if _tool().templates[index].id == template_id:
+			_tool().set_marker_type(_tool().MARKER_TYPE_TEMPLATE)
+			_tool().select_template(index)
+			if _tool().ui: _tool().ui.rebuild_template_list()
+			return true
+	return false
+
+## Absolute sidebar transform: degrees and uniform multiplier (1 = 100%).
+func set_template_transform(rotation: float, scale: float = 1.0) -> bool:
+	if not _has_tool() or not Persistence._number(rotation) or not Persistence._number(scale) or scale < 0.01 or scale > 100:
+		return false
+	var tool = _tool()
+	if tool.active_template_index < 0 or tool.active_template_index >= tool.templates.size(): return false
+	tool.template_scale = scale
+	tool.set_group_transform(rotation, true)
+	return true
+
+## With template_id=-1 use the selected template and its sidebar transform.
+## Explicit IDs start at rotation 0 / scale 1. Offsets compose with that base.
+## Returns world-space marker snapshots without IDs, or [] on failure; no snapping,
+## state changes, placement or history. Shapes expose polygon; Paths/Lines expose
+## outline_points and closed. Line outlines are clipped to the current map.
+func get_template_markers(coords: Vector2, template_id: int = -1, rotation_offset: float = 0.0, scale_factor: float = 1.0) -> Array:
+	if not _has_tool() or not Persistence._number(rotation_offset) or not Persistence._number(scale_factor): return []
+	var tool = _tool()
+	if not tool.GuideMarkerClass: return []
+	var index = tool.active_template_index
+	var rotation = tool.template_rotation_offset + rotation_offset
+	var scale = tool.template_scale * scale_factor
+	if template_id != -1:
+		index = -1
+		rotation = rotation_offset
+		scale = scale_factor
+		for i in range(tool.templates.size()):
+			if tool.templates[i].id == template_id: index = i
+	var batch = tool.build_template_markers(coords, index, rotation, scale)
+	var context = _get_map_context(tool)
+	if context[0] == null or context[1] == null: return []
+	for data in batch:
+		data.erase("id")
+		match data.marker_type:
+			"Shape":
+				data["polygon"] = tool._get_shape_descriptor_from_marker_data(data).get("points", [])
+			"Path":
+				data["outline_points"] = data.marker_points.duplicate()
+				data["closed"] = data.get("path_closed", false)
+			"Line":
+				var marker = tool.GuideMarkerClass.new(data.position, data.get("angle", 0.0), data.get("mirror", false))
+				var segments = marker.get_draw_data(context[0], context[1]).get("segments", [])
+				var points = []
+				for segment in segments:
+					if segment[0] == segment[1]: continue
+					if points.empty(): points = [segment[0], segment[1]]
+					elif segment[0] == points[0]: points.push_front(segment[1])
+				data["outline_points"] = points
+				data["closed"] = false
+	return batch
+
+## Place an exact resolved marker. Shape mode is Normal/Merge/Conform/Wrap/Difference;
+## boolean result dictionaries match the corresponding place_shape_* methods.
+## Normal returns marker_id/marker_polygon. Non-Shapes support Normal only.
+func apply_marker_geometry(source: Dictionary, mode: String = "Normal") -> Dictionary:
+	if not _has_tool() or not mode in ["Normal", "Merge", "Conform", "Wrap", "Difference"]: return {}
+	var data = _validated_marker_geometry(source)
+	if data.empty(): return {}
+	var tool = _tool()
+	data["id"] = tool.next_id
+	if mode != "Normal":
+		if data.marker_type != "Shape" or tool._get_shape_descriptor_from_marker_data(data).empty(): return {}
+		match mode:
+			"Merge": return tool.api_place_shape_merge(data)
+			"Conform": return tool.api_place_shape_conforming(data)
+			"Wrap": return tool.api_place_shape_wrapping(data)
+			"Difference": return tool.api_apply_shape_difference(data)
+	tool.api_place_marker(data, false)
+	return {"marker_id": data.id, "marker_polygon": tool._get_shape_descriptor_from_marker_data(data).get("points", []) if data.marker_type == "Shape" else []}
+
+## One plain stamp / one undo record. Entire batch is checked before mutation.
+func place_template(coords: Vector2, template_id: int = -1, rotation_offset: float = 0.0, scale_factor: float = 1.0) -> Array:
+	var batch = get_template_markers(coords, template_id, rotation_offset, scale_factor)
+	if batch.empty(): return []
+	var tool = _tool()
+	var ids = []
+	for data in batch:
+		data["id"] = tool.next_id + ids.size()
+		ids.append(data.id)
+	tool.next_id += batch.size()
+	for data in batch: tool._do_place_marker(data, false, false)
+	tool._record_history(tool.GuidesLinesHistory.PlaceGroupRecord.new(tool, batch))
+	return ids
+
+func set_template_preview(coords: Vector2, rotation_offset: float = 0.0, scale_factor: float = 1.0) -> bool:
+	var batch = get_template_markers(coords, -1, rotation_offset, scale_factor)
+	if batch.empty():
+		clear_shape_preview()
+		return false
+	var tool = _tool()
+	tool._api_preview.clear()
+	tool._api_preview["pos"] = coords
+	tool._api_preview["markers"] = batch
+	tool._api_preview_frame = Engine.get_idle_frames()
+	if tool.overlay: tool.overlay.update()
+	return true
+
+## Polling snapshot for Shape/Template consumers; legacy Shape keys stay available.
+func get_placement_state() -> Dictionary:
+	var state = get_shape_state()
+	if not state.get("ready", false): return state
+	var tool = _tool()
+	state["active_marker_type"] = tool.active_marker_type
+	state["active_template_index"] = tool.active_template_index
+	state["active_template_id"] = tool.templates[tool.active_template_index].id if tool.active_template_index >= 0 and tool.active_template_index < tool.templates.size() else -1
+	state["template_rotation_offset"] = tool.template_rotation_offset
+	state["template_scale"] = tool.template_scale
+	state["template_capture_mode"] = tool.template_capture_mode
+	return state
+
+func _validated_marker_geometry(source: Dictionary) -> Dictionary:
+	var saved = source.duplicate(true)
+	if not saved.get("position") is Vector2 or not saved.get("color") is Color: return {}
+	for channel in [saved.color.r, saved.color.g, saved.color.b, saved.color.a]:
+		if not Persistence._number(channel): return {}
+	saved.position = [saved.position.x, saved.position.y]
+	saved.color = "#" + saved.color.to_html()
+	saved["id"] = 0
+	if saved.has("marker_points"):
+		if not saved.marker_points is Array: return {}
+		for i in range(saved.marker_points.size()):
+			var point = saved.marker_points[i]
+			if not point is Vector2: return {}
+			saved.marker_points[i] = [point.x, point.y]
+	if saved.has("shape_primitives"):
+		if not saved.shape_primitives is Array: return {}
+		for seg in saved.shape_primitives:
+			if not seg is Dictionary or not seg.get("a") is Vector2 or not seg.get("b") is Vector2: return {}
+			if seg.get("type", "seg") != "seg": return {}
+			seg.a = [seg.a.x, seg.a.y]
+			seg.b = [seg.b.x, seg.b.y]
+	if not Persistence._marker(saved): return {}
+	var data = source.duplicate(true)
+	if data.marker_type == "Shape":
+		data["shape_radius"] = data.get("shape_radius", 1.0)
+		data["shape_angle"] = data.get("shape_angle", 0.0)
+		data["shape_sides"] = int(data.get("shape_sides", 6))
+	elif data.marker_type == "Path":
+		data["path_closed"] = data.get("path_closed", false)
+	return data
+
 ## Queues a one-frame Shape preview at [coords].
 ## The overlay retains it through that frame's draw passes, then clears it.
 ## Call this every frame (e.g. from _process) to keep the preview alive.
@@ -947,6 +1103,7 @@ func set_shape_preview(coords: Vector2, radius: float = 1.0,
 		return
 	var tool = _tool()
 	var c = color if color != null else Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.5)
+	tool._api_preview.erase("markers")
 	tool._api_preview_frame = Engine.get_idle_frames()
 	tool._api_preview["pos"] = coords
 	tool._api_preview["radius"] = radius
@@ -981,7 +1138,7 @@ func get_shape_state() -> Dictionary:
 ##
 ## Keys:
 ##   "ready"                  : bool   — false when the tool is not yet loaded
-##   "active_marker_type"     : String — "Line" | "Shape" | "Path" | "Fill"
+##   "active_marker_type"     : String — "Line" | "Shape" | "Path" | "Fill" | "Template"
 ##   "active_angle"           : float  — Line angle in degrees
 ##   "active_mirror"          : bool   — Line mirror enabled
 ##   "active_shape_radius"    : float  — Shape circumradius in grid cells
@@ -1032,6 +1189,8 @@ func get_tool_state() -> Dictionary:
 		"active_shape_size_mode":   t.active_shape_size_mode,
 		"active_shape_side":        t.active_shape_side,
 		"active_template_index":    t.active_template_index,
+		"template_rotation_offset": t.template_rotation_offset,
+		"template_scale":           t.template_scale,
 		"template_capture_mode":    t.template_capture_mode,
 		"marker_count":             t.markers.size(),
 		"fill_count":               t.fills.size(),

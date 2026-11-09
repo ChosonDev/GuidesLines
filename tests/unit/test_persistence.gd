@@ -156,7 +156,7 @@ func test_complete_map_round_trip_and_transient_state_reset():
 func test_versions_are_rejected_whole_and_next_save_replaces_all_old_fields():
 	populate()
 	var valid = saved_json()
-	for version in [0, 2, 1.5, "1", null, true]:
+	for version in [0, persistence.DATA_VERSION + 1, 1.5, "1", null, true]:
 		var data = valid.duplicate(true)
 		data[persistence.DATA_KEY].version = version
 		data[persistence.DATA_KEY]["old_unknown_field"] = "discard me"
@@ -171,6 +171,55 @@ func test_versions_are_rejected_whole_and_next_save_replaces_all_old_fields():
 		assert_true(persistence.load_map(data))
 	assert_true(persistence.load_map({}))
 	assert_eq_deep(tool.markers_lookup, {})
+
+func test_group_templates_round_trip_and_legacy_v1_maps_upgrade_without_loss():
+	populate()
+	tool.cached_world = {"WorldRect": Rect2(-1000, -1000, 2000, 2000), "Level": {"TileMap": {"CellSize": Vector2(100, 100)}}}
+	var legacy = saved_json()
+	legacy[persistence.DATA_KEY].version = 1
+	assert_true(persistence.load_map(legacy))
+	var upgraded = saved_json()
+	assert_eq(upgraded[persistence.DATA_KEY].version, 2.0)
+	legacy[persistence.DATA_KEY].version = 2.0
+	assert_eq_deep(upgraded, legacy)
+	tool.start_group_capture()
+	tool.template_group_ids = {3: true, 4: true, 5: true}
+	assert_true(tool.save_group_template())
+	assert_true(tool.rename_template(tool.templates[0].id, "Named single template"))
+	assert_true(tool.rename_template(tool.templates.back().id, "Named group template"))
+	var expected = saved_json()
+	tool.start_group_capture()
+	tool.template_group_ids = {3: true}
+	tool.template_scale = 2.0
+	assert_true(persistence.load_map(expected))
+	assert_false(tool.template_group_capture)
+	assert_true(tool.template_group_ids.empty())
+	assert_eq(tool.template_scale, 1.0)
+	assert_eq_deep(saved_json(), expected)
+	tool.select_template(tool.templates.size() - 1)
+	assert_eq(tool.build_group_markers(Vector2.ZERO).size(), 3)
+
+func test_group_persistence_rejects_malformed_members_and_nested_groups_atomically():
+	populate()
+	tool.cached_world = {"WorldRect": Rect2(-1000, -1000, 2000, 2000), "Level": {"TileMap": {"CellSize": Vector2(100, 100)}}}
+	tool.start_group_capture()
+	tool.template_group_ids = {3: true, 4: true}
+	assert_true(tool.save_group_template())
+	var valid = saved_json()
+	for replacement in [null, [], [{}], [{"kind": "group"}, {"kind": "group"}]]:
+		var data = valid.duplicate(true)
+		data[persistence.DATA_KEY].templates.back().items = replacement
+		assert_false(persistence.load_map(data))
+		assert_true(tool.markers.empty())
+		assert_true(tool.templates.empty())
+	for mutation in [["position", [1e100, 0]], ["color", "invalid"], ["id", 5]]:
+		var data = valid.duplicate(true)
+		data[persistence.DATA_KEY].templates.back().items[0][mutation[0]] = mutation[1]
+		assert_false(persistence.load_map(data))
+		assert_true(tool.markers.empty())
+	var old = valid.duplicate(true)
+	old[persistence.DATA_KEY].version = 1
+	assert_false(persistence.load_map(old), "Group records cannot masquerade as v1")
 
 
 func test_malformed_data_rejected_atomically_before_any_load():
