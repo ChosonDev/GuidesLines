@@ -22,6 +22,7 @@
     {"path": "scripts/tool/GuidesLinesToolUI.gd", "args": [null]},
     {"path": "scripts/tool/GuidesLinesPlacement.gd", "args": [null]},
     {"path": "scripts/tool/GuidesLinesFill.gd", "args": [null]},
+    {"path": "scripts/tool/GuidesLinesRegions.gd", "args": []},
     {"path": "scripts/tool/GuidesLinesHistory.gd", "args": []}
   ],
   "construction_note": "Constructors only, off-tree; null collaborators intentionally never receive lifecycle calls. Lifecycle methods, UI and nested history records are outside this constructor check."

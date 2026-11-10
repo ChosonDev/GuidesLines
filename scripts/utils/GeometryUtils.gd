@@ -516,6 +516,61 @@ static func merge_polygons_outline(pts_a: Array, pts_b: Array) -> Array:
 
 	return all_segs
 
+## Normalize all stored rings by containment, including legacy equal-winding holes.
+static func normalized_contours(segs: Array) -> Array:
+	var rings = split_segments_into_chains(segs)
+	if rings.size() <= 1: return rings
+	var pools = []
+	var bounds = []
+	for ring in rings:
+		pools.append(PoolVector2Array(ring))
+		bounds.append(polygon_intersection_bounds(ring))
+	for i in range(rings.size()):
+		var depth = 0
+		for j in range(rings.size()):
+			if i == j: continue
+			# Inclusive bounds keep contours touching the enclosing ring eligible.
+			if bounds[j].position.x > bounds[i].position.x or bounds[j].position.y > bounds[i].position.y or bounds[j].end.x < bounds[i].end.x or bounds[j].end.y < bounds[i].end.y: continue
+			if Geometry.clip_polygons_2d(pools[i], pools[j]).empty() and not Geometry.clip_polygons_2d(pools[j], pools[i]).empty(): depth += 1
+		if Geometry.is_polygon_clockwise(PoolVector2Array(rings[i])) != bool(depth % 2): rings[i].invert()
+	return rings
+
+static func compound_segments_to_polygon(segs: Array) -> Array:
+	var rings = normalized_contours(segs)
+	if rings.size() <= 1: return chain_segments_to_polygon(segs)
+	# Preserve every ring in the legacy single-array contract. Paired connector edges
+	# cancel under even-odd booleans; callers must use primitives for real boundaries.
+	var combined = []
+	for ring in rings:
+		if ring.size() < 3: continue
+		if combined.empty():
+			combined = ring.duplicate()
+		else:
+			# ponytail: transport edges preserve area, not connectivity. Fill selects a
+			# solid from normalized_contours; boundary operations use stored primitives.
+			combined.append(combined[0])
+			combined += ring
+			combined.append(ring[0])
+	return combined
+
+## Native clipping can retain paired transport edges. They carry no boundary area.
+static func remove_paired_edges(segs: Array) -> Array:
+	var pending = {}
+	var result = []
+	for edge in segs:
+		if edge.a == edge.b: continue
+		if pending.get(edge.b, {}).has(edge.a):
+			result[pending[edge.b][edge.a]] = null
+			pending[edge.b].erase(edge.a)
+		else:
+			if not pending.has(edge.a): pending[edge.a] = {}
+			pending[edge.a][edge.b] = result.size()
+			result.append(edge)
+	var boundary = []
+	for edge in result:
+		if edge != null: boundary.append(edge)
+	return boundary
+
 ## Chain a flat list of {type:"seg", a:V2, b:V2} segments into a single ordered
 ## polygon vertex array.  Endpoints are matched within [eps] tolerance.
 ## Handles figure-8 / tangent unions where two closed loops share exactly one

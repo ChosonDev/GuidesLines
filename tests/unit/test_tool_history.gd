@@ -6,6 +6,625 @@ var api
 var last_record
 var deleted_ids = []
 
+func _count_fill_queries():
+	var script = GDScript.new()
+	script.source_code = 'extends "' + mod_root.plus_file("scripts/tool/GuidesLinesFill.gd") + '"\nvar computations = 0\nfunc _init(owner).(owner):\n\tpass\nfunc _compute_fill_polygon(position: Vector2, hits: Array, quiet: bool = false) -> Array:\n\tcomputations += 1\n\treturn ._compute_fill_polygon(position, hits, quiet)\n'
+	assert_eq(script.reload(), OK)
+	tool._fill_handler.tool = null
+	tool._fill_handler = script.new(tool)
+
+func test_preview_nested_circle_profile():
+	_count_fill_queries()
+	for radius in range(1, 7):
+		api.place_shape_marker_plain(Vector2.ZERO, float(radius), 0.0, 64)
+	var start = OS.get_ticks_usec()
+	var first = api.get_build_preview_target(Vector2(550, 10))
+	var cold = OS.get_ticks_usec() - start
+	assert_eq(first.kind, "Fill")
+	assert_eq(first.fill.polygon.size(), 130)
+	var timings = []
+	for i in range(30):
+		start = OS.get_ticks_usec()
+		var same = api.get_build_preview_target(Vector2(550, i), false, first.zone_hash)
+		timings.append(OS.get_ticks_usec() - start)
+		assert_eq_deep(same, {"zone_hash": first.zone_hash})
+	assert_eq(tool._fill_handler.computations, 1, "A visited ring is clipped once, not once per pointer move")
+	var second = api.get_build_preview_target(Vector2(450, 10), false, first.zone_hash)
+	assert_ne(second.zone_hash, first.zone_hash)
+	assert_eq(tool._fill_handler.computations, 2)
+	assert_eq(api.get_build_preview_target(Vector2(550, 20)).zone_hash, first.zone_hash)
+	assert_eq(tool._fill_handler.computations, 2, "Revisiting a cached ring also skips clipping")
+	timings.sort()
+	print("Nested circles: cold=", cold, "us; cached median=", timings[15], "us p95=", timings[28], "us; computations=", tool._fill_handler.computations)
+
+func test_preview_zone_rejects_stale_hits_and_reuses_unchanged_marker_fingerprints():
+	var marker = add_shape(10)
+	var pos = Vector2(20, 20)
+	api.get_build_preview_target(pos)
+	var retained = tool._regions_cache._markers[10]
+	retained["reuse_probe"] = true
+	api.place_path_marker([Vector2(1000, 0), Vector2(1100, 0)], false)
+	api.get_build_preview_target(pos)
+	assert_true(tool._regions_cache._markers[10].get("reuse_probe", false), "An unrelated revision reuses the full fingerprint record")
+	var hits = tool._fill_handler._collect_hit_markers(pos, tool._get_grid_cell_size())
+	assert_eq(hits.size(), 1)
+	assert_true(api.delete_marker(marker.id))
+	assert_null(tool._regions_cache.resolve(tool, pos, hits), "Stale hits must fail before typed Rect2 dependency lookup")
+
+func test_preview_zone_fresh_click_replaces_restored_hash_without_dropping_other_components():
+	var marker = add_shape(10)
+	marker.set_primitives(tool.GeometryUtils.points_to_segs([Vector2(-100, -100), Vector2(100, -100), Vector2(100, 100), Vector2(-100, 100)]))
+	var cutter = add_shape(11)
+	cutter.set_primitives(tool.GeometryUtils.points_to_segs([Vector2(-10, -150), Vector2(10, -150), Vector2(10, 150), Vector2(-10, 150)]))
+	tool.invalidate_geometry()
+	api.get_build_preview_target(Vector2(-50, 20))
+	var right = api.get_build_preview_target(Vector2(50, 20))
+	var data = JSON.parse(JSON.print(tool._regions_cache.save_data(tool))).result
+	# Persisted keys are opaque identities; a fresh native calculation may have a different key after rounding.
+	data.zones[0].zone_hash = "0".repeat(64)
+	tool._regions_cache.clear()
+	tool._regions_cache.load_data(data)
+	assert_eq(api.get_build_preview_target(Vector2(-50, 20)).zone_hash, data.zones[0].zone_hash)
+	api.compute_fill_polygon(Vector2(-50, 20))
+	assert_eq(tool._regions_cache._regions.size(), 2, "Replace the queried component, not append another copy")
+	assert_eq(api.get_build_preview_target(Vector2(50, 20)).zone_hash, right.zone_hash, "The other disconnected component stays cached")
+	for entry in tool._regions_cache._regions:
+		assert_true(entry.pool is PoolVector2Array, "Hit-test geometry is converted once on insertion")
+		assert_ne(entry.value.zone_hash, data.zones[0].zone_hash)
+
+func _rect_polygon(left: float, top: float, right: float, bottom: float) -> Array:
+	return [Vector2(left, top), Vector2(right, top), Vector2(right, bottom), Vector2(left, bottom)]
+
+func _primitive_region_contains(primitives: Array, point: Vector2) -> bool:
+	var inside = false
+	for contour in tool.GeometryUtils.split_segments_into_chains(primitives):
+		if Geometry.is_point_in_polygon(point, contour): inside = not inside
+	return inside
+
+func test_compound_shape_fill_api_cache_and_followup_booleans_preserve_every_ring():
+	var marker = add_shape(10)
+	var primitives = []
+	for ring in [_rect_polygon(-100, -100, -10, 100), _rect_polygon(10, -100, 100, 100), _rect_polygon(30, -30, 70, 30)]:
+		primitives += tool.GeometryUtils.points_to_segs(ring)
+	marker.set_primitives(primitives)
+	tool.invalidate_geometry()
+	var whole = api.get_shape_polygon(10).polygon
+	for point in [Vector2(-50, 10), Vector2(80, 10)]:
+		assert_true(Geometry.is_point_in_polygon(point, whole))
+		var preview = api.get_build_preview_target(point)
+		assert_eq(preview.kind, "Fill")
+		assert_eq(preview.fill.marker_ids, [10])
+		assert_true(Geometry.is_point_in_polygon(point, preview.fill.polygon))
+		assert_false(Geometry.is_point_in_polygon(-point, preview.fill.polygon), "Only the visited island is filled: %s %s" % [point, preview.fill.polygon])
+		assert_eq_deep(api.compute_fill_polygon(point).polygon, preview.fill.polygon)
+	assert_false(Geometry.is_point_in_polygon(Vector2(50, 10), whole))
+	assert_eq_deep(api.get_build_preview_target(Vector2(50, 10)), {"zone_hash": ""})
+	var saved = tool._regions_cache.save_data(tool)
+	tool._regions_cache.clear()
+	tool._regions_cache.load_data(JSON.parse(JSON.print(saved)).result)
+	assert_eq(api.get_build_preview_target(Vector2(80, 10)).kind, "Fill")
+	# Editing only the later ring must invalidate a saved/cached target.
+	var old_hash = api.get_build_preview_target(Vector2(-50, 10)).zone_hash
+	marker.set_primitives(primitives + tool.GeometryUtils.points_to_segs(_rect_polygon(-70, -30, -30, 30)))
+	tool.invalidate_geometry()
+	assert_ne(api.get_build_preview_target(Vector2(-80, 10)).zone_hash, old_hash)
+	# Merge into the second island: the first island and both existing holes survive.
+	var data = shape_data(11)
+	data.shape_primitives = tool.GeometryUtils.points_to_segs(_rect_polygon(80, -20, 120, 20))
+	var before = marker_state()
+	assert_false(api.apply_marker_geometry(data, "Merge").empty())
+	var after = marker_state()
+	for point in [Vector2(-80, 10), Vector2(110, 10)]: assert_true(Geometry.is_point_in_polygon(point, marker.get_polygon()))
+	for point in [Vector2(-50, 10), Vector2(50, 10)]: assert_false(Geometry.is_point_in_polygon(point, marker.get_polygon()))
+	assert_false(Geometry.is_point_in_polygon(Vector2(-80, 10), api.compute_fill_polygon(Vector2(110, 10)).polygon), "Merge must also preserve island connectivity")
+	last_record.undo()
+	assert_eq_deep(marker_state(), before)
+	last_record.redo()
+	assert_eq_deep(marker_state(), after)
+	var persistence = load(mod_root.plus_file("scripts/tool/GuidesLinesPersistence.gd")).new()
+	persistence._mod = tool.parent_mod
+	var map_data = {}
+	persistence.save_map(map_data)
+	assert_true(persistence.load_map(JSON.parse(JSON.print(map_data)).result))
+	assert_true(Geometry.is_point_in_polygon(Vector2(-80, 10), api.get_shape_polygon(10).polygon))
+	assert_false(Geometry.is_point_in_polygon(Vector2(50, 10), api.get_shape_polygon(10).polygon))
+	assert_false(Geometry.is_point_in_polygon(Vector2(-80, 10), api.compute_fill_polygon(Vector2(110, 10)).polygon))
+	persistence._mod = null
+
+func test_cut_of_a_compound_shape_uses_real_boundaries_and_preserves_the_other_island():
+	var marker = add_shape(10)
+	marker.set_primitives(tool.GeometryUtils.points_to_segs(_rect_polygon(-100, -40, -10, 40)) + tool.GeometryUtils.points_to_segs(_rect_polygon(10, -40, 100, 40)))
+	tool.invalidate_geometry()
+	var data = shape_data(11)
+	data.shape_primitives = tool.GeometryUtils.points_to_segs(_rect_polygon(-5, -60, 5, 60))
+	var before = marker_state()
+	var desc = tool._get_shape_descriptor_from_marker_data(data)
+	assert_true(tool._take_cut_snapshot(desc).empty(), "Crossing only a transport bridge is a no-op")
+	tool._do_apply_cut(desc)
+	assert_eq_deep(marker_state(), before)
+	data.shape_primitives = tool.GeometryUtils.points_to_segs(_rect_polygon(0, -60, 120, 60))
+	tool.cut_mode = true
+	assert_true(tool._try_apply_non_placing_shape_mode(tool._get_shape_descriptor_from_marker_data(data), Vector2.ZERO))
+	assert_eq(marker.marker_type, "Path")
+	for point in marker.marker_points: assert_lt(point.x, 0.0)
+	var after = marker_state()
+	last_record.undo()
+	assert_eq_deep(marker_state(), before)
+	last_record.redo()
+	assert_eq_deep(marker_state(), after)
+
+func test_tangent_hole_bridge_has_no_zero_length_edges_and_keeps_later_sectors():
+	var handler = tool._fill_handler
+	var outer = _rect_polygon(0, 0, 100, 100)
+	var hole = [Vector2.ZERO, Vector2(10, 30), Vector2(30, 10)]
+	var polygon = handler._bridge_hole_into_polygon(outer, hole, [0, 0])
+	for i in range(polygon.size()): assert_ne(polygon[i], polygon[(i + 1) % polygon.size()])
+	for point in [Vector2(3, 40), Vector2(40, 3)]:
+		assert_ne(handler._bridge_vertex_index(Vector2.ZERO, point, polygon), -1)
+	assert_false(Geometry.is_point_in_polygon(Vector2(12, 12), polygon))
+	assert_true(Geometry.is_point_in_polygon(Vector2(50, 50), polygon))
+	var clips = [PoolVector2Array(outer)]
+	for points in [[Vector2.ZERO, Vector2(30, 5), Vector2(40, 1)], [Vector2.ZERO, Vector2(1, 40), Vector2(5, 30)], _rect_polygon(50, 50, 60, 60)]:
+		var pool = PoolVector2Array(points)
+		if not Geometry.is_polygon_clockwise(pool): pool.invert()
+		clips.append(pool)
+	var filled = handler._merge_clips_to_polygon(clips, Vector2(50, 10))
+	assert_false(filled.empty())
+	for i in range(filled.size()): assert_ne(filled[i], filled[(i + 1) % filled.size()])
+	for point in [Vector2(20, 2), Vector2(2, 20), Vector2(55, 55)]: assert_false(Geometry.is_point_in_polygon(point, filled))
+	assert_true(Geometry.is_point_in_polygon(Vector2(50, 10), filled))
+
+func test_contour_membership_checks_later_vertices_and_tangent_hole_rotations():
+	var handler = tool._fill_handler
+	var outer = PoolVector2Array(_rect_polygon(0, 0, 100, 100))
+	assert_true(handler._any_contour_vertex_inside(PoolVector2Array([Vector2(-1, 10), Vector2(10, 10), Vector2(10, 20)]), outer))
+	assert_false(handler._any_contour_vertex_inside(PoolVector2Array(_rect_polygon(110, 110, 120, 120)), outer))
+	var hole = [Vector2(0, 50), Vector2(20, 60), Vector2(20, 40)]
+	if not Geometry.is_polygon_clockwise(hole): hole.invert()
+	for _rotation in range(hole.size()):
+		var filled = handler._merge_clips_to_polygon([outer, PoolVector2Array(hole)], Vector2(80, 50))
+		assert_false(filled.empty())
+		assert_false(Geometry.is_point_in_polygon(Vector2(15, 50), filled))
+		assert_true(Geometry.is_point_in_polygon(Vector2(80, 50), filled))
+		hole.append(hole.pop_front())
+
+func test_normalized_contours_bounds_keep_tangent_equal_bounds_and_nested_rings():
+	var rings = [_rect_polygon(0, 0, 100, 100), _rect_polygon(0, 40, 20, 60), _rect_polygon(5, 45, 10, 55)]
+	# Disjoint rings should be rejected by bounds before native containment tests.
+	for i in range(20): rings.append(_rect_polygon(200 + i * 20, 0, 210 + i * 20, 10))
+	var segments = []
+	for ring in rings: segments += tool.GeometryUtils.points_to_segs(ring)
+	var normalized = tool.GeometryUtils.normalized_contours(segments)
+	assert_eq(normalized.size(), rings.size())
+	for i in range(normalized.size()):
+		assert_eq(Geometry.is_polygon_clockwise(normalized[i]), i == 1)
+	# A diamond inside a square has exactly the same bounds; it is still a hole.
+	segments = tool.GeometryUtils.points_to_segs(rings[0]) + tool.GeometryUtils.points_to_segs([Vector2(0, 50), Vector2(50, 0), Vector2(100, 50), Vector2(50, 100)])
+	normalized = tool.GeometryUtils.normalized_contours(segments)
+	assert_eq(normalized.size(), 2)
+	assert_false(Geometry.is_polygon_clockwise(normalized[0]))
+	assert_true(Geometry.is_polygon_clockwise(normalized[1]))
+
+func test_initial_geometry_revision_read_is_pure_but_grid_change_invalidates():
+	var before = tool.geometry_revision
+	api.get_geometry_revision()
+	assert_eq(tool.geometry_revision, before)
+	api._geometry_cell_size = Vector2(1, 1)
+	api.get_geometry_revision()
+	assert_eq(tool.geometry_revision, before + 1)
+
+func test_difference_preserves_holes_and_disconnected_solids_without_duplicate_edges():
+	var marker = add_shape(10)
+	var outer = _rect_polygon(-100, -100, 100, 100)
+	marker.set_primitives(tool.GeometryUtils.points_to_segs(outer))
+	for cut in [_rect_polygon(-30, -30, 30, 30), _rect_polygon(-30, -30, 30, 30), _rect_polygon(-10, -10, 10, 10)]:
+		tool._do_apply_difference({"shape_type": "poly", "points": cut})
+		assert_eq(marker.get_primitives().size(), 8, "Repeated and nested cuts into a hole add no edges")
+		assert_false(_primitive_region_contains(marker.get_primitives(), Vector2(5, 5)))
+		assert_true(_primitive_region_contains(marker.get_primitives(), Vector2(80, 10)))
+	# A cut crossing an existing hole must keep a closed, duplicate-free boundary.
+	tool._do_apply_difference({"shape_type": "poly", "points": _rect_polygon(0, -10, 120, 10)})
+	for point in [Vector2(5, 5), Vector2(80, 5)]:
+		assert_false(_primitive_region_contains(marker.get_primitives(), point))
+	assert_true(_primitive_region_contains(marker.get_primitives(), Vector2(-80, 5)))
+	marker.set_primitives(tool.GeometryUtils.points_to_segs(outer))
+	tool._do_apply_difference({"shape_type": "poly", "points": _rect_polygon(-10, -120, 10, 120)})
+	var data = shape_data(11, Vector2(50, 0))
+	data.shape_primitives = tool.GeometryUtils.points_to_segs(_rect_polygon(40, -20, 60, 20))
+	var before = marker_state()
+	assert_false(api.apply_marker_geometry(data, "Difference").empty())
+	var after = marker_state()
+	assert_true(_primitive_region_contains(marker.get_primitives(), Vector2(-50, 5)))
+	assert_false(_primitive_region_contains(marker.get_primitives(), Vector2(50, 5)))
+	assert_true(_primitive_region_contains(marker.get_primitives(), Vector2(80, 5)))
+	last_record.undo()
+	assert_eq_deep(marker_state(), before)
+	last_record.redo()
+	assert_eq_deep(marker_state(), after)
+	# Legacy rings can have identical winding; containment restores nested island topology.
+	var primitives = []
+	for ring in [outer, _rect_polygon(-70, -70, 70, 70), _rect_polygon(-40, -40, 40, 40), _rect_polygon(-10, -10, 10, 10)]:
+		primitives += tool.GeometryUtils.points_to_segs(ring)
+	marker.set_primitives(primitives)
+	tool._do_apply_difference({"shape_type": "poly", "points": _rect_polygon(75, -10, 120, 10)})
+	for point in [Vector2(5, 5), Vector2(50, 5), Vector2(85, 5)]:
+		assert_false(_primitive_region_contains(marker.get_primitives(), point))
+	for point in [Vector2(20, 5), Vector2(-85, 5)]:
+		assert_true(_primitive_region_contains(marker.get_primitives(), point))
+
+func test_bridge_visibility_rejects_a_bridge_contained_in_an_unrelated_edge():
+	var outer = _rect_polygon(-100, -100, 100, 100)
+	var edge = [Vector2(-40, 0), Vector2(40, 0), Vector2(0, -40)]
+	assert_false(tool._fill_handler._bridge_visible(Vector2(-10, 0), Vector2(10, 0), outer, [edge]))
+	assert_true(tool._fill_handler._bridge_visible(Vector2(-100, -100), Vector2(-40, -40), outer, []))
+
+func test_bridge_selects_the_matching_sector_of_a_duplicated_vertex():
+	var handler = tool._fill_handler
+	var outer = _rect_polygon(-100, -100, 100, 100)
+	var hole = _rect_polygon(-30, -30, 30, 30)
+	hole.invert()
+	var polygon = handler._bridge_hole_into_polygon(outer, hole, [0, 0])
+	var a = outer[0]
+	for b in [Vector2(-90, -20), Vector2(60, -90)]:
+		var index = handler._bridge_vertex_index(a, b, polygon)
+		assert_ne(index, -1)
+		var next = polygon[(index + 1) % polygon.size()]
+		var previous = polygon[(index - 1 + polygon.size()) % polygon.size()]
+		assert_true((a - previous).cross(b - a) >= 0.0 and (next - a).cross(b - a) >= 0.0)
+
+func test_preview_reuses_one_shape_snapshot_until_geometry_revision_changes():
+	add_shape(10)
+	api.get_geometry_revision()
+	var entries = tool._regions_cache.shape_entries(tool)
+	entries[0].reuse_probe = true
+	api.get_build_preview_target(Vector2(20, 20))
+	assert_true(tool._regions_cache.shape_entries(tool)[0].get("reuse_probe", false))
+	tool.invalidate_geometry()
+	assert_false(tool._regions_cache.shape_entries(tool)[0].has("reuse_probe"))
+	assert_true(api.delete_marker(10))
+	last_record.undo()
+	assert_true(tool._regions_cache.shape_entries(tool)[0].marker == tool.markers_lookup[10], "Restored equal geometry must refresh the marker handle")
+
+func _assert_no_crossed_bridges(polygon: Array):
+	var crossings = []
+	for i in range(polygon.size()):
+		var a = polygon[i]
+		var b = polygon[(i + 1) % polygon.size()]
+		for j in range(i + 2, polygon.size()):
+			var c = polygon[j]
+			var d = polygon[(j + 1) % polygon.size()]
+			var hit = Geometry.segment_intersects_segment_2d(a, b, c, d)
+			if hit != null and not ((hit == a or hit == b) and (hit == c or hit == d)):
+				crossings.append([i, j])
+	assert_true(crossings.empty(), str(crossings))
+
+func test_fill_hole_bridges_ignore_creation_order_and_nested_island_holes():
+	var base = _rect_polygon(-100, -100, 100, 100)
+	var cuts = [_rect_polygon(-10, -10, 10, 10), _rect_polygon(-70, -70, -40, -40), _rect_polygon(40, 40, 70, 70)]
+	for reverse in [false, true]:
+		if reverse: cuts.invert()
+		var polygon = tool._fill_handler._subtract_shapes(Vector2(90, 0), base, cuts)
+		assert_almost_eq(tool._fill_handler._polygon_area(polygon), 37800.0, 0.01)
+		_assert_no_crossed_bridges(polygon)
+		for cut in cuts:
+			assert_false(Geometry.is_point_in_polygon((cut[0] + cut[2]) * 0.5, polygon))
+	var hole = _rect_polygon(-50, -50, 50, 50)
+	hole.invert()
+	var island = _rect_polygon(-20, -20, 20, 20)
+	var inner_hole = _rect_polygon(-5, -5, 5, 5)
+	inner_hole.invert()
+	for reverse in [false, true]:
+		var clips = [PoolVector2Array(base), PoolVector2Array(hole), PoolVector2Array(island), PoolVector2Array(inner_hole)]
+		if reverse: clips.invert()
+		var outer = Array(tool._fill_handler._merge_clips_to_polygon(clips, Vector2(90, 0)))
+		assert_almost_eq(tool._fill_handler._polygon_area(outer), 30000.0, 0.01)
+		_assert_no_crossed_bridges(outer)
+		assert_false(Geometry.is_point_in_polygon(Vector2(10, 10), outer))
+		var inner = Array(tool._fill_handler._merge_clips_to_polygon(clips, Vector2(10, 10)))
+		assert_almost_eq(tool._fill_handler._polygon_area(inner), 1500.0, 0.01)
+		assert_false(Geometry.is_point_in_polygon(Vector2.ZERO, inner))
+		_assert_no_crossed_bridges(inner)
+
+func test_fill_repeated_cutter_vertices_use_topology_fallback():
+	var script = GDScript.new()
+	script.source_code = 'extends "' + mod_root.plus_file("scripts/tool/GuidesLinesFill.gd") + '"\nvar fallbacks = 0\nfunc _init(owner).(owner):\n\tpass\nfunc _subtract_shapes_sequential(pos: Vector2, base: Array, cuts: Array) -> Array:\n\tfallbacks += 1\n\treturn ._subtract_shapes_sequential(pos, base, cuts)\n'
+	assert_eq(script.reload(), OK)
+	var handler = script.new(tool)
+	var tangent = [Vector2.ZERO, Vector2(-30, 0), Vector2(-30, -30), Vector2(0, -30), Vector2.ZERO, Vector2(30, 0), Vector2(30, 30), Vector2(0, 30)]
+	var polygon = handler._subtract_shapes(Vector2(90, 10), _rect_polygon(-100, -100, 100, 100), [tangent])
+	assert_eq(handler.fallbacks, 1)
+	assert_almost_eq(handler._polygon_area(polygon), 38200.0, 0.01)
+	_assert_no_crossed_bridges(polygon)
+	handler.tool = null
+
+func test_fill_separated_columns_and_touching_bounds_keep_exact_area():
+	var cuts = []
+	var removed_area = 0.0
+	for x in range(5):
+		for y in range(5):
+			var points = []
+			for i in range(64):
+				points.append(Vector2(x * 100 - 200, y * 100 - 200) + Vector2(cos(TAU * i / 64), sin(TAU * i / 64)) * 10)
+			cuts.append(points)
+			removed_area += tool._fill_handler._polygon_area(points)
+	var started = OS.get_ticks_usec()
+	var polygon = tool._fill_handler._subtract_shapes(Vector2(280, 17), _rect_polygon(-300, -300, 300, 300), cuts)
+	print("25 separated 64-vertex columns: cold=", OS.get_ticks_usec() - started, "us")
+	assert_almost_eq(tool._fill_handler._polygon_area(polygon), 360000.0 - removed_area, 1.0)
+	for cut in cuts:
+		var center = (cut[0] + cut[32]) * 0.5
+		assert_false(Geometry.is_point_in_polygon(center, polygon))
+	# Inclusive AABB contact must still reach native union for edge-touching cutters.
+	polygon = tool._fill_handler._subtract_shapes(Vector2(90, 10), _rect_polygon(-100, -100, 100, 100), [_rect_polygon(-40, -20, 0, 20), _rect_polygon(0, -20, 40, 20)])
+	assert_almost_eq(tool._fill_handler._polygon_area(polygon), 36800.0, 0.01)
+	_assert_no_crossed_bridges(polygon)
+
+func test_preview_zone_save_fingerprints_are_lazy_and_invalidated_by_edits():
+	var near_id = api.place_shape_marker_plain(Vector2.ZERO, 1.0, 0.0, 4)
+	var far_id = api.place_shape_marker_plain(Vector2(1000, 0), 1.0, 0.0, 4)
+	api.get_build_preview_target(Vector2(10, 10))
+	var records = tool._regions_cache._markers
+	assert_true(records[near_id].has("save_hash"))
+	assert_false(records[far_id].has("save_hash"), "Distant shapes need no JSON serialization on first hover")
+	api.get_build_preview_target(Vector2(1010, 10))
+	assert_true(records[far_id].has("save_hash"))
+	var old_hash = records[far_id].save_hash
+	tool.move_marker(tool.markers_lookup[far_id], Vector2(1100, 0))
+	api.get_build_preview_target(Vector2(10, 10))
+	assert_false(tool._regions_cache._markers[far_id].has("save_hash"))
+	api.get_build_preview_target(Vector2(1110, 10))
+	assert_ne(tool._regions_cache._markers[far_id].save_hash, old_hash)
+	var saved = tool._regions_cache.save_data(tool)
+	tool._regions_cache.clear()
+	tool._regions_cache.load_data(JSON.parse(JSON.print(saved)).result)
+	api.get_build_preview_target(Vector2(1110, 10))
+	assert_eq(tool._regions_cache._regions.size(), 2, "Lazy fingerprints still restore both saved zones")
+
+func test_fill_batch_subtraction_matches_reference_for_holes_crossings_and_cutter_islands():
+	var base = _rect_polygon(-100, -100, 100, 100)
+	var cases = [
+		[_rect_polygon(-70, -60, -40, -30), _rect_polygon(20, 20, 50, 50)],
+		[_rect_polygon(-70, -60, 10, 10), _rect_polygon(-20, -20, 50, 50)],
+		[_rect_polygon(-20, -150, 20, 150), _rect_polygon(40, -30, 70, 30)],
+		[_rect_polygon(-60, -60, 60, -40), _rect_polygon(-60, 40, 60, 60), _rect_polygon(-60, -60, -40, 60), _rect_polygon(40, -60, 60, 60)],
+		[_rect_polygon(-80, -80, 80, 80), _rect_polygon(-10, -10, 10, 10)],
+	]
+	for cuts in cases:
+		for reverse in [false, true]:
+			if reverse: cuts.invert()
+			var pos = Vector2(-90, 0)
+			var polygon = tool._fill_handler._subtract_shapes(pos, base, cuts)
+			var reference = tool._fill_handler._subtract_shapes_sequential(pos, base, cuts)
+			assert_false(polygon.empty())
+			assert_almost_eq(tool._fill_handler._polygon_area(polygon), tool._fill_handler._polygon_area(reference), 0.01)
+			for x in range(-95, 100, 10):
+				for y in range(-95, 100, 10):
+					var sample = Vector2(x + 0.137, y + 0.319) # Avoid zero-width bridge boundary points.
+					assert_eq(Geometry.is_point_in_polygon(sample, polygon), Geometry.is_point_in_polygon(sample, reference), str([cuts, sample]))
+	# A triangle's vertices can all lie inside a concave polygon while its edge crosses the notch.
+	var concave = [Vector2(0, 0), Vector2(100, 0), Vector2(100, 100), Vector2(60, 100), Vector2(60, 40), Vector2(40, 40), Vector2(40, 100), Vector2(0, 100)]
+	assert_false(tool._fill_handler._polygon_fully_inside([Vector2(20, 80), Vector2(80, 80), Vector2(50, 20)], concave))
+	assert_true(tool._fill_handler._polygon_fully_inside(_rect_polygon(5, 5, 20, 20), concave))
+
+func test_fill_batch_subtraction_stitches_each_final_hole_once():
+	var script = GDScript.new()
+	script.source_code = 'extends "' + mod_root.plus_file("scripts/tool/GuidesLinesFill.gd") + '"\nvar bridges = 0\nfunc _init(owner).(owner):\n\tpass\nfunc _bridge_hole_into_polygon(outer: Array, hole: Array, bridge: Array) -> Array:\n\tbridges += 1\n\treturn ._bridge_hole_into_polygon(outer, hole, bridge)\n'
+	assert_eq(script.reload(), OK)
+	var handler = script.new(tool)
+	var base = _rect_polygon(-100, -100, 100, 100)
+	var cuts = []
+	for radius in range(10, 60, 10): cuts.append(_rect_polygon(-radius, -radius, radius, radius))
+	var polygon = handler._subtract_shapes(Vector2(-90, 0), base, cuts)
+	assert_eq(handler.bridges, 1, "Nested cutters create one final hole")
+	assert_almost_eq(handler._polygon_area(polygon), 30000.0, 0.01)
+	cuts = [_rect_polygon(-70, -60, -40, -30), _rect_polygon(20, 20, 50, 50), _rect_polygon(-60, 30, -30, 60)]
+	handler.bridges = 0
+	polygon = handler._subtract_shapes(Vector2(-90, 0), base, cuts)
+	assert_eq(handler.bridges, 3, "Independent holes are stitched once each")
+	assert_almost_eq(handler._polygon_area(polygon), 37300.0, 0.01)
+	# A connected ring of cutters leaves an island under the cursor; keep the topology fallback.
+	cuts = [_rect_polygon(-60, -60, 60, -40), _rect_polygon(-60, 40, 60, 60), _rect_polygon(-60, -60, -40, 60), _rect_polygon(40, -60, 60, 60)]
+	polygon = handler._subtract_shapes(Vector2.ZERO, base, cuts)
+	assert_almost_eq(handler._polygon_area(polygon), 6400.0, 0.01)
+	assert_true(Geometry.is_point_in_polygon(Vector2.ZERO, polygon))
+	assert_false(Geometry.is_point_in_polygon(Vector2(90, 0), polygon))
+	handler.tool = null
+
+func test_preview_zone_dependencies_invalidate_related_edits_and_new_subtractors_only():
+	_count_fill_queries()
+	var first_id = api.place_shape_marker_plain(Vector2.ZERO, 1.0, 0.0, 64)
+	var second_id = api.place_shape_marker_plain(Vector2(1000, 0), 1.0, 0.0, 64)
+	var first = api.get_build_preview_target(Vector2(20, 20))
+	api.get_build_preview_target(Vector2(1020, 20))
+	assert_eq(tool._fill_handler.computations, 2)
+	tool.move_marker(tool.markers_lookup[second_id], Vector2(1100, 0))
+	assert_eq_deep(api.get_build_preview_target(Vector2(20, 20), false, first.zone_hash), {"zone_hash": first.zone_hash})
+	assert_eq(tool._fill_handler.computations, 2, "A distant marker edit preserves the cached zone")
+	tool.move_marker(tool.markers_lookup[first_id], Vector2(10, 0))
+	var moved = api.get_build_preview_target(Vector2(20, 20), false, first.zone_hash)
+	assert_ne(moved.zone_hash, first.zone_hash)
+	assert_eq(tool._fill_handler.computations, 3)
+	var hole_id = api.place_shape_marker_plain(Vector2(55, 0), 0.2, 0.0, 64)
+	var hole = api.get_build_preview_target(Vector2(20, 20), false, moved.zone_hash)
+	assert_ne(hole.zone_hash, moved.zone_hash, "A newly inserted non-hit marker changes the zone's hole")
+	assert_eq(hole.fill.marker_ids.size(), 1)
+	assert_false(Geometry.is_point_in_polygon(Vector2(55, 0), PoolVector2Array(hole.fill.polygon)))
+	var dependencies = tool._regions_cache._regions.back().dependencies
+	assert_true(dependencies.has(str(hole_id)), "Subtractors are dependencies even when absent from marker_ids")
+	api.delete_marker(hole_id)
+	var deletion = last_record
+	var restored = api.get_build_preview_target(Vector2(20, 20))
+	assert_eq(restored.zone_hash, moved.zone_hash)
+	deletion.undo()
+	assert_eq(api.get_build_preview_target(Vector2(20, 20)).zone_hash, hole.zone_hash)
+	deletion.redo()
+	assert_eq(api.get_build_preview_target(Vector2(20, 20)).zone_hash, moved.zone_hash)
+
+func test_preview_zones_distinguish_disconnected_components_and_path_priority():
+	_count_fill_queries()
+	var outer = add_shape(10)
+	outer.set_primitives(tool.GeometryUtils.points_to_segs([Vector2(-100, -100), Vector2(100, -100), Vector2(100, 100), Vector2(-100, 100)]))
+	var cutter = add_shape(11)
+	cutter.set_primitives(tool.GeometryUtils.points_to_segs([Vector2(-10, -150), Vector2(10, -150), Vector2(10, 150), Vector2(-10, 150)]))
+	tool.invalidate_geometry()
+	var left = api.get_build_preview_target(Vector2(-50, 20))
+	var right = api.get_build_preview_target(Vector2(50, 20), false, left.zone_hash)
+	assert_eq_deep(left.fill.marker_ids, right.fill.marker_ids)
+	assert_ne(left.zone_hash, right.zone_hash)
+	assert_eq(tool._fill_handler.computations, 2)
+	assert_eq(api.get_build_preview_target(Vector2(-50, -20)).zone_hash, left.zone_hash)
+	assert_eq(tool._fill_handler.computations, 2)
+	var path_id = api.place_path_marker([Vector2(50, -50), Vector2(50, 50)], false)
+	var path = api.get_build_preview_target(Vector2(50, 20), true)
+	assert_eq(path.kind, "Path")
+	assert_eq(path.marker.id, path_id)
+	assert_eq_deep(api.get_build_preview_target(Vector2(50, 30), true, path.zone_hash), {"zone_hash": path.zone_hash})
+	assert_eq_deep(api.get_build_preview_target(Vector2(1000, 1000)), {"zone_hash": ""})
+
+func test_preview_zone_cache_round_trips_with_map_and_rejects_corruption_without_marker_loss():
+	_count_fill_queries()
+	for radius in range(1, 4): api.place_shape_marker_plain(Vector2.ZERO, float(radius), 0.0, 64)
+	var first = api.get_build_preview_target(Vector2(250, 10))
+	var persistence = load(mod_root.plus_file("scripts/tool/GuidesLinesPersistence.gd")).new()
+	persistence._mod = tool.parent_mod
+	var data = {}
+	persistence.save_map(data)
+	var saved = JSON.parse(JSON.print(data)).result
+	assert_eq(saved[persistence.DATA_KEY].zones.zones.size(), 1)
+	assert_true(persistence.load_map(saved))
+	var restored = api.get_build_preview_target(Vector2(250, 10))
+	assert_eq(restored.zone_hash, first.zone_hash)
+	assert_eq(tool._fill_handler.computations, 1, "Loading a valid zone must not run clipping again")
+	var copy = api.get_build_preview_target(Vector2(250, 10))
+	copy.fill.polygon.clear()
+	assert_false(api.get_build_preview_target(Vector2(250, 10)).fill.polygon.empty(), "Public snapshots cannot corrupt retained cache data")
+	# A corrupt optional cache block is discarded; the authoritative marker load still succeeds.
+	saved[persistence.DATA_KEY].zones.zones[0].polygon[0][0] += 1000
+	assert_true(persistence.load_map(saved))
+	assert_eq(tool.markers.size(), 3)
+	api.get_build_preview_target(Vector2(250, 10))
+	assert_eq(tool._fill_handler.computations, 2)
+	# Click queries continue to resolve from markers rather than trusting persisted cache polygons.
+	api.compute_fill_polygon(Vector2(250, 10))
+	assert_eq(tool._fill_handler.computations, 3)
+	persistence._mod = null
+
+func test_preview_zone_restore_rejects_changed_sources_and_grid_without_losing_markers():
+	_count_fill_queries()
+	api.place_shape_marker_plain(Vector2.ZERO, 1.0, 0.0, 64)
+	var first = api.get_build_preview_target(Vector2(20, 20))
+	var persistence = load(mod_root.plus_file("scripts/tool/GuidesLinesPersistence.gd")).new()
+	persistence._mod = tool.parent_mod
+	var data = {}
+	persistence.save_map(data)
+	data = JSON.parse(JSON.print(data)).result
+	var changed = data.duplicate(true)
+	for segment in changed[persistence.DATA_KEY].markers[0].shape_primitives:
+		segment.a[0] += 10
+		segment.b[0] += 10
+	assert_true(persistence.load_map(changed))
+	assert_ne(api.get_build_preview_target(Vector2(20, 20)).zone_hash, first.zone_hash)
+	assert_eq(tool._fill_handler.computations, 2, "Cached source fingerprints must match the loaded marker geometry")
+	tool.cached_world.Level.TileMap.CellSize = Vector2(200, 200)
+	assert_true(persistence.load_map(data))
+	api.get_build_preview_target(Vector2(20, 20))
+	assert_eq(tool._fill_handler.computations, 3, "A saved zone for another grid cannot be reused")
+	assert_eq(tool.markers.size(), 1)
+	persistence._mod = null
+
+func test_preview_zone_lru_bounds_memory_and_persisted_zone_count():
+	_count_fill_queries()
+	for id in range(130): tool._do_place_marker(shape_data(id, Vector2(id * 500, 0)))
+	for id in range(130): api.get_build_preview_target(Vector2(id * 500 + 20, 20))
+	assert_eq(tool._regions_cache._regions.size(), 128)
+	assert_eq(tool._regions_cache.save_data(tool).zones.size(), 128)
+	var count = tool._fill_handler.computations
+	api.get_build_preview_target(Vector2(129 * 500 + 20, 20))
+	assert_eq(tool._fill_handler.computations, count)
+	api.get_build_preview_target(Vector2(20, 20))
+	assert_eq(tool._fill_handler.computations, count + 1, "Evicted zones are safely rebuilt when revisited")
+
+class HoverLogger:
+	extends Reference
+	var messages = 0
+	func debug(_message): messages += 1
+	func warn(_message): messages += 1
+	func error(_message): messages += 1
+
+func test_hover_queries_are_quiet_match_click_and_do_not_allocate_ids_or_history():
+	add_shape(10)
+	add_shape(11, Vector2(100, 0))
+	var logger = HoverLogger.new()
+	api.LOGGER = logger
+	tool.LOGGER = logger
+	var before = marker_state()
+	var ids = [tool.next_id, tool.next_fill_id]
+	var record_before = last_record
+	for position in [Vector2(-150, 0), Vector2(50, 0), Vector2(250, 0), Vector2(1500, 1500)]:
+		logger.messages = 0
+		var quiet = api.compute_fill_polygon_quiet(position)
+		var nearest = api.find_nearest_marker_by_geometry_quiet(position)
+		assert_eq(logger.messages, 0, "Hover must not produce per-query diagnostics")
+		assert_eq_deep(api.compute_fill_polygon(position), quiet)
+		assert_eq_deep(api.find_nearest_marker_by_geometry(position), nearest)
+	assert_eq_deep(marker_state(), before)
+	assert_eq_deep([tool.next_id, tool.next_fill_id], ids)
+	assert_eq(last_record, record_before)
+	tool.LOGGER = null
+	api.LOGGER = null
+
+func test_hover_geometry_revision_tracks_move_undo_redo_delete_restore_boolean_and_grid():
+	var revision = api.get_geometry_revision()
+	var marker = add_shape(10)
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	tool.move_marker(marker, Vector2(20, 30))
+	var move = last_record
+	for operation in ["undo", "redo"]:
+		assert_gt(api.get_geometry_revision(), revision)
+		revision = api.get_geometry_revision()
+		move.call(operation)
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	assert_true(api.delete_marker(10))
+	var deletion = last_record
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	deletion.undo()
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	tool.cached_world.Level.TileMap.CellSize = Vector2(200, 200)
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	assert_eq(api.get_geometry_revision(), revision, "Idle reads do not invalidate geometry")
+	api.apply_shape_difference(Vector2(100, 0), 1.0, 45.0, 4)
+	assert_gt(api.get_geometry_revision(), revision)
+	revision = api.get_geometry_revision()
+	last_record.undo()
+	assert_gt(api.get_geometry_revision(), revision, "Boolean undo invalidates even without an overlay")
+
+func test_hover_query_benchmark_with_1000_markers():
+	for i in range(1000):
+		tool._do_place_marker(shape_data(i, Vector2((i % 40) * 500, int(i / 40) * 500)))
+	var before = [tool.next_id, tool.next_fill_id, api.get_geometry_revision()]
+	# Warm the retained per-marker geometry before recording query costs.
+	api.compute_fill_polygon_quiet(Vector2.ZERO)
+	api.find_nearest_marker_by_geometry_quiet(Vector2.ZERO)
+	var fill_times = []
+	var outline_times = []
+	for i in range(30):
+		var position = Vector2(i * 500, 0)
+		var start = OS.get_ticks_usec()
+		assert_true(api.compute_fill_polygon_quiet(position) != null)
+		fill_times.append(OS.get_ticks_usec() - start)
+		start = OS.get_ticks_usec()
+		assert_true(api.find_nearest_marker_by_geometry_quiet(position) != null)
+		outline_times.append(OS.get_ticks_usec() - start)
+	fill_times.sort()
+	outline_times.sort()
+	print("Hover query / 1000 separated markers, 30 samples: fill median=%dus p95=%dus; nearest median=%dus p95=%dus" % [fill_times[15], fill_times[28], outline_times[15], outline_times[28]])
+	assert_eq_deep([tool.next_id, tool.next_fill_id, api.get_geometry_revision()], before)
+
 func test_boolean_anchor_centers_final_geometry_and_replays_original_position_in_all_shape_modes():
 	for mode in ["Merge", "Difference", "Conform", "Wrap"]:
 		tool.markers.clear()
@@ -868,6 +1487,38 @@ func test_conforming_redo_uses_stored_shape_not_active_settings():
 	assert_eq_deep(existing.get_primitives(), original)
 	assert_false(tool.conforming_mode)
 
+func test_compound_placement_undo_and_cut_do_not_repeat_geometry_invalidation():
+	for wrapping in [false, true]:
+		tool._do_delete_all()
+		tool.conforming_mode = false
+		tool.wrapping_mode = false
+		add_shape(8)
+		tool.conforming_mode = not wrapping
+		tool.wrapping_mode = wrapping
+		var before = tool.geometry_revision
+		tool.api_place_marker(shape_data(9, Vector2(140, 0)))
+		assert_eq(tool.geometry_revision, before + 1)
+		var record = last_record
+		before = tool.geometry_revision
+		record.undo()
+		assert_eq(tool.geometry_revision, before + 1)
+		before = tool.geometry_revision
+		record.redo()
+		assert_eq(tool.geometry_revision, before + 1)
+	tool._do_delete_all()
+	tool.conforming_mode = false
+	tool.wrapping_mode = false
+	var marker = add_shape(10)
+	marker.set_primitives(tool.GeometryUtils.points_to_segs(_rect_polygon(-100, -100, 100, 100)))
+	tool.invalidate_geometry()
+	var before = tool.geometry_revision
+	var result = tool._do_apply_cut({"shape_type": "poly", "points": _rect_polygon(-10, -150, 10, 150)})
+	assert_eq(result.created_markers_data.size(), 1)
+	assert_eq(tool.geometry_revision, before + 1, "The extra Path placement already invalidated the cut")
+	before = tool.geometry_revision
+	tool._do_apply_cut({"shape_type": "poly", "points": _rect_polygon(1000, 1000, 1100, 1100)})
+	assert_eq(tool.geometry_revision, before, "A cut with no target changes does not dirty the cache")
+
 
 func test_cut_undo_restores_metadata_for_deleted_and_converted_shapes():
 	for radius in [1.0, 5.0]:
@@ -951,9 +1602,9 @@ func test_merge_partial_failures_preserve_skipped_markers_including_first_candid
 		for failure in ["outline", "chain"]:
 			var script = GDScript.new()
 			var source = original_script.source_code
-			for relative in ["../utils/GeometryUtils.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd", "GuidesLinesPersistence.gd"]:
+			for relative in ["../utils/GeometryUtils.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd", "GuidesLinesRegions.gd", "GuidesLinesPersistence.gd"]:
 				source = source.replace('preload("' + relative + '")', 'preload("' + mod_root.plus_file("scripts/tool").plus_file(relative).simplify_path() + '")')
-			var expression = "GeometryUtils.merge_polygons_outline(running_pts, desc.points)" if failure == "outline" else "GeometryUtils.chain_segments_to_polygon(merged_segs)"
+			var expression = "GeometryUtils.merge_polygons_outline(running_pts, desc.points)" if failure == "outline" else "GeometryUtils.compound_segments_to_polygon(merged_segs)"
 			assert_true(source.find(expression) >= 0, "Fault injection must target the real merge step")
 			script.source_code = source.replace(expression, "([] if " + str(failed_ids) + ".has(marker.id) else " + expression + ")")
 			assert_eq(script.reload(), OK)

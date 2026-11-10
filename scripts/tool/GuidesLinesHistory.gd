@@ -64,15 +64,13 @@ class PlaceMarkerRecord:
 	func undo():
 		if tool.LOGGER:
 			tool.LOGGER.debug("PlaceMarkerRecord.undo() called for id: %d" % [marker_data["id"]])
-		tool._undo_place_marker(marker_data["id"])
 		# Restore the primitives of every marker that was clipped by this placement.
 		for cid in clip_snapshots:
 			if tool.markers_lookup.has(cid):
 				tool.markers_lookup[cid].set_primitives(
 					clip_snapshots[cid]["primitives"].duplicate(true))
 				tool.markers_lookup[cid].position = clip_snapshots[cid].get("position", tool.markers_lookup[cid].position)
-		if tool.overlay:
-			tool.overlay.invalidate_markers()
+		tool._undo_place_marker(marker_data["id"])
 
 	func record_type():
 		return "GuidesLines.PlaceMarker"
@@ -146,8 +144,7 @@ class DifferenceRecord:
 				tool.markers_lookup[id].set_primitives(
 					snapshots[id]["primitives"].duplicate(true))
 				tool.markers_lookup[id].position = snapshots[id].get("position", tool.markers_lookup[id].position)
-		if tool.overlay:
-			tool.overlay.invalidate_markers()
+		tool.invalidate_geometry()
 
 	func record_type():
 		return "GuidesLines.Difference"
@@ -217,8 +214,7 @@ class MergeShapeRecord:
 			if tool.LOGGER:
 				tool.LOGGER.debug("MergeShapeRecord.undo() — restored absorbed marker id=%d" % id)
 
-		if tool.overlay:
-			tool.overlay.invalidate_markers()
+		tool.invalidate_geometry()
 
 	func record_type():
 		return "GuidesLines.MergeShape"

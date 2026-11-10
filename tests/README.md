@@ -54,6 +54,25 @@ reuse an earlier successful report.
 
 ## Runtime inventory and isolated contracts
 
+Zone-cache regressions run with `python Mods/GuidesLines/tests/run.py --test preview_zone`;
+the nested-circle measurement runs with `--test preview_nested_circle_profile`.
+They use real marker/tool/fill/API/persistence scripts and count actual clipping
+calls. Thirty queries in a visited ring execute no further clipping; revisiting
+another cached ring does not clip again. Tests distinguish disconnected components,
+Path priority, related versus distant edits, newly inserted hole markers, deletion
+undo/redo, JSON map round trips and corrupt optional cache data. Restored valid
+zones avoid clipping; normal click queries still compute from authoritative markers.
+Additional regressions cover stale hit IDs, unchanged fingerprint reuse, packed
+zone hit tests and fresh-click replacement of restored keys without losing another
+component. `--test fill_batch` compares subtraction against the sequential path
+across nested/disjoint/overlapping cutters, splits and islands, and counts bridge
+operations: one final hole is stitched once. Containment rejects edges crossing a
+concave notch even if all vertices are inside.
+An island enclosed by a ring of cutters resolves to the innermost solid contour,
+with the expected area and without accidentally including the exterior component.
+Reported microsecond timings are standalone CPU measurements, not host FPS or proof
+that the reported laptop/GPU stall is resolved.
+
 `runtime_files.json` defines source roots and constructor policy.
 `unit/test_runtime_files.gd` discovers all `.gd` files directly at the mod root
 and recursively under `scripts/`, loads them with Godot and checks
@@ -211,3 +230,31 @@ This observation does not establish the original freeze's root cause.
 Fill regressions cover eight nested circles in both marker orders, partial overlaps
 and inner holes through the public API and the native GuidesLines Fill handler.
 On 2026-11-09, the user confirmed the nested-ring fix works inside Dungeondraft.
+
+The 2026-11-10 audit adds checks for crossing-free hole bridges in both creation
+orders, nested outer/hole/island/hole ownership, tangent repeated-vertex cutters,
+25 separate 64-vertex columns, inclusive cutter bounds, lazy save fingerprints and
+single invalidation of placement/undo/Cut. Derived zone cache version 3 rejects
+older cached geometry without discarding markers. See BuildingPlanner's
+`tests/README.md` for the item-by-item audit disposition and remaining scale limits.
+
+The second 2026-11-10 audit additionally covers repeated and nested Difference cuts,
+cuts across existing holes, disconnected solids with exact undo/redo, duplicated
+bridge-vertex sectors, symmetric collinear bridge rejection and reuse of one Shape
+snapshot across hit/boolean queries. Derived cache version 4 invalidates older
+optional zones. See BuildingPlanner's `tests/README.md` for all findings, including
+items where the audit's stated complexity or cache diagnosis was not confirmed.
+
+The compound-contour audit (attachment `854f6970-a9bb-4601-b1df-13d998edc451`)
+adds end-to-end regressions for islands/holes through Fill and preview APIs,
+Merge, Cut, marker changes, cached zones, full map persistence and undo/redo.
+Tangent holes sharing one vertex must not create zero-length edges; the first
+geometry revision read is now pure. Derived zone cache version **5** rejects older
+optional entries. See `../../BuildingPlanner/tests/README.md` for each audit item's
+disposition, retained correctness constraints and accepted visual limitations.
+
+The containment/UI audit (attachment `dc266618`) adds vertex-order-independent
+hole membership and conservative bounds before ring containment clipping.
+Regressions cover tangent-hole rotations and disjoint, nested, tangent and
+equal-bounds rings. Bridge visibility visits contours without concatenating an
+array. See `../../BuildingPlanner/tests/README.md` for the audit disposition.

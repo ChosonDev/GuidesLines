@@ -1,18 +1,17 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.5<br>
+**Version:** 2.4.6<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.5
+### What's New in 2.4.6
 
-Create group templates with marker selection highlights, shared rotation and scale,
-and one undo/redo action per stamp. Rename single and group templates directly in
-the list while typing safely with tool shortcuts suppressed. Templates are saved
-with the map, and the expanded public API lets BuildingPlanner Room consume them.
-Boolean Shape edits now recenter their anchors on the final outline's bounds.
+Build-preview queries now reuse cached fill zones, save them with the map and
+invalidate them when related geometry changes. Fill and Shape boolean operations
+preserve holes, nested islands and disconnected contours, with less repeated
+geometry work for complex markers.
 
 **Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
@@ -184,7 +183,7 @@ Groups are saved with their map; there are no persistent group links after place
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.5"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.6"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -437,6 +436,57 @@ var id = gl.place_arrow_marker(p1, p2, 60.0, 30.0)                # Arrow
 ```
 
 **Queries:**
+
+Hover consumers can use `compute_fill_polygon_quiet(coords)` and
+`find_nearest_marker_by_geometry_quiet(coords, radius = 100.0)`. They follow the
+normal query rules without query diagnostics and do not allocate IDs or record
+history. Fill results also include `source_polygons`, snapshots of the containing
+Shape outlines, alongside `polygon`, `marker_ids` and `fill_type`.
+
+`get_build_preview_target(coords, outline = false, known_zone_hash = "")` performs
+the cheap target selection before clipping. It returns an opaque SHA-256
+`zone_hash`; an empty string means no target. Passing the same hash returns only
+`{zone_hash}`. A different target also returns `kind = "Fill"` with a `fill`
+snapshot, or `kind = "Path"` with a `marker` snapshot. Outline queries preserve
+the existing nearest-marker/Path priority. Disconnected components have separate
+hashes even when their containing marker IDs match. Snapshots are independent;
+callers cannot modify retained cache data.
+
+GuidesLines owns the derived fill-zone cache. A zone is calculated on its first
+query, rather than enumerating every possible intersection during marker placement.
+Dependencies include containing shapes and possible subtractors/containers within
+their conservative bounds. Marker edits, deletion, undo/redo and new shapes entering
+those bounds invalidate affected zones; distant edits preserve them. Geometry
+fingerprints are checked after mutations, not for every cursor coordinate.
+Quiet fill queries reuse this cache; normal click queries recompute geometry.
+Unchanged marker polygons reuse their existing fingerprints after a revision;
+cached zones retain packed hit-test geometry. A fresh click replaces the visited
+component even when JSON rounding changes its key after loading.
+
+Cold fill calculations test containment before edge-pair intersections. For simple
+base polygons, cutters are combined with native boolean unions and final holes are
+stitched once. Already bridged inputs and cutter unions containing islands retain
+the sequential algorithm. Cached cutter bounds skip native unions for disjoint
+pairs; the bounds scan remains quadratic in cutter count. Hole stitching selects
+the shortest visible bridge across remaining holes and excludes holes belonging
+to nested islands. Candidate vertex pairs are reused as the boundary grows.
+Save fingerprints are computed only for markers needed by visited zones.
+
+Visited zones are saved in the optional `zones` block of the existing map data,
+with source marker IDs/fingerprints, polygons and checksums. Old maps remain valid.
+Load validates dependencies and grid size before reuse; invalid/stale derived data
+is discarded without rejecting markers. The LRU cache keeps up to 128 zones and
+131072 vertices, retaining one oversized current target to prevent repeated clipping
+(oversized targets are not persisted). Renderer/tool settings do not belong to this
+geometry cache.
+
+`get_geometry_revision()` returns a session-only invalidation counter, or `-1`
+before tool initialization. It changes on marker edits, boolean operations,
+undo/redo, map reload and grid-size changes; fill edits may also invalidate it.
+Track API and world identity separately. A revision is not a region ID: moving
+inside one Shape can select another boolean component. Feature-detect these
+development API additions with `has_method()` when supporting older installations.
+
 ```gdscript
 var nearest = gl.find_nearest_marker_by_geometry(cursor_pos, 100.0)
 # Returns: { id, marker_type, position, point (closest geometry point), distance, ... }
@@ -730,7 +780,12 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.5 (Current) — 2026-11-09
+### v2.4.6 (Current) — 2026-11-10
+- Quiet build-preview queries with persistent fill-zone caching and targeted invalidation.
+- Fix holes, nested islands, disconnected contours and tangent boundaries in fill and Shape boolean operations.
+- Reduce repeated geometry calculations; all 155 standalone tests pass and user testing confirmed the changes in Dungeondraft.
+
+### v2.4.5 — 2026-11-09
 - Group templates with toggle selection, contour highlights, shared rotation/scale and one undo/redo action per stamp.
 - Inline renaming of single/group templates with shortcut suppression while typing.
 - Public template/group geometry, transform, preview and placement API for BuildingPlanner Room and other consumers.

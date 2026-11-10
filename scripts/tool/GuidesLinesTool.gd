@@ -9,6 +9,8 @@ const GuidesLinesHistory = preload("GuidesLinesHistory.gd")
 const GuidesLinesToolUI = preload("GuidesLinesToolUI.gd")
 const GuidesLinesPlacement = preload("GuidesLinesPlacement.gd")
 const GuidesLinesFill = preload("GuidesLinesFill.gd")
+const GuidesLinesRegions = preload("GuidesLinesRegions.gd")
+var _regions_cache = GuidesLinesRegions.new()
 const GuidesLinesPersistence = preload("GuidesLinesPersistence.gd")
 
 # ============================================================================
@@ -127,6 +129,8 @@ const DEFAULT_SHAPE_SIDES = 6  # Fallback for missing "sides" key in saved/loade
 
 # Markers storage
 var markers = []  # Array of GuideMarker instances
+var geometry_revision = 0 # Session-only invalidation token; never saved in map data.
+
 var markers_lookup = {} # Dictionary { id: GuideMarker } for O(1) access
 var next_id = 0
 
@@ -824,7 +828,7 @@ func _get_shape_descriptor_from_marker_data(marker_data: Dictionary) -> Dictiona
 		return {}
 	var points
 	if marker_data.has("shape_primitives"):
-		points = GeometryUtils.chain_segments_to_polygon(marker_data["shape_primitives"])
+		points = GeometryUtils.compound_segments_to_polygon(marker_data["shape_primitives"])
 	elif marker_data.get("marker_subtype", "") == "Spiral":
 		var position = marker_data.get("position")
 		if typeof(position) != TYPE_VECTOR2:
@@ -849,7 +853,9 @@ func _get_shape_descriptor_from_marker_data(marker_data: Dictionary) -> Dictiona
 		points = GeometryUtils.calculate_polygon_vertices(marker_data["position"],
 			marker_data["shape_radius"] * min(cell_size.x, cell_size.y),
 			marker_data["shape_sides"], deg2rad(marker_data["shape_angle"]))
-	return {"shape_type": "poly", "points": points} if not points.empty() else {}
+	var desc = {"shape_type": "poly", "points": points} if not points.empty() else {}
+	if not desc.empty(): desc["segments"] = marker_data.get("shape_primitives", GeometryUtils.points_to_segs(points))
+	return desc
 
 ## Bridge: snapshot clip targets using an already-built descriptor instead of
 ## the tool's active shape parameters.  Semantically identical to
@@ -1020,8 +1026,7 @@ func _do_delete_all():
 	markers = []
 	markers_lookup = {} # Clear lookup
 	update_ui()
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("All markers deleted")
 	# Notify external API listeners
@@ -1038,8 +1043,7 @@ func _undo_delete_all(saved_markers):
 		if marker.id >= next_id:
 			next_id = marker.id + 1
 	update_ui()
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("Restored %d markers" % [saved_markers.size()])
 
@@ -1062,8 +1066,7 @@ func _do_delete_marker(index):
 		markers_lookup.erase(marker.id) # Remove from lookup
 		markers.remove(index)
 		update_ui()
-		if overlay:
-			overlay.invalidate_markers()
+		invalidate_geometry()
 		if LOGGER:
 			LOGGER.debug("Marker deleted at index %d" % [index])
 		# Notify external API listeners
@@ -1079,8 +1082,7 @@ func _undo_delete_marker(marker_data, index):
 	if marker.id >= next_id:
 		next_id = marker.id + 1
 	update_ui()
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("Marker restored at index %d" % [index])
 
@@ -1127,8 +1129,7 @@ func _do_place_marker(marker_data, use_conforming = null, use_wrapping = null):
 	if use_wrapping and marker.marker_type == MARKER_TYPE_SHAPE:
 		_apply_wrapping_to_new_shape(marker)
 	update_ui()
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		if marker_data["marker_type"] == MARKER_TYPE_LINE:
 			LOGGER.debug("Line marker placed at %s (angle: %.1f°, mirror: %s)" % [
@@ -1161,8 +1162,7 @@ func _undo_place_marker(marker_id):
 		markers_lookup.erase(marker_id) # O(1)
 		
 		update_ui()
-		if overlay:
-			overlay.invalidate_markers()
+		invalidate_geometry()
 		if LOGGER:
 			LOGGER.debug("Marker placement undone (id: %d)" % [marker_id])
 	else:
@@ -1288,8 +1288,7 @@ func move_marker(marker, new_pos: Vector2):
 # Low-level move — called by move_marker() and by undo/redo.
 func _do_move_marker(marker, new_pos: Vector2):
 	marker.set_property("position", new_pos)
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 
 # ============================================================================
 # FILL MODE — ENTRY POINT (called from MarkerOverlay)
@@ -1327,8 +1326,7 @@ func _do_place_fill(fill_data: Dictionary) -> void:
 	fills_lookup[fill.id] = fill
 	if fill.id >= next_fill_id:
 		next_fill_id = fill.id + 1
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("Fill placed (id=%d, %d vertices)" % [fill.id, fill.polygon.size()])
 
@@ -1341,8 +1339,7 @@ func _undo_place_fill(fill_id: int) -> void:
 	var fill = fills_lookup[fill_id]
 	fills.erase(fill)
 	fills_lookup.erase(fill_id)
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("Fill placement undone (id=%d)" % fill_id)
 
@@ -1360,8 +1357,7 @@ func delete_all_fills() -> void:
 func _do_delete_all_fills() -> void:
 	fills = []
 	fills_lookup = {}
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("All fills deleted")
 
@@ -1375,8 +1371,7 @@ func _undo_delete_all_fills(saved_fills: Array) -> void:
 		fills_lookup[fill.id] = fill
 		if fill.id >= next_fill_id:
 			next_fill_id = fill.id + 1
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 	if LOGGER:
 		LOGGER.debug("Restored %d fills" % [saved_fills.size()])
 
@@ -1477,7 +1472,7 @@ func _get_shape_descriptor(marker, cell_size) -> Dictionary:
 	var pts = marker.get_polygon()
 	if pts.empty():
 		return {}
-	return {"shape_type": "poly", "points": pts}
+	return {"shape_type": "poly", "points": pts, "segments": marker.get_primitives()}
 
 ## Build a shape descriptor for a virtual (not-yet-placed) shape
 ## using current tool settings at [pos].
@@ -1500,17 +1495,18 @@ func _shapes_intersect(desc_a: Dictionary, desc_b: Dictionary) -> bool:
 		if not GeometryUtils.polygon_intersection_bounds(desc_a.points).intersects(
 				GeometryUtils.polygon_intersection_bounds(desc_b.points), true):
 			return false
-		var n = desc_a.points.size()
-		var m = desc_b.points.size()
-		for i in range(n):
-			var a1 = desc_a.points[i]
-			var a2 = desc_a.points[(i + 1) % n]
-			for j in range(m):
-				var b1 = desc_b.points[j]
-				var b2 = desc_b.points[(j + 1) % m]
-				if GeometryUtils.segment_segment_intersect(a1, a2, b1, b2) != null:
+		var edges_a = desc_a.segments if desc_a.has("segments") else GeometryUtils.points_to_segs(desc_a.points)
+		var edges_b = desc_b.segments if desc_b.has("segments") else GeometryUtils.points_to_segs(desc_b.points)
+		for edge_a in edges_a:
+			for edge_b in edges_b:
+				if GeometryUtils.segment_segment_intersect(edge_a.a, edge_a.b, edge_b.a, edge_b.b) != null:
 					return true
 		return false
+	return false
+
+func _any_vertex_in_shape(points: Array, desc: Dictionary) -> bool:
+	for point in points:
+		if _point_in_shape(point, desc): return true
 	return false
 
 # Spiral settings only describe construction; placed geometry remains authoritative.
@@ -1625,18 +1621,20 @@ func _place_spiral(pos: Vector2):
 # edges intersect OR one shape is fully contained inside the other.
 # Used by Difference mode (unlike clip/cut which require actual edge crossings).
 func _shapes_overlap(desc_a: Dictionary, desc_b: Dictionary) -> bool:
-	if _shapes_intersect(desc_a, desc_b):
-		return true
-	# With no edge crossings, a boundary vertex establishes containment even for concave spirals.
+	if desc_a.empty() or desc_b.empty(): return false
+	if desc_a.get("shape_type") != "poly" or desc_b.get("shape_type") != "poly": return false
+	if not GeometryUtils.polygon_intersection_bounds(desc_a.points).intersects(GeometryUtils.polygon_intersection_bounds(desc_b.points), true):
+		return false
+	# A contained vertex proves overlap without scanning every edge pair.
 	var pt_a = _shape_sample_point(desc_a)
 	var pt_b = _shape_sample_point(desc_b)
 	if pt_a != null and _point_in_shape(pt_a, desc_b):
 		return true
 	if pt_b != null and _point_in_shape(pt_b, desc_a):
 		return true
-	return false
+	return _shapes_intersect(desc_a, desc_b)
 
-# Only used after edge-crossing rejection; the mean of concave vertices can lie outside.
+# Use a boundary vertex; the mean of concave vertices can lie outside.
 func _shape_sample_point(desc: Dictionary):
 	if desc.shape_type == "poly" and desc.points.size() > 0:
 		return desc.points[0]
@@ -1656,7 +1654,7 @@ func _point_in_shape(pt: Vector2, desc: Dictionary) -> bool:
 # The new marker itself keeps its full unclipped outline.
 func _apply_conforming_to_existing_shapes(new_marker):
 	if new_marker.marker_type == MARKER_TYPE_SHAPE:
-		_subtract_desc_from_markers(_get_shape_descriptor(new_marker, _get_grid_cell_size()), new_marker.id)
+		_subtract_desc_from_markers(_get_shape_descriptor(new_marker, _get_grid_cell_size()), new_marker.id, false)
 
 func _apply_wrapping_to_new_shape(new_marker):
 	if new_marker.marker_type != MARKER_TYPE_SHAPE:
@@ -1688,8 +1686,6 @@ func _apply_wrapping_to_new_shape(new_marker):
 		changed = true
 	if changed:
 		new_marker.recenter_shape_anchor()
-	if overlay:
-		overlay.invalidate_markers()
 
 func _snapshot_potential_merge_targets(merge_desc: Dictionary) -> Dictionary:
 	return _snapshot_overlapping_shapes(merge_desc, true)
@@ -1702,8 +1698,7 @@ func _snapshot_overlapping_shapes(desc: Dictionary, include_meta: bool = false) 
 	for marker in markers:
 		if marker.marker_type != MARKER_TYPE_SHAPE:
 			continue
-		var other = _get_shape_descriptor(marker, cell_size)
-		if other.empty() or not _shapes_overlap(desc, other):
+		if not _shape_overlaps_descriptor(marker, desc, cell_size):
 			continue
 		var snap = {"primitives": marker.get_primitives().duplicate(true), "position": marker.position}
 		if include_meta:
@@ -1711,6 +1706,14 @@ func _snapshot_overlapping_shapes(desc: Dictionary, include_meta: bool = false) 
 			snap["saved_marker"] = marker.Save()
 		snapshots[marker.id] = snap
 	return snapshots
+
+## Snapshot and mutation must select the same targets, including disconnected rings.
+func _shape_overlaps_descriptor(marker, desc: Dictionary, cell_size) -> bool:
+	var bounds = marker.get_geometry_bounds(null, cell_size)
+	if bounds == null or not bounds.intersects(GeometryUtils.polygon_intersection_bounds(desc.points), true): return false
+	for points in GeometryUtils.split_segments_into_chains(marker.get_primitives()):
+		if points.size() >= 3 and _shapes_overlap(desc, {"shape_type": "poly", "points": points}): return true
+	return false
 
 func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 	if merge_desc.empty():
@@ -1744,23 +1747,37 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 	# ── 2. Build one unified polygon from virtual shape + all overlapping markers ─
 	# Start with the virtual (placed) shape's points.
 	var running_pts: Array = merge_desc.points.duplicate()
+	var running_segs = GeometryUtils.points_to_segs(running_pts)
 	var merged_markers = []
 
 	for marker in overlapping:
 		var desc = _get_shape_descriptor(marker, cell_size)
 		if desc.empty():
 			continue
-		var merged_segs = GeometryUtils.merge_polygons_outline(running_pts, desc.points)
+		var merged_segs = []
+		# Native even-odd union keeps disconnected solids and holes of compound inputs.
+		var unique_a = {}
+		var unique_b = {}
+		for point in running_pts: unique_a[point] = true
+		for point in desc.points: unique_b[point] = true
+		if unique_a.size() != running_pts.size() or unique_b.size() != desc.points.size():
+			merged_segs = []
+			for ring in Geometry.merge_polygons_2d(PoolVector2Array(running_pts), PoolVector2Array(desc.points)):
+				merged_segs += GeometryUtils.points_to_segs(Array(ring))
+			merged_segs = GeometryUtils.remove_paired_edges(merged_segs)
+		else:
+			merged_segs = GeometryUtils.merge_polygons_outline(running_pts, desc.points)
 		if merged_segs.empty():
 			# No geometric overlap (e.g. tangent touch with zero area) — skip this
 			# marker entirely; its geometry was not included in the result.
 			continue
-		var chained = GeometryUtils.chain_segments_to_polygon(merged_segs)
+		var chained = GeometryUtils.compound_segments_to_polygon(merged_segs)
 		if chained.empty():
 			# Keep the previous running polygon when chaining fails.
 			continue
 		merged_markers.append(marker)
 		running_pts = chained
+		running_segs = merged_segs
 
 	# ── 2.5. Validate the merged polygon ──────────────────────────────────────
 	# If merging produced a degenerate polygon (e.g., two identical shapes),
@@ -1771,7 +1788,7 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 		return []
 
 	# ── 3. Write the final outline and position to the primary marker ─────────
-	var final_segs = GeometryUtils.points_to_segs(running_pts)
+	var final_segs = running_segs
 
 	var primary = merged_markers[0]
 	primary.set_primitives(final_segs)
@@ -1793,8 +1810,7 @@ func _do_apply_merge(merge_desc: Dictionary, new_pos: Vector2) -> Array:
 		if LOGGER:
 			LOGGER.debug("Merge: marker %d absorbed into marker %d" % [m.id, primary.id])
 
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 
 	return absorbed_ids
 
@@ -1809,21 +1825,24 @@ func _take_difference_snapshot(diff_desc: Dictionary) -> Dictionary:
 func _do_apply_difference(diff_desc: Dictionary):
 	_subtract_desc_from_markers(diff_desc)
 
-func _subtract_desc_from_markers(desc: Dictionary, exclude_id: int = -1):
+func _subtract_desc_from_markers(desc: Dictionary, exclude_id: int = -1, invalidate: bool = true):
 	var cell_size = _get_grid_cell_size()
 	if desc.empty() or cell_size == null:
 		return
 	for marker in markers:
 		if marker.marker_type != MARKER_TYPE_SHAPE or marker.id == exclude_id:
 			continue
-		var target = _get_shape_descriptor(marker, cell_size)
-		if target.empty() or not _shapes_overlap(target, desc):
+		if not _shape_overlaps_descriptor(marker, desc, cell_size):
 			continue
-		marker.set_primitives(GeometryUtils.clip_primitives_against_shapes(
-			marker.get_primitives(), [desc]) + GeometryUtils.clip_polygon_inside_shape(desc.points, target))
+		# The compound polygon carries every ring with even-odd winding. Native
+		# clipping handles holes and islands without selecting a boundary vertex.
+		var primitives = []
+		for ring in Geometry.clip_polygons_2d(PoolVector2Array(marker.get_polygon()), PoolVector2Array(desc.points)):
+			primitives += GeometryUtils.points_to_segs(Array(ring))
+		primitives = GeometryUtils.remove_paired_edges(primitives)
+		marker.set_primitives(primitives)
 		marker.recenter_shape_anchor()
-	if overlay:
-		overlay.invalidate_markers()
+	if invalidate: invalidate_geometry()
 
 func _snapshot_potential_clip_targets(pos: Vector2) -> Dictionary:
 	return _snapshot_overlapping_shapes(_build_shape_descriptor_at(pos))
@@ -1849,7 +1868,7 @@ func _take_cut_snapshot(cut_desc: Dictionary) -> Dictionary:
 			}
 			continue
 		# Case (b): shape fully inside cut (no edge intersection but contained).
-		if not desc.points.empty() and Geometry.is_point_in_polygon(desc.points[0], cut_desc.points):
+		if _any_vertex_in_shape(desc.points, cut_desc):
 			snap[marker.id] = {
 				"primitives": marker.get_primitives().duplicate(true),
 				"color":      marker.color,
@@ -1875,6 +1894,7 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 
 	var deleted_ids          = []
 	var created_markers_data = []
+	var dirty = false
 
 	# Freeze count so newly appended Path markers are not re-processed.
 	var original_count = markers.size()
@@ -1889,17 +1909,18 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 		var intersects = _shapes_intersect(cut_desc, target_desc)
 		if not intersects:
 			# Only delete if the shape lies fully inside the cut (not the reverse).
-			if not target_desc.points.empty() and \
-					Geometry.is_point_in_polygon(target_desc.points[0], cut_desc.points):
+			if _any_vertex_in_shape(target_desc.points, cut_desc) and _fill_handler._polygon_fully_inside(target_desc.points, cut_desc.points):
 				deleted_ids.append(marker.id)
 				markers_lookup.erase(marker.id)
 				markers.remove(i)
+				dirty = true
 				if parent_mod.guides_lines_api:
 					parent_mod.guides_lines_api._notify_marker_deleted(marker.id)
 				if LOGGER:
 					LOGGER.debug("Cut: deleted marker %d (fully inside cut)" % [marker.id])
-			# else: cut is inside the shape, or shapes don't overlap — leave untouched.
-			continue
+				continue
+			# One enclosed island may disappear while another remains outside the cut.
+			if not _any_vertex_in_shape(target_desc.points, cut_desc): continue
 
 		# Clip: keep only segments whose midpoint lies OUTSIDE the cut shape.
 		var remaining_segs = GeometryUtils.clip_primitives_against_shapes(
@@ -1910,6 +1931,7 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 			deleted_ids.append(marker.id)
 			markers_lookup.erase(marker.id)
 			markers.remove(i)
+			dirty = true
 			if parent_mod.guides_lines_api:
 				parent_mod.guides_lines_api._notify_marker_deleted(marker.id)
 			if LOGGER:
@@ -1922,6 +1944,7 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 			deleted_ids.append(marker.id)
 			markers_lookup.erase(marker.id)
 			markers.remove(i)
+			dirty = true
 			if parent_mod.guides_lines_api:
 				parent_mod.guides_lines_api._notify_marker_deleted(marker.id)
 			if LOGGER:
@@ -1942,6 +1965,7 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 		marker.marker_subtype = ""
 		marker.spiral_settings = {}
 		marker._dirty = true
+		dirty = true
 		if LOGGER:
 			LOGGER.debug("Cut: marker %d converted to Path (%d points)" % [
 					marker.id, chains[0].size()])
@@ -1962,13 +1986,13 @@ func _do_apply_cut(cut_desc: Dictionary, replay_created: Array = []) -> Dictiona
 				"path_end_arrow": false
 			}
 			_do_place_marker(md)
+			dirty = false # Placement already invalidated all preceding changes before notifying listeners.
 			created_markers_data.append(md)
 			if LOGGER:
 				LOGGER.debug("Cut: created extra Path marker %d (%d points, chain %d)" % [
 						new_id, chains[ci].size(), ci])
 
-	if overlay:
-		overlay.invalidate_markers()
+	if dirty: invalidate_geometry()
 
 	return {"deleted_ids": deleted_ids, "created_markers_data": created_markers_data}
 
@@ -2016,15 +2040,20 @@ func _undo_cut(snapshots: Dictionary, deleted_ids: Array, created_markers_data: 
 					LOGGER.debug("Cut undo: restored Shape marker id=%d" % sid)
 
 	update_ui()
-	if overlay:
-		overlay.invalidate_markers()
+	invalidate_geometry()
 
 
 # ============================================================================
 # UI STATE
 # ============================================================================
 
-# Update tool panel UI with current state
+func invalidate_geometry() -> void:
+	# ponytail: fills also invalidate this token; split revisions only if profiling warrants it.
+	geometry_revision += 1
+	if overlay:
+		overlay.invalidate_markers()
+
+# Update tool panel UI with current state.
 func update_ui():
 	if ui:
 		ui.update_ui()

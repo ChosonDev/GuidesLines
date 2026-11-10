@@ -5,6 +5,21 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.6] — 2026-11-10
+
+### Added
+- Quiet hover queries and a build-preview API with persistent, bounded fill-zone
+  caching and invalidation when related markers or grid settings change.
+
+### Fixed
+- Preserve holes, nested islands and disconnected contours in fill and Shape
+  boolean operations, including tangent boundaries and undo/redo.
+- Reduce repeated clipping, geometry conversion and hole-bridge calculations.
+
+### Validation
+- All 155 standalone tests pass (12049 assertions). User testing confirmed the
+  changes working in Dungeondraft.
+
 ## [2.4.5] — 2026-11-09
 
 ### Added

@@ -276,7 +276,7 @@ func get_geometry_bounds(map_rect, cell_size):
 # Derived geometry only; callers replace segments through set_primitives().
 func get_polygon() -> Array:
 	if not cached_draw_data.has("polygon"):
-		cached_draw_data["polygon"] = GeometryUtils.chain_segments_to_polygon(get_primitives())
+		cached_draw_data["polygon"] = GeometryUtils.compound_segments_to_polygon(get_primitives())
 	return cached_draw_data["polygon"]
 
 func _recalculate_geometry(map_rect, cell_size):

@@ -86,6 +86,7 @@ func save_map(map_data: Dictionary):
 			if params.has(key):
 				params[key] = _encode_points(params[key], key == "shape_primitives")
 		data.templates.append(saved)
+	data.zones = tool._regions_cache.save_data(tool)
 	# Replace the entire owned block, including incompatible/unknown old fields.
 	map_data[DATA_KEY] = data
 
@@ -153,11 +154,13 @@ func load_map(map_data: Dictionary) -> bool:
 	tool.next_fill_id = max(tool.next_fill_id, int(data.next_fill_id))
 	tool.template_next_id = max(tool.template_next_id, int(data.template_next_id))
 	_refresh_ui()
+	tool._regions_cache.load_data(data.get("zones"))
 	return true
 
 
 func _reset():
 	var tool = _mod.guides_tool
+	tool._regions_cache.clear()
 	if tool.ui:
 		tool.ui.release_text_focus()
 	tool.markers = []
@@ -189,8 +192,7 @@ func _refresh_ui():
 		tool.ui.rebuild_template_list()
 		tool.ui._update_template_capture_button(false)
 	tool.update_ui()
-	if tool.overlay:
-		tool.overlay.invalidate_markers()
+	tool.invalidate_geometry()
 
 
 func _warn(message):

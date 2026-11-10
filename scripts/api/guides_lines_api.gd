@@ -53,6 +53,10 @@ const CLASS_NAME = "GuidesLinesApi"
 
 var _mod   # Reference to GuidesLines main script
 var LOGGER  # Logger instance
+var _geometry_cell_size = null
+var _preview_revision = -1
+var _preview_regions = []
+const PREVIEW_CACHE_LIMIT = 8
 
 # ============================================================================
 # INIT / UNLOAD
@@ -65,6 +69,7 @@ func _init(mod, logger):
 		LOGGER.info("GuidesLinesApi initialized")
 
 func _unload():
+	_preview_regions.clear()
 	if LOGGER:
 		LOGGER.info("Unloading %s." % [CLASS_NAME])
 	# Disconnect all signal connections
@@ -547,9 +552,18 @@ func find_nearest_marker(coords: Vector2, radius: float = 100.0):
 ##   coords — world-space Vector2 to search around
 ##   radius — search radius in world units (default 100.0)
 func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
+	return _nearest_marker_query(coords, radius, false)
+
+## Same selection rules without per-query diagnostics, for hover consumers.
+func find_nearest_marker_by_geometry_quiet(coords: Vector2, radius: float = 100.0):
+	return _nearest_marker_query(coords, radius, true)
+
+func _nearest_marker_query(coords: Vector2, radius: float, quiet: bool):
+	if quiet and _tool() == null:
+		return null
 	var hit = _find_nearest_geometry(coords, radius, true)
 	if hit == null:
-		if LOGGER:
+		if LOGGER and not quiet:
 			LOGGER.debug("API: find_nearest_marker_by_geometry — nothing found within radius %.1f of %s" % [radius, str(coords)])
 		return null
 	var nearest_marker = hit.marker
@@ -568,7 +582,7 @@ func find_nearest_marker_by_geometry(coords: Vector2, radius: float = 100.0):
 	d["point"] = nearest_point
 	d["vertex"] = nearest_vertex
 	d["distance"] = nearest_dist
-	if LOGGER:
+	if LOGGER and not quiet:
 		LOGGER.debug("API: find_nearest_marker_by_geometry — id=%d type=%s point=%s vertex=%s dist=%.3f" % [nearest_marker.id, nearest_marker.marker_type, str(nearest_point), str(nearest_vertex), nearest_dist])
 	return d
 
@@ -820,6 +834,19 @@ func _notify_all_markers_deleted() -> void:
 # FILL POLYGON QUERIES
 # ============================================================================
 
+## Changes after marker mutations (including undo/redo), map load or grid changes.
+## This token is local to this API instance; consumers must also track API/world identity.
+func get_geometry_revision() -> int:
+	if _tool() == null:
+		return -1
+	var cell_size = _tool()._get_grid_cell_size()
+	if cell_size != _geometry_cell_size:
+		if _geometry_cell_size != null:
+			_tool().invalidate_geometry()
+		_geometry_cell_size = cell_size
+	return _tool().geometry_revision
+
+
 ## Computes the fill polygon that would be produced if the user clicked at
 ## [coords] in Fill mode.  Uses the same logic as GuidesLinesFill:
 ##   - ONE shape contains coords  →  exclusive fill (primary minus overlaps)
@@ -831,52 +858,90 @@ func _notify_all_markers_deleted() -> void:
 ##     "marker_ids": Array[int]      — ids of all Shape markers that contributed,
 ##     "fill_type":  String          — "exclusive" or "intersection" }
 ## Returns null if coords is not inside any Shape marker.
+## Successful results also include source_polygons (containing Shape outline snapshots).
 ##
 ## Parameters:
 ##   coords — world-space Vector2 click position
 func compute_fill_polygon(coords: Vector2):
+	return _fill_polygon_query(coords, false)
+
+## Same polygon and source outlines, without per-query diagnostics or map mutations.
+func compute_fill_polygon_quiet(coords: Vector2):
+	return _fill_polygon_query(coords, true)
+
+## Cheap target query for hover. Only a new boolean component runs clipping.
+## Passing the current zone_hash returns only that hash when the target is unchanged.
+## Otherwise returns {zone_hash, kind: "Fill"|"Path", fill|marker: snapshot}.
+## An empty zone_hash means no target. Clicks must use the normal, uncached queries.
+func get_build_preview_target(coords: Vector2, outline: bool = false, known_zone_hash: String = "") -> Dictionary:
+	if _tool() == null or is_nan(coords.x) or is_inf(coords.x) or is_nan(coords.y) or is_inf(coords.y):
+		return {"zone_hash": ""}
+	var revision = get_geometry_revision()
+	if revision != _preview_revision:
+		_preview_regions.clear()
+		_preview_revision = revision
+	var tool = _tool()
+	var cell_size = tool._get_grid_cell_size()
+	if cell_size == null or tool._fill_handler == null:
+		return {"zone_hash": ""}
+	var marker = null
+	if outline:
+		var nearest_hit = _find_nearest_geometry(coords, 100.0, true)
+		if nearest_hit != null and nearest_hit.marker.marker_type == "Path":
+			marker = nearest_hit.marker
+	var hits = [] if marker != null else tool._fill_handler._collect_hit_markers(coords, cell_size)
+	if marker == null and hits.empty():
+		return {"zone_hash": ""}
+	if marker == null:
+		var zone = tool._regions_cache.resolve(tool, coords, hits)
+		return {"zone_hash": ""} if zone == null else _preview_reply(zone, known_zone_hash)
+	var signature = "Path:%d" % marker.id
+	for i in range(_preview_regions.size()):
+		var entry = _preview_regions[i]
+		if entry.signature != signature: continue
+		_preview_regions.remove(i)
+		_preview_regions.append(entry)
+		return _preview_reply(entry.value, known_zone_hash)
+	var key = var2bytes([marker.id, marker.marker_points, marker.path_closed]).hex_encode().sha256_text()
+	var value = {"kind": "Path", "marker": _marker_save_with_pos(marker), "zone_hash": key}
+	if _preview_regions.size() >= PREVIEW_CACHE_LIMIT:
+		_preview_regions.pop_front()
+	_preview_regions.append({"signature": signature, "value": value})
+	return _preview_reply(value, known_zone_hash)
+
+func _preview_reply(value: Dictionary, known_zone_hash: String) -> Dictionary:
+	return {"zone_hash": value.zone_hash} if value.zone_hash == known_zone_hash else value.duplicate(true)
+
+func _fill_polygon_query(coords: Vector2, quiet: bool):
+	if quiet and _tool() == null:
+		return null
 	if not _has_tool():
 		return null
 	var tool = _tool()
 
 	var cell_size = tool._get_grid_cell_size()
 	if cell_size == null:
-		if LOGGER:
+		if LOGGER and not quiet:
 			LOGGER.warn("API: compute_fill_polygon — cell_size unavailable (map not loaded?)")
 		return null
 
 	if tool._fill_handler == null:
-		if LOGGER:
+		if LOGGER and not quiet:
 			LOGGER.warn("API: compute_fill_polygon — fill handler not ready")
 		return null
 
 	var hit_entries = tool._fill_handler._collect_hit_markers(coords, cell_size)
 	if hit_entries.empty():
-		if LOGGER:
+		if LOGGER and not quiet:
 			LOGGER.debug("API: compute_fill_polygon — no Shape marker hit at %s" % str(coords))
 		return null
+	return _fill_polygon_result(coords, hit_entries, quiet)
 
-	var fill_poly = tool._fill_handler._compute_fill_polygon(coords, hit_entries)
-	if fill_poly.empty():
-		if LOGGER:
-			LOGGER.debug("API: compute_fill_polygon — computed polygon is empty at %s" % str(coords))
-		return null
-
-	var marker_ids = []
-	for entry in hit_entries:
-		marker_ids.append(entry.marker.id)
-
-	var fill_type = "exclusive" if hit_entries.size() == 1 else "intersection"
-
-	if LOGGER:
-		LOGGER.debug("API: compute_fill_polygon — type=%s hits=%d verts=%d at %s" % [
-			fill_type, hit_entries.size(), fill_poly.size(), str(coords)])
-
-	return {
-		"polygon":    fill_poly,
-		"marker_ids": marker_ids,
-		"fill_type":  fill_type,
-	}
+func _fill_polygon_result(coords: Vector2, hit_entries: Array, quiet: bool):
+	var tool = _tool()
+	# Normal click queries validate fresh geometry; quiet hover queries reuse verified source fingerprints.
+	var zone = tool._regions_cache.resolve(tool, coords, hit_entries, quiet, not quiet)
+	return null if zone == null else zone.fill.duplicate(true)
 
 ## Returns the current polygon vertices of a Shape marker by [marker_id].
 ## The polygon reflects the marker's actual current outline — including any
