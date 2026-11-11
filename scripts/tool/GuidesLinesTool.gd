@@ -5,6 +5,7 @@
 
 const CLASS_NAME = "GuidesLinesTool"
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
+const OptionalMods = preload("../integrations/OptionalMods.gd")
 const GuidesLinesHistory = preload("GuidesLinesHistory.gd")
 const GuidesLinesToolUI = preload("GuidesLinesToolUI.gd")
 const GuidesLinesPlacement = preload("GuidesLinesPlacement.gd")
@@ -174,6 +175,8 @@ func Enable():
 # Disable tool when deselected
 func Disable():
 	is_enabled = false
+	if overlay and overlay.context_menu:
+		overlay.context_menu.cancel()
 	if ui:
 		ui.release_text_focus()
 	cancel_template_capture()
@@ -1395,57 +1398,15 @@ func _apply_opacity_to_all(opacity: float) -> void:
 		if fill:
 			fill.update_opacity(opacity)
 
-# Snap position to grid, using custom_snap mod if available
-# Falls back to vanilla Dungeondraft snapping
+# Optional grid behavior lives with the other intermod integrations.
 func snap_position_to_grid(position):
-	# Use custom_snap if available
-	if cached_snappy_mod and cached_snappy_mod.has_method("get_snapped_position"):
-		return cached_snappy_mod.get_snapped_position(position)
-	
-	# Use vanilla DD snap if custom_snap not available
-	if cached_worldui:
-		return cached_worldui.GetSnappedPosition(position)
-	
-	return position
+	return OptionalMods.snap_position(position, cached_snappy_mod, cached_worldui)
 
-
-# Get grid cell size (accounting for custom_snap mod if active)
 func _get_grid_cell_size():
-	if not cached_world:
-		return null
-	
-	# Check if custom_snap is active and use its snap_interval.
-	# Direct property access (no .has() guard) — consistent with MarkerOverlay.
-	if cached_snappy_mod and cached_snappy_mod.custom_snap_enabled:
-		return cached_snappy_mod.snap_interval
-	
-	# Fallback to vanilla grid cell size
-	if not cached_world.Level or not cached_world.Level.TileMap:
-		return null
-	return cached_world.Level.TileMap.CellSize
+	return OptionalMods.grid_cell_size(cached_world, cached_snappy_mod)
 
-# Returns a correction multiplier for side-to-circumradius conversion when the
-# active grid is a hex grid in Edge (apothem) mode.
-#
-# Background: snap_interval always equals what the user sees as "1 grid unit".
-# Corner mode → snap_interval = circumradius of the hex cell → correction = 1.0
-# Edge   mode → snap_interval = apothem = R_cell × √3/2
-#              → R_cell = snap_interval × 2/√3 → correction = 2/√3 ≈ 1.1547
-#
-# The correction is applied only when:
-#   • custom_snap is active
-#   • geometry is HEX_V (1) or HEX_H (2)
-#   • radial_mode_to_corner == false  (Edge mode)
 func _get_hex_edge_correction() -> float:
-	if cached_snappy_mod == null or not cached_snappy_mod.custom_snap_enabled:
-		return 1.0
-	var geom = cached_snappy_mod.active_geometry
-	# GEOMETRY enum: SQUARE=0, HEX_V=1, HEX_H=2, ISOMETRIC=3
-	if geom != 1 and geom != 2:
-		return 1.0
-	if cached_snappy_mod.radial_mode_to_corner:
-		return 1.0
-	return 2.0 / sqrt(3.0)
+	return OptionalMods.hex_edge_correction(cached_snappy_mod)
 
 func recompute_radius_from_side() -> float:
 	active_shape_radius = max(0.1, GeometryUtils.side_to_circumradius(active_shape_side, active_shape_sides) * _get_hex_edge_correction())

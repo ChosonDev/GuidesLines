@@ -1602,7 +1602,7 @@ func test_merge_partial_failures_preserve_skipped_markers_including_first_candid
 		for failure in ["outline", "chain"]:
 			var script = GDScript.new()
 			var source = original_script.source_code
-			for relative in ["../utils/GeometryUtils.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd", "GuidesLinesRegions.gd", "GuidesLinesPersistence.gd"]:
+			for relative in ["../utils/GeometryUtils.gd", "../integrations/OptionalMods.gd", "GuidesLinesHistory.gd", "GuidesLinesToolUI.gd", "GuidesLinesPlacement.gd", "GuidesLinesFill.gd", "GuidesLinesRegions.gd", "GuidesLinesPersistence.gd"]:
 				source = source.replace('preload("' + relative + '")', 'preload("' + mod_root.plus_file("scripts/tool").plus_file(relative).simplify_path() + '")')
 			var expression = "GeometryUtils.merge_polygons_outline(running_pts, desc.points)" if failure == "outline" else "GeometryUtils.compound_segments_to_polygon(merged_segs)"
 			assert_true(source.find(expression) >= 0, "Fault injection must target the real merge step")

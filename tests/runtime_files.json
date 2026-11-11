@@ -9,6 +9,7 @@
     "scripts/tool/GuidesLinesTool.gd": "Constructed and cleaned up in test_tool_history.gd; generic inventory does not supply host context or break collaborator cycles."
   },
   "construct": [
+    {"path": "scripts/integrations/OptionalMods.gd", "args": []},
     {"path": "scripts/tool/GuidesLinesPersistence.gd", "args": []},
     {"path": "GuidesLines.gd", "args": []},
     {"path": "scripts/utils/GeometryUtils.gd", "args": []},
@@ -18,6 +19,7 @@
     {"path": "scripts/overlays/CrossOverlay.gd", "args": []},
     {"path": "scripts/overlays/PermanentOverlay.gd", "args": []},
     {"path": "scripts/overlays/MarkerOverlay.gd", "args": []},
+    {"path": "scripts/overlays/MarkerContextMenu.gd", "args": []},
     {"path": "scripts/api/guides_lines_api.gd", "args": [null, null]},
     {"path": "scripts/tool/GuidesLinesToolUI.gd", "args": [null]},
     {"path": "scripts/tool/GuidesLinesPlacement.gd", "args": [null]},

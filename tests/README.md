@@ -20,6 +20,61 @@ inputs. No `project.godot` or executable reference stubs are needed.
 
 ## Prepare and run
 
+The marker context-menu checks can be run with
+`python -X utf8 Mods/GuidesLines/tests/run.py --test marker_context --timeout 60`.
+They cover Move/Delete, exact target identity, click-to-place vs. drag release,
+snapping, cancellation and existing undo/redo. Host validation: right-click Line,
+Shape and Path anchors/outlines, dismiss the menu over a panel, cancel Move with
+keys/buttons/wheel, confirm with snapping on/off, undo/redo, then switch tools and
+maps. Verify the popup position at the configured UI scale.
+
+Optional integration checks:
+`python -X utf8 Mods/GuidesLines/tests/run.py --test optional_mods --timeout 60`.
+These additionally use the real `ExternalMods/UnofficialPatch/scripts/right_click_util.gd`
+provider collector, submenu builder and action dispatcher, without loading that
+external code in the runtime mod. They cover late host registration, duplicate
+prevention, API version/world mismatch, cleanup, canvas/visibility/tool gates,
+stale targets, Move activation, Delete in Select, undo/redo and custom_snap
+replacement/absence/disabled fallback. The installed UnofficialPatch 1.7.4 script
+matches this reference; custom_snap 1.2.5 publishes the `snappy_mod` API.
+
+Dungeondraft acceptance: with UnofficialPatch enabled, right-click a guide marker
+using Select with and without a native asset selection. Check Guide Marker → Move
+and Delete, undo/redo, cancellation, and map switching. Repeat with each optional
+mod absent, and toggle custom_snap Enabled with non-default grid settings. The
+user confirmed the standalone Guides Lines context menu in Dungeondraft before
+this optional integration. On 2026-11-11 the user confirmed that enabling
+Unofficial Patch for the map makes Guide Marker appear in Select. Move/Delete,
+undo/redo and map switching still need host validation.
+
+Current validation: all 175 tests / 18153 assertions pass in Godot 3.4.
+The draw probe decodes actual ArrayMesh rectangles, resolving the earlier
+missing-probe failures. `--test path_mesh` checks batching, widths, reuse and
+in-place point invalidation. `--test full_up` invokes the actual upstream
+right-click entry point and real GuidesLines canvas gate, opening Guide Marker
+without native selection and verifying Delete/Undo.
+
+The follow-up audit regressions also cover Path finalization over an existing
+marker, dismissed popup cleanup with both hide/action signal orders, one mesh for
+mirrored Lines in placed/placement/move/template/group rendering, translated Path
+mesh reuse, and bounded custom_snap labels reaching across a 40000-pixel map.
+`--test fringe_is_half_pixel` checks the actual transformed mesh edges with
+nonuniform, rotated, reflected and sheared bases. The audit's proposed swap of
+`fringe_x` and `fringe_y` is incorrect: for a tangent displacement `d`, the screen
+distance perpendicular to a cap is `d * abs(det(B)) / length(B * normal)`.
+The existing reciprocal-axis formulas therefore remain in place.
+
+The installed mod is named **Unofficial Patch** (ID `Moulk.BugFixes`). Its folder
+alone does not activate it: enable it in Dungeondraft's Mods dialog for the map.
+If the menu still fails, check Right Click Util in UP's Mod Debug settings and
+restart Dungeondraft. GuidesLines logs the current map's menu-host availability.
+Native Select only accepts built-in host object types; marker context actions
+use geometry hit testing and do not require adding markers to RawSelectables.
+
+For the standalone Shape rendering comparison using the actual cached renderer,
+see [SHAPE_RENDERING.md](SHAPE_RENDERING.md). It is an opt-in benchmark, separate
+from the GUT suite and the runtime renderer.
+
 From the workspace root:
 
 ```powershell
@@ -196,7 +251,7 @@ center-based Templates, API failures, model reset and JSON map persistence.
 These are standalone Godot checks. On 2026-11-08, the user reported testing the
 updates inside Dungeondraft without finding errors; see `TODO.md`.
 
-Spiral regression checks also cover native polyline drawing and transform reset,
+Spiral regression checks also cover cached Shape/Path mesh strokes and transforms,
 preview/template cache reuse and invalidation, grid-relative regular templates,
 Path width-zero persistence, and spatial buckets against exhaustive clearance checks.
 
@@ -221,8 +276,17 @@ map guards, native history ordering and saved template placement.
 Marker-layer regressions use real CanvasItem draw signals to verify that idle frames,
 cursor motion and Spiral Path parameter changes do not redraw placed Spiral Shapes.
 They cover mutation/history/load and camera, viewport, grid and display invalidation,
-plus child-layer cleanup. Command probes check batched Shape endpoints, widths and
-Cut/Difference gaps. Run with `--test marker_layers` and `--test shape_batches`.
+plus mesh reuse, GPU-resource cleanup and exclusion from map snapshots. Command
+probes decode actual mesh rectangles and check Shape endpoints, widths and
+Cut/Difference gaps with 0.001-world-unit tolerance for float reconstruction.
+Run with `--test marker_layers`, `--test shape_strokes` and `--test polygon_outline`.
+`--test custom_snap_late` checks optional API discovery
+after the first update, live custom intervals, Side preview/placement parity and
+fallback when custom snapping is disabled. Standalone pixel checks do not replace
+Dungeondraft checks for corners, opacity, zoom and dense spirals.
+`--test custom_snap_enabled_toggle` checks new Shape preview/placement geometry
+through Enabled on/off/on/off for square and both hex orientations, including
+reset of the hex Edge correction to vanilla units while disabled.
 On 2026-11-08, the user tested these rendering changes inside Dungeondraft with many
 different spirals and did not reproduce the previously reported system freeze.
 This observation does not establish the original freeze's root cause.

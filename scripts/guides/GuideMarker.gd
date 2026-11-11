@@ -1,6 +1,7 @@
 extends Reference
 
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
+const OptionalMods = preload("../integrations/OptionalMods.gd")
 
 # GuideMarker - Simple data class for guide markers
 # Stored and managed by GuidesLinesTool
@@ -86,7 +87,7 @@ func rebuild_coord_cache(map_rect: Rect2, cell_size, custom_snap) -> void:
 	cached_coord_points = []
 	_cached_coord_map_rect  = map_rect
 	_cached_coord_cell_size = cell_size
-	_cached_coord_snap_enabled   = custom_snap != null and custom_snap.custom_snap_enabled
+	_cached_coord_snap_enabled   = OptionalMods.snap_enabled(custom_snap)
 	_cached_coord_snap_interval  = custom_snap.snap_interval if _cached_coord_snap_enabled else Vector2.ZERO
 	_coord_dirty = false
 
@@ -102,7 +103,7 @@ func rebuild_coord_cache(map_rect: Rect2, cell_size, custom_snap) -> void:
 		var direction = Vector2(cos(angle_rad), sin(angle_rad))
 		var perp      = Vector2(-direction.y, direction.x)  # unit perpendicular
 		if _cached_coord_snap_enabled:
-			_build_coord_points_custom_snap(direction, perp, map_rect, custom_snap)
+			OptionalMods.build_marker_coordinates(position, direction, perp, map_rect, custom_snap, cached_coord_points)
 		else:
 			_build_coord_points_vanilla(direction, perp, map_rect, cell_size)
 
@@ -132,32 +133,6 @@ func _build_coord_points_vanilla(direction: Vector2, perp: Vector2, map_rect: Re
 				"perp":     perp
 			})
 		distance += step
-
-func _build_coord_points_custom_snap(direction: Vector2, perp: Vector2, map_rect: Rect2, custom_snap) -> void:
-	var snap_interval = custom_snap.snap_interval
-	if snap_interval.x <= 0 or snap_interval.y <= 0:
-		return
-	var test_spacing  = min(snap_interval.x, snap_interval.y) * 0.5
-	var max_dist      = map_rect.size.length()
-	var checked       = {}
-	var distance      = test_spacing
-	while distance < max_dist:
-		var test_pos = position + direction * distance
-		var snapped  = custom_snap.get_snapped_position(test_pos)
-		if not map_rect.has_point(snapped):
-			distance += test_spacing
-			continue
-		var key = Vector2(int(snapped.x * 10), int(snapped.y * 10))
-		if not checked.has(key):
-			if GeometryUtils.is_point_on_ray(position, direction, snapped, deg2rad(5.0)):
-				checked[key] = true
-				var grid_dist = round(snapped.distance_to(position) / min(snap_interval.x, snap_interval.y))
-				cached_coord_points.append({
-					"grid_pos": snapped,
-					"text":     str(int(grid_dist)),
-					"perp":     perp
-				})
-		distance += test_spacing
 
 # Set a property and mark geometry as dirty if needed
 func set_property(prop, value):

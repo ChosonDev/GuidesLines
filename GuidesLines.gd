@@ -14,6 +14,7 @@
 #   - scripts/api/guides_lines_api.gd: External API for intermod communication
 #   - scripts/utils/GeometryUtils.gd: Geometry helper functions
 #   - scripts/render/GuidesLinesRender.gd: Rendering helper functions
+#   - scripts/integrations/OptionalMods.gd: Optional grids and Select context menu
 
 var script_class = "tool"
 
@@ -77,9 +78,7 @@ var perm_overlay = null
 var guides_lines_api = null
 var persistence = null
 
-# Cached custom_snap mod reference (checked once after map load)
-var cached_snappy_mod = null
-var snappy_mod_checked = false
+var optional_mods = null
 
 # Proximity and permanent guide settings
 var cross_guides_enabled = true  # Enabled by default
@@ -110,7 +109,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.4.6")
+			LOGGER.info("Mod starting - version 2.4.7")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -289,29 +288,16 @@ func update(_delta):
 	if Global.World == null or Global.WorldUI == null:
 		return
 	
-	# Check for snappy_mod once after map is loaded (mods don't change after map creation)
-	if not snappy_mod_checked:
-		if self.Global.API and self.Global.API.has("ModRegistry"):
-			var registered = self.Global.API.ModRegistry.get_registered_mods()
-			# Search for custom_snap mod by unique_id
-			if registered.has("Lievven.Snappy_Mod"):
-				var mod_info = registered["Lievven.Snappy_Mod"]
-				if mod_info.mod:
-					cached_snappy_mod = mod_info.mod
-					if LOGGER:
-						var mod_name = mod_info.mod_meta.get("name", "Custom Snap Mod")
-						var mod_version = mod_info.mod_meta.get("version", "unknown")
-						LOGGER.info("Found custom_snap mod: %s v%s" % [mod_name, mod_version])
-			
-			if not cached_snappy_mod and LOGGER:
-				LOGGER.debug("custom_snap mod not found, using vanilla grid snapping")
-		
-		snappy_mod_checked = true
+	if optional_mods == null:
+		optional_mods = ResourceLoader.load(Global.Root + "scripts/integrations/OptionalMods.gd", "GDScript", false).new()
+		optional_mods.parent_mod = self
+		Global.WorldUI.add_child(optional_mods)
+	optional_mods.update()
 	
 	# Check if our tool is active and enable/disable accordingly
 	if guides_tool:
 		# Refresh cached references before checking tool state
-		guides_tool.cached_snappy_mod = cached_snappy_mod
+		guides_tool.cached_snappy_mod = optional_mods.custom_snap
 		
 		# Check if tool is active by tool name
 		var is_active = Global.Editor.ActiveToolName == "GuidesLinesTool"
@@ -337,7 +323,7 @@ func _refresh_map_references():
 	for owner in [self, guides_tool]:
 		if owner == null:
 			continue
-		var properties = ["cross_overlay", "perm_overlay"] if owner == self else ["overlay"]
+		var properties = ["cross_overlay", "perm_overlay", "optional_mods"] if owner == self else ["overlay"]
 		for property in properties:
 			var node = owner.get(property)
 			if not is_instance_valid(node):
@@ -381,7 +367,7 @@ func _update_proximity_and_permanent_guides(_delta):
 	if perm_overlay != null:
 		perm_overlay.cached_world = Global.World
 		perm_overlay.cached_camera = camera
-		perm_overlay.cached_snappy_mod = cached_snappy_mod
+		perm_overlay.cached_snappy_mod = optional_mods.custom_snap if optional_mods else null
 	
 	# Update cross guides (proximity-based)
 	if cross_guides_enabled and cross_overlay != null:

@@ -23,12 +23,12 @@ func test_template_api_preview_renders_exact_world_geometry_and_shape_requests_r
 		assert_true(api.set_template_preview(pos))
 		overlay.lines.clear()
 		overlay._draw_api_shape_preview(tool._api_preview, zoom, tool._get_grid_cell_size(), 5, 10)
-		assert_eq(overlay.lines.size(), 8)
+		assert_eq(overlay.lines.size(), 7)
 		for i in range(4):
-			assert_eq(overlay.lines[i].a, expected[0].shape_primitives[i].a)
-			assert_eq(overlay.lines[i].b, expected[0].shape_primitives[i].b)
-		assert_eq(overlay.lines[4].a, expected[1].marker_points[0])
-		assert_eq(overlay.lines[4].b, expected[1].marker_points[1])
+			assert_almost_eq(overlay.lines[i].a, expected[0].shape_primitives[i].a, Vector2(0.001, 0.001))
+			assert_almost_eq(overlay.lines[i].b, expected[0].shape_primitives[i].b, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[4].a, expected[1].marker_points[0], Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[4].b, expected[1].marker_points[1], Vector2(0.001, 0.001))
 	api.set_shape_preview(pos, 1.0, 0.0, 4)
 	assert_false(tool._api_preview.has("markers"))
 	assert_false(api.set_template_preview(Vector2(INF, 0)))
@@ -40,8 +40,8 @@ func test_template_api_preview_renders_exact_world_geometry_and_shape_requests_r
 	overlay.lines.clear()
 	overlay._draw_template_preview(pos, -1000, 1000, -1000, 1000, Vector2.ONE, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
 	for i in range(4):
-		assert_eq(overlay.lines[i].a, single.shape_primitives[i].a)
-		assert_eq(overlay.lines[i].b, single.shape_primitives[i].b)
+		assert_almost_eq(overlay.lines[i].a, single.shape_primitives[i].a, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].b, single.shape_primitives[i].b, Vector2(0.001, 0.001))
 
 func test_template_rename_fields_commit_cancel_and_restore_host_shortcuts_on_lifecycle_changes():
 	var editor_script = GDScript.new()
@@ -233,11 +233,11 @@ func test_group_preview_matches_snapped_placement_paths_shapes_rays_and_arrow_at
 		overlay.lines.clear()
 		overlay._draw_template_preview(cursor, -1000, 1000, -1000, 1000, zoom, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
 		var preview = overlay.lines.duplicate(true)
-		assert_eq(preview.size(), 7, "Shape edge, Path edge plus arrow, mirrored Line")
-		assert_eq(preview[0].a, batch[0].shape_primitives[0].a)
-		assert_eq(preview[0].b, batch[0].shape_primitives[0].b)
-		assert_eq(preview[1].a, batch[1].marker_points[0])
-		assert_eq(preview[1].b, batch[1].marker_points[1])
+		assert_eq(preview.size(), 6, "Shape edge, Path edge plus two arrow sides, mirrored Line")
+		assert_almost_eq(preview[0].a, batch[0].shape_primitives[0].a, Vector2(0.001, 0.001))
+		assert_almost_eq(preview[0].b, batch[0].shape_primitives[0].b, Vector2(0.001, 0.001))
+		assert_almost_eq(preview[1].a, batch[1].marker_points[0], Vector2(0.001, 0.001))
+		assert_almost_eq(preview[1].b, batch[1].marker_points[1], Vector2(0.001, 0.001))
 		assert_almost_eq(preview[3].a.distance_to(preview[3].b), batch[1].arrow_head_length * zoom.x, 0.001)
 		tool._place_template_marker(cursor)
 		var first_id = tool.markers.back().id - 2
@@ -246,8 +246,8 @@ func test_group_preview_matches_snapped_placement_paths_shapes_rays_and_arrow_at
 		assert_eq_deep(tool.markers_lookup[first_id + 1].marker_points, batch[1].marker_points)
 		for j in range(2):
 			var ray = tool.markers_lookup[first_id + 2].get_draw_data(tool.cached_world.WorldRect, tool._get_grid_cell_size()).segments[j]
-			assert_eq(preview[5 + j].a, ray[0])
-			assert_eq(preview[5 + j].b, ray[1])
+			assert_almost_eq(preview[4 + j].a, ray[0], Vector2(0.001, 0.001))
+			assert_almost_eq(preview[4 + j].b, ray[1], Vector2(0.001, 0.001))
 
 func test_group_selection_highlight_survives_sidebar_hover_and_preserves_saved_colors():
 	var marker = add_shape(10)
@@ -264,8 +264,8 @@ func test_group_selection_highlight_survives_sidebar_hover_and_preserves_saved_c
 	overlay._mouse_in_ui = true
 	overlay._draw()
 	assert_eq(overlay.lines.size(), 1)
-	assert_eq(overlay.lines[0].a, Vector2(10, 20))
-	assert_eq(overlay.lines[0].b, Vector2(30, 40))
+	assert_almost_eq(overlay.lines[0].a, Vector2(10, 20), Vector2(0.001, 0.001))
+	assert_almost_eq(overlay.lines[0].b, Vector2(30, 40), Vector2(0.001, 0.001))
 	assert_almost_eq(overlay.lines[0].color.a, 0.3, 0.0001)
 	assert_eq_deep(marker.Save(), before)
 	tool.cancel_template_capture()
@@ -285,7 +285,7 @@ func test_spiral_preview_cache_tracks_grid_settings_and_parametric_templates():
 		overlay.lines.clear()
 		overlay._draw_spiral_preview(pos, tool.active_shape_spiral, true, cell, Color.white, 5)
 		assert_true(tool._spiral_cache.has("probe"), "Cursor movement reuses generated geometry")
-		assert_eq(overlay.lines[0].a, pos + points[0])
+		assert_almost_eq(overlay.lines[0].a, pos + points[0], Vector2(0.001, 0.001))
 		assert_eq(overlay.draw_transform, Transform2D.IDENTITY)
 	var scaled = tool.spiral_preview_points(tool.active_shape_spiral, true, cell * 2)
 	assert_eq(scaled[0], points[0] * 2)
@@ -300,7 +300,7 @@ func test_spiral_preview_cache_tracks_grid_settings_and_parametric_templates():
 		overlay.lines.clear()
 		overlay._draw_template_preview(pos, -1000, 1000, -1000, 1000, Vector2.ONE, tool.cached_world.WorldRect, cell, 5, 10)
 		assert_true(tool._spiral_cache.has("template_probe"), "Parametric template preview reuses generation")
-		assert_eq(overlay.lines[0].a, pos + desc.points[0])
+		assert_almost_eq(overlay.lines[0].a, pos + desc.points[0], Vector2(0.001, 0.001))
 	tool.template_rotation_offset = 90
 	tool._build_shape_descriptor_from_template(Vector2.ZERO)
 	assert_false(tool._spiral_cache.has("template_probe"), "Template rotation invalidates geometry")
@@ -367,15 +367,15 @@ func test_spiral_preview_matches_snapped_placement_and_arrow_at_each_zoom():
 			overlay.lines.clear()
 			overlay.polylines.clear()
 			overlay._draw_custom_marker_preview(pos, -1000, 1000, -1000, 1000, zoom, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
-			assert_eq(overlay.polylines.size(), 1, "One native polyline per spiral")
+			assert_eq(overlay.polylines.size(), 0)
 			assert_eq(overlay.draw_transform, Transform2D.IDENTITY, "Restore canvas state before anchors")
 			var edge_count = expected.size() if kind == "Shape" else expected.size() - 1
-			assert_eq(overlay.lines.size(), edge_count + (3 if kind == "Path" else 0))
+			assert_eq(overlay.lines.size(), edge_count + (2 if kind == "Path" else 0))
 			for i in range(edge_count):
-				assert_eq(overlay.lines[i].a, expected[i])
-				assert_eq(overlay.lines[i].b, expected[(i + 1) % expected.size()])
+				assert_almost_eq(overlay.lines[i].a, expected[i], Vector2(0.001, 0.001))
+				assert_almost_eq(overlay.lines[i].b, expected[(i + 1) % expected.size()], Vector2(0.001, 0.001))
 			if kind == "Path":
-				assert_eq(overlay.lines[edge_count + 1].a, expected.back())
+				assert_almost_eq(overlay.lines[edge_count].a, expected.back(), Vector2(0.001, 0.001))
 		assert_eq(cached, tool.spiral_result().points)
 		tool.place_marker(pos)
 		var marker = tool.markers.back()
@@ -1000,18 +1000,18 @@ func test_path_drawing_and_modified_shape_preview_preserve_render_commands():
 	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
 	var points = [Vector2.ZERO, Vector2(20, 0), Vector2(20, 20)]
 	overlay._draw_path_points(points, true, true, 10.0, 30.0, Vector2.ONE, Color.blue, 5.0)
-	assert_eq(overlay.lines.size(), 6)
-	assert_eq(overlay.lines[2].a, points[2])
-	assert_eq(overlay.lines[2].b, points[0])
-	assert_eq(overlay.lines[4].a, points[2])
+	assert_eq(overlay.lines.size(), 5)
+	assert_almost_eq(overlay.lines[2].a, points[2], Vector2(0.001, 0.001))
+	assert_almost_eq(overlay.lines[2].b, points[0], Vector2(0.001, 0.001))
+	assert_almost_eq(overlay.lines[4].a, points[2], Vector2(0.001, 0.001))
 	assert_almost_eq(overlay.lines[4].a.distance_to(overlay.lines[4].b), 10.0, 0.0001)
 	overlay.lines.clear()
 	var marker = add_shape()
 	marker.set_primitives([{"type": "seg", "a": Vector2(1, 2), "b": Vector2(5, 8)}])
 	overlay._draw_move_drag_preview(marker, Vector2(10, 20), -100, 100, -100, 100, Vector2.ONE, tool.cached_world.WorldRect, Vector2(100, 100), null, 5.0, 10.0)
 	assert_eq(overlay.lines.size(), 1)
-	assert_eq(overlay.lines[0].a, Vector2(11, 22))
-	assert_eq(overlay.lines[0].b, Vector2(15, 28))
+	assert_almost_eq(overlay.lines[0].a, Vector2(11, 22), Vector2(0.001, 0.001))
+	assert_almost_eq(overlay.lines[0].b, Vector2(15, 28), Vector2(0.001, 0.001))
 	assert_eq(overlay.circles.size(), 1)
 	assert_eq(overlay.arcs.size(), 1)
 
@@ -1188,6 +1188,8 @@ func test_marker_layers_keep_static_geometry_during_cursor_and_spiral_preview_ch
 	overlay._process(0.0)
 	yield(VisualServer, "frame_post_draw")
 	assert_eq_deep(layer_draws, [1, 1])
+	assert_eq(overlay._placed_strokes._stroke_cache.size(), 5, "Each placed Line, Shape and Path uses transient mesh slots")
+	var retained_mesh = overlay._placed_strokes._stroke_cache[0].mesh
 	overlay._process(0.0)
 	yield(VisualServer, "frame_post_draw")
 	assert_eq_deep(layer_draws, [1, 1])
@@ -1197,6 +1199,7 @@ func test_marker_layers_keep_static_geometry_during_cursor_and_spiral_preview_ch
 		overlay._process(0.0)
 		yield(VisualServer, "frame_post_draw")
 		assert_eq_deep(layer_draws, [previous[0] + 1, previous[1]])
+		assert_eq(overlay._placed_strokes._stroke_cache[0].mesh, retained_mesh, "Cursor redraws must reuse placed GPU resources")
 	var previous = layer_draws.duplicate()
 	tool.set_spiral_value(6.0, "turns")
 	overlay._process(0.0)
@@ -1217,6 +1220,7 @@ func test_marker_layers_keep_static_geometry_during_cursor_and_spiral_preview_ch
 	persistence._mod = mod
 	var saved = {}
 	persistence.save_map(saved)
+	assert_eq(JSON.print(saved).find("ArrayMesh"), -1, "GPU resources must not leak into map snapshots")
 	previous = layer_draws.duplicate()
 	assert_true(persistence.load_map(saved))
 	yield(VisualServer, "frame_post_draw")
@@ -1258,35 +1262,248 @@ func test_marker_layers_keep_static_geometry_during_cursor_and_spiral_preview_ch
 	yield(VisualServer, "frame_post_draw")
 	assert_eq_deep(layer_draws, previous)
 	var retained = overlay._markers_canvas
+	var mesh_lifetime = weakref(overlay._placed_strokes._stroke_cache[0].mesh)
+	retained_mesh = null
 	tool.overlay = null
 	overlay.free()
 	assert_false(is_instance_valid(retained), "Freeing the overlay also frees its retained layer")
+	assert_null(mesh_lifetime.get_ref(), "Freeing the overlay releases transient stroke meshes")
 
-func test_shape_batches_preserve_every_segment_and_cut_gap():
+func test_custom_snap_late_registration_scales_side_preview_and_placement():
+	mod.Global.Editor["Toolset"] = null
+	mod.Global.Editor["ActiveToolName"] = ""
+	mod.Global["World"] = tool.cached_world
+	mod.Global["WorldUI"] = probe()
+	mod.Global["Camera"] = null
+	mod.cross_guides_enabled = false
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	mod.Global.WorldUI.add_child(overlay)
+	overlay.tool = tool
+	tool.overlay = overlay
+	mod.update(0.0)
+	assert_null(tool.cached_snappy_mod, "Optional mod is absent initially")
+	var snap = probe()
+	mod.Global.API["snappy_mod"] = snap
+	tool.active_marker_type = "Shape"
+	tool.active_shape_size_mode = "side"
+	tool.active_shape_sides = 3
+	tool.set_shape_side(2.0)
+	for interval in [Vector2(64, 64), Vector2(128, 128), Vector2(96, 48)]:
+		snap.snap_interval = interval
+		mod.update(0.0)
+		assert_eq(tool.cached_snappy_mod, snap, "Discover API after the first update")
+		assert_eq(tool._get_grid_cell_size(), interval)
+		overlay.lines.clear()
+		overlay._draw_custom_marker_preview(Vector2.ZERO, -1000, 1000, -1000, 1000,
+			Vector2.ONE, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
+		assert_eq(overlay.lines.size(), 3)
+		tool.place_marker(Vector2.ZERO)
+		var marker = tool.markers.back()
+		var segments = marker.get_draw_data(tool.cached_world.WorldRect, tool._get_grid_cell_size()).primitives
+		for i in range(3):
+			assert_almost_eq(segments[i].a.distance_to(segments[i].b), 2.0 * min(interval.x, interval.y), 0.001)
+			assert_almost_eq(overlay.lines[i].a, segments[i].a, Vector2(0.001, 0.001))
+			assert_almost_eq(overlay.lines[i].b, segments[i].b, Vector2(0.001, 0.001))
+			assert_true(overlay.lines[i].antialiased)
+	snap.custom_snap_enabled = false
+	assert_eq(tool._get_grid_cell_size(), Vector2(100, 100), "Disabled integration uses vanilla grid")
+	tool.overlay = null
+
+
+func test_custom_snap_enabled_toggle_updates_new_shape_preview_and_side_geometry():
+	var snap = probe()
+	tool.cached_snappy_mod = snap
+	snap.snap_interval = Vector2(32, 32)
+	tool.cached_world.Level.TileMap.CellSize = Vector2(256, 256)
+	tool.active_marker_type = "Shape"
+	tool.active_shape_size_mode = "side"
+	tool.active_shape_side = 2.0
+	tool.active_shape_sides = 6
+	tool.is_enabled = true
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	tool.overlay = overlay
+	for mode in [0, 1, 2]:
+		snap.active_geometry = mode
+		snap.radial_mode_to_corner = false
+		for enabled in [true, false, true, false]:
+			snap.custom_snap_enabled = enabled
+			tool.Update(0.0)
+			var unit = 32.0 if enabled else 256.0
+			var correction = 2.0 / sqrt(3.0) if enabled and mode != 0 else 1.0
+			assert_eq(tool._get_grid_cell_size(), Vector2(unit, unit))
+			overlay.lines.clear()
+			overlay._draw_custom_marker_preview(Vector2.ZERO, -2000, 2000, -2000, 2000,
+				Vector2.ONE, tool.cached_world.WorldRect, tool._get_grid_cell_size(), 5, 10)
+			tool.place_marker(Vector2.ZERO)
+			var marker = tool.markers.back()
+			var segments = marker.get_draw_data(tool.cached_world.WorldRect, tool._get_grid_cell_size()).primitives
+			assert_eq(overlay.lines.size(), 6)
+			for i in range(6):
+				assert_almost_eq(segments[i].a.distance_to(segments[i].b), 2.0 * unit * correction, 0.001)
+				assert_almost_eq(overlay.lines[i].a, segments[i].a, Vector2(0.001, 0.001))
+				assert_almost_eq(overlay.lines[i].b, segments[i].b, Vector2(0.001, 0.001))
+	tool.overlay = null
+
+
+func test_polygon_outline_uses_one_antialiased_stroke_mesh():
+	var canvas = probe()
+	var render = load(mod_root.plus_file("scripts/render/GuidesLinesRender.gd")).new()
+	for sides in [3, 4, 6, 64]:
+		var vertices = geometry.calculate_polygon_vertices(Vector2(10, 20), 100, sides, 0.3)
+		canvas.lines.clear()
+		render.draw_polygon_outline(canvas, vertices, Color.blue, 5)
+		assert_eq(canvas.lines.size(), sides)
+		assert_true(canvas.polylines.empty())
+		for i in range(sides):
+			assert_almost_eq(canvas.lines[i].a, vertices[i], Vector2(0.001, 0.001))
+			assert_almost_eq(canvas.lines[i].b, vertices[(i + 1) % sides], Vector2(0.001, 0.001))
+			assert_almost_eq(canvas.lines[i].width, 5.0, 0.001)
+			assert_true(canvas.lines[i].antialiased)
+		vertices.append(vertices[0])
+		canvas.lines.clear()
+		render.draw_polygon_outline(canvas, vertices, Color.blue, 5)
+		assert_eq(canvas.lines.size(), sides, "An explicit closure adds no zero-length stroke")
+	canvas.lines.clear()
+	render.draw_polygon_outline(canvas, [], Color.blue, 5)
+	assert_true(canvas.lines.empty())
+	render.draw_polygon_outline(canvas, [Vector2.ZERO], Color.blue, 5)
+	assert_true(canvas.lines.empty())
+	render.draw_polygon_outline(canvas, [Vector2.ZERO, Vector2.ONE], Color.blue, 5)
+	assert_eq(canvas.lines.size(), 1, "Two points must not draw the same translucent edge twice")
+	assert_true(canvas.native_lines.empty())
+	assert_eq(canvas.meshes.size(), 9, "Each nonempty contour uses one mesh command")
+
+
+func test_shape_strokes_preserve_width_every_segment_and_cut_gap():
 	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
 	overlay.tool = tool
 	var settings = geometry.SPIRAL_DEFAULTS.duplicate()
 	var points = geometry.build_spiral(settings, true).points
 	var segments = geometry.points_to_segs(points)
 	overlay._draw_shape_segments(segments, Color.blue, 5.0)
-	assert_eq(overlay.polylines.size(), 1, "One closed spiral uses one native polyline command")
+	assert_true(overlay.polylines.empty(), "Shape edges bypass native polyline joins")
 	assert_eq(overlay.lines.size(), segments.size())
 	for i in range(segments.size()):
-		assert_eq(overlay.lines[i].a, segments[i].a)
-		assert_eq(overlay.lines[i].b, segments[i].b)
-		assert_eq(overlay.lines[i].width, 5.0)
+		assert_almost_eq(overlay.lines[i].a, segments[i].a, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].b, segments[i].b, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].width, 5.0, 0.001)
+		assert_true(overlay.lines[i].antialiased)
 	segments.remove(segments.size() / 2)
 	overlay.lines.clear()
 	overlay.polylines.clear()
 	var offset = Vector2(30, -20)
 	overlay._draw_shape_segments(segments, Color.blue, 7.0, offset)
-	assert_eq(overlay.polylines.size(), 2, "A removed segment leaves two separate chains")
+	assert_true(overlay.polylines.empty())
 	assert_eq(overlay.lines.size(), segments.size(), "No extra bridge across Cut/Difference gap")
 	for i in range(segments.size()):
-		assert_eq(overlay.lines[i].a, segments[i].a + offset)
-		assert_eq(overlay.lines[i].b, segments[i].b + offset)
-		assert_eq(overlay.lines[i].width, 7.0)
+		assert_almost_eq(overlay.lines[i].a, segments[i].a + offset, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].b, segments[i].b + offset, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].width, 7.0, 0.001)
+	overlay.lines.clear()
+	var rotation = 0.7
+	overlay._draw_shape_segments(segments, Color.blue, 3.0, offset, rotation)
+	assert_eq(overlay.lines.size(), segments.size())
+	for i in range(segments.size()):
+		assert_almost_eq(overlay.lines[i].a, segments[i].a.rotated(rotation) + offset, Vector2(0.001, 0.001))
+		assert_almost_eq(overlay.lines[i].b, segments[i].b.rotated(rotation) + offset, Vector2(0.001, 0.001))
 	overlay.lines.clear()
 	overlay.polylines.clear()
 	overlay._draw_shape_segments([], Color.blue, 5.0)
 	assert_true(overlay.polylines.empty(), "An explicitly empty outline stays empty")
+	assert_true(overlay.lines.empty())
+	assert_true(overlay.native_lines.empty())
+
+func test_path_mesh_batches_spiral_edges_arrow_and_reuses_then_invalidates():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	var points = Array(geometry.build_spiral(geometry.SPIRAL_DEFAULTS, false).points)
+	for closed in [false, true]:
+		for arrow in [false, true]:
+			overlay.meshes.clear()
+			overlay.lines.clear()
+			overlay._shape_renderer.begin_strokes()
+			overlay._draw_path_points(points, closed, arrow, 10, 30, Vector2.ONE, Color.blue, 5)
+			overlay._shape_renderer.end_strokes()
+			assert_eq(overlay.meshes.size(), 1, "One cached mesh for the entire Path including arrowhead")
+			assert_true(overlay.native_lines.empty())
+			assert_true(overlay.polylines.empty())
+			assert_eq(overlay.lines.size(), points.size() - 1 + int(closed) + (2 if arrow else 0))
+			for line in overlay.lines:
+				assert_almost_eq(line.width, 5.0, 0.001)
+			var mesh = overlay.meshes.back()
+			overlay._shape_renderer.begin_strokes()
+			overlay._draw_path_points(points, closed, arrow, 10, 30, Vector2.ONE, Color.blue, 5)
+			assert_true(overlay.meshes.back() == mesh, "An unchanged redraw reuses the GPU mesh")
+			points[1] += Vector2.ONE
+			overlay._shape_renderer.begin_strokes()
+			overlay._draw_path_points(points, closed, arrow, 10, 30, Vector2.ONE, Color.blue, 5)
+			assert_false(overlay.meshes.back() == mesh, "In-place API point edits invalidate the cache")
+
+func test_stroke_mesh_fringe_is_half_pixel_perpendicular_after_affine_transform():
+	var render = load(mod_root.plus_file("scripts/render/GuidesLinesRender.gd"))
+	for basis in [Transform2D.IDENTITY, Transform2D(0.7, Vector2.ZERO),
+			Transform2D(Vector2(2, 0), Vector2(0, 0.5), Vector2.ZERO),
+			Transform2D(Vector2(-2, 0.3), Vector2(0.8, 0.5), Vector2.ZERO)]:
+		for angle in [0.0, 0.4, 1.5]:
+			var tangent = Vector2.RIGHT.rotated(angle)
+			var normal = tangent.tangent()
+			var mesh = render.build_stroke_mesh(PoolVector2Array([Vector2.ZERO, tangent * 100]), Color.blue, 10, basis)
+			var vertices = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			# First stroke has four rows of four vertices. Compare outer and inner
+			# fringe edges in screen space, without reproducing the renderer formula.
+			var side_step = basis.basis_xform(vertices[5] - vertices[4])
+			var cap_step = basis.basis_xform(vertices[5] - vertices[1])
+			assert_almost_eq(abs(side_step.cross(basis.basis_xform(tangent).normalized())), 1.0, 0.0001)
+			assert_almost_eq(abs(cap_step.cross(basis.basis_xform(normal).normalized())), 1.0, 0.0001)
+
+func test_path_drag_reuses_mesh_and_preserves_arrow_and_translated_points():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	var points = [Vector2(20, 30), Vector2(100, 30), Vector2(100, 100)]
+	var id = api.place_path_marker(points, true)
+	var marker = tool.markers_lookup[id]
+	marker.path_end_arrow = true
+	marker.arrow_head_length = 10
+	marker.arrow_head_angle = 30
+	var original = marker.marker_points.duplicate()
+	var mesh = null
+	for pos in [Vector2(30, 40), Vector2(50, 60), Vector2(-5, 30)]:
+		overlay.lines.clear()
+		overlay._shape_renderer.begin_strokes()
+		overlay._draw_move_drag_preview(marker, pos, -1000, 1000, -1000, 1000, Vector2.ONE,
+			tool.cached_world.WorldRect, Vector2(100, 100), null, 5, 10)
+		overlay._shape_renderer.end_strokes()
+		if mesh != null:
+			assert_true(overlay.meshes.back() == mesh, "Translation must not rebuild Path mesh")
+		mesh = overlay.meshes.back()
+		assert_eq(overlay.lines.size(), 5)
+		for i in range(2):
+			assert_almost_eq(overlay.lines[i].a, points[i] + pos - marker.position, Vector2(0.001, 0.001))
+			assert_almost_eq(overlay.lines[i].b, points[i + 1] + pos - marker.position, Vector2(0.001, 0.001))
+	assert_eq_deep(marker.marker_points, original)
+
+func test_mirrored_line_uses_one_mesh_in_placed_and_all_preview_modes():
+	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
+	overlay.tool = tool
+	var id = api.place_line_marker(Vector2.ZERO, 30, true)
+	var marker = tool.markers_lookup[id]
+	tool.active_marker_type = "Line"
+	tool.active_mirror = true
+	tool.active_angle = 30
+	tool.capture_marker_as_template(Vector2.ZERO)
+	assert_true(api.select_template(tool.templates.back().id))
+	tool.active_marker_type = "Line"
+	var rect = tool.cached_world.WorldRect
+	for mode in ["placed", "preview", "move", "template", "group"]:
+		overlay.meshes.clear()
+		overlay.lines.clear()
+		overlay._shape_renderer.begin_strokes()
+		match mode:
+			"placed": overlay._draw_custom_marker(marker, -1000, 1000, -1000, 1000, Vector2.ONE, rect, Vector2(100, 100), null, 10, 5, 5, 10)
+			"preview": overlay._draw_custom_marker_preview(Vector2.ZERO, -1000, 1000, -1000, 1000, Vector2.ONE, rect, Vector2(100, 100), 5, 10)
+			"move": overlay._draw_move_drag_preview(marker, Vector2(10, 20), -1000, 1000, -1000, 1000, Vector2.ONE, rect, Vector2(100, 100), null, 5, 10)
+			"template": overlay._draw_template_preview(Vector2.ZERO, -1000, 1000, -1000, 1000, Vector2.ONE, rect, Vector2(100, 100), 5, 10)
+			"group": overlay._draw_group_geometry({"marker_type": "Line", "position": Vector2.ZERO, "angle": 30, "mirror": true}, Color.blue, 5, -1000, 1000, -1000, 1000, Vector2.ONE, rect)
+		overlay._shape_renderer.end_strokes()
+		assert_eq(overlay.meshes.size(), 1, mode)
+		assert_eq(overlay.lines.size(), 2, mode)
+		assert_eq(overlay._shape_renderer._stroke_cache.size(), 1, mode)

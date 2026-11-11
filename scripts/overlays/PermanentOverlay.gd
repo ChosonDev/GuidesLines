@@ -1,5 +1,6 @@
 extends Node2D
 
+const OptionalMods = preload("../integrations/OptionalMods.gd")
 const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
 
 # PermanentOverlay - Displays permanent guide lines
@@ -113,7 +114,7 @@ func _draw():
 	
 	# Adjust center to nearest grid node if custom_snap is enabled
 	var custom_snap = _get_custom_snap()
-	if custom_snap and custom_snap.custom_snap_enabled:
+	if OptionalMods.snap_enabled(custom_snap):
 		var center_pos = Vector2(map_cx, map_cy)
 		var snapped_center = custom_snap.get_snapped_position(center_pos)
 		map_cx = snapped_center.x
@@ -164,7 +165,7 @@ func _draw():
 # Shows grid node markers and distance numbers from map center
 func _draw_grid_coordinates(map_cx, map_cy, world_left, world_right, world_top, world_bottom, cam_zoom):
 	var custom_snap   = _get_custom_snap()
-	var snap_enabled  = custom_snap != null and custom_snap.custom_snap_enabled
+	var snap_enabled  = OptionalMods.snap_enabled(custom_snap)
 	var snap_interval = custom_snap.snap_interval if snap_enabled else Vector2.ZERO
 	
 	# Rebuild coord point cache only when relevant params change
@@ -228,27 +229,7 @@ func _build_coord_axis(axis: int, center: Vector2, low: Vector2, high: Vector2, 
 	var text_dir = Vector2(1, 0) if axis == 1 else Vector2(0, -1)
 	var map_rect = _cached_map_rect_perm
 	if snap_enabled:
-		var interval = snap.snap_interval
-		var spacing = min(interval.x, interval.y) * 0.5
-		if spacing <= 0.0:
-			return
-		checked.clear()
-		var coordinate = low[axis]
-		var iterations = 0
-		# ponytail: bound sampling to MAX_ITERATIONS; enumerate grid nodes if larger views need labels.
-		while coordinate <= high[axis] and iterations < MAX_ITERATIONS:
-			var test_pos = center
-			test_pos[axis] = coordinate
-			var snapped = snap.get_snapped_position(test_pos)
-			var key = int(snapped[axis] * 10)
-			if abs(snapped[1 - axis] - center[1 - axis]) < 0.5 and abs(snapped[axis] - center[axis]) > 0.5:
-				if not checked.has(key) and map_rect.has_point(snapped):
-					checked[key] = true
-					var delta = snapped - center - snap.snap_offset
-					points.append({"pos": snapped, "text": str(int(round(abs(delta[axis]) / interval[axis]))), "text_dir": text_dir})
-			coordinate += spacing
-			iterations += 1
-		if iterations >= MAX_ITERATIONS and parent_mod.LOGGER:
+		if OptionalMods.build_guide_coordinates(axis, center, low, high, map_rect, snap, points, checked, MAX_ITERATIONS) and parent_mod.LOGGER:
 			parent_mod.LOGGER.warn("Coordinate drawing exceeded iteration limit (axis %d)" % axis)
 	else:
 		if not cached_world or not cached_world.Level or not cached_world.Level.TileMap:
@@ -274,6 +255,6 @@ func _get_grid_state() -> Array:
 	if cached_world and cached_world.Level and cached_world.Level.TileMap:
 		cell = cached_world.Level.TileMap.CellSize
 	var snap = _get_custom_snap()
-	if snap == null or not snap.custom_snap_enabled:
+	if not OptionalMods.snap_enabled(snap):
 		return [cell, false]
 	return [cell, snap, true, snap.snap_interval, snap.snap_offset, snap.active_geometry, snap.radial_mode_to_corner]

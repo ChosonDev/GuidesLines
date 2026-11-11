@@ -2,13 +2,19 @@ extends Node2D
 
 const GeometryUtils = preload("../utils/GeometryUtils.gd")
 const GuidesLinesRender = preload("../render/GuidesLinesRender.gd")
+const OptionalMods = preload("../integrations/OptionalMods.gd")
+const MarkerContextMenu = preload("MarkerContextMenu.gd")
 
 # MarkerOverlay - Owns a retained marker layer, interactive preview, and input.
 
 var tool = null
+var context_menu = null
 var _markers_canvas = null
 var _draw_canvas = self
 var _last_render_state = []
+var _preview_strokes = GuidesLinesRender.new()
+var _placed_strokes = GuidesLinesRender.new()
+var _shape_renderer = _preview_strokes
 
 # Performance optimization: track when redraw is needed
 var _last_camera_pos = Vector2.ZERO
@@ -40,6 +46,9 @@ func invalidate_markers() -> void:
 	update()
 
 func _ready():
+	context_menu = MarkerContextMenu.new()
+	context_menu.tool = tool
+	add_child(context_menu)
 	_markers_canvas = Node2D.new()
 	_markers_canvas.name = "PlacedMarkers"
 	_markers_canvas.show_behind_parent = true
@@ -110,7 +119,7 @@ func _process(_delta):
 	# Grid/map/viewport changes can alter guides and coordinate labels without a mutation.
 	if tool:
 		var snap = _get_custom_snap()
-		var snap_enabled = snap != null and snap.custom_snap_enabled
+		var snap_enabled = OptionalMods.snap_enabled(snap)
 		var render_state = [tool.cached_camera, get_viewport_rect(), _get_grid_cell_size(),
 			tool.cached_world.WorldRect if tool.cached_world else null, snap_enabled]
 		if snap_enabled:
@@ -172,6 +181,8 @@ func _is_mouse_over_canvas() -> bool:
 func _input(event):
 	if not tool or not tool.is_enabled:
 		return
+	if context_menu and context_menu.handle_input(event, _is_mouse_over_canvas()):
+		return
 	if event is InputEventKey and tool.ui and tool.ui.text_field_has_focus():
 		return
 	if event is InputEventMouse and not _is_mouse_over_canvas():
@@ -181,6 +192,13 @@ func _input(event):
 	
 	# Handle RIGHT-CLICK for Path finalization
 	if event is InputEventMouseButton and event.button_index == BUTTON_RIGHT:
+		if not tool.path_placement_active and event.pressed and tool.cached_worldui and tool.cached_worldui.IsInsideBounds and context_menu:
+			var position = tool.cached_worldui.MousePosition
+			var marker = tool.find_marker_at(position, 20.0)
+			if marker:
+				context_menu.open_at(marker, position, get_viewport().get_mouse_position())
+				get_tree().set_input_as_handled()
+				return
 		if tool.path_placement_active and event.pressed:
 			tool._finalize_path_marker(false)  # Finish as open path
 			get_tree().set_input_as_handled()
@@ -325,10 +343,17 @@ func _input(event):
 
 # Separate CanvasItems retain placed geometry while the cursor preview redraws.
 func _draw():
+	_shape_renderer = _preview_strokes
+	_preview_strokes.begin_strokes()
 	_draw_layer(self, true)
+	_preview_strokes.end_strokes()
 
 func _draw_placed_markers() -> void:
+	_shape_renderer = _placed_strokes
+	_placed_strokes.begin_strokes()
 	_draw_layer(_markers_canvas, false)
+	_placed_strokes.end_strokes()
+	_shape_renderer = _preview_strokes
 	_draw_canvas = self
 
 func _draw_layer(canvas, preview: bool) -> void:
@@ -455,8 +480,10 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	# Draw based on marker type
 	if marker.marker_type == "Line":
 		if draw_data.has("segments"):
+			var points = PoolVector2Array()
 			for segment in draw_data.segments:
-				_draw_canvas.draw_line(segment[0], segment[1], line_color, LINE_WIDTH)
+				points.append_array(PoolVector2Array(segment))
+			_shape_renderer.draw_strokes(_draw_canvas, points, line_color, LINE_WIDTH)
 	
 	elif marker.marker_type == "Shape":
 		if draw_data.has("type") and draw_data.type == "shape":
@@ -479,7 +506,7 @@ func _draw_custom_marker(marker, world_left, world_right, world_top, world_botto
 	
 	# Draw coordinates if enabled for this marker
 	if marker.show_coordinates:
-		var snap_enabled  = custom_snap != null and custom_snap.custom_snap_enabled
+		var snap_enabled  = OptionalMods.snap_enabled(custom_snap)
 		var snap_interval = custom_snap.snap_interval if snap_enabled else Vector2.ZERO
 		if marker._coord_dirty \
 				or map_rect != marker._cached_coord_map_rect \
@@ -509,8 +536,8 @@ func _draw_api_shape_preview(p: Dictionary, cam_zoom: Vector2, cell_size, previe
 	var color  = p.get("color",  Color(0, 0.7, 1, 0.5))
 	var radius_px = radius * min(cell_size.x, cell_size.y)
 	var angle_rad = deg2rad(angle)
-	var vertices  = GeometryUtils.calculate_polygon_vertices(pos, radius_px, sides, angle_rad)
-	GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, color, preview_line_width)
+	var vertices  = GeometryUtils.calculate_polygon_vertices(Vector2.ZERO, radius_px, sides, angle_rad)
+	_shape_renderer.draw_polygon_outline(_draw_canvas, vertices, color, preview_line_width, pos)
 	_draw_marker_anchor(pos, preview_marker_size, Color(color.r, color.g, color.b, 0.5), _PREVIEW_ARC_COLOR)
 
 # Draw semi-transparent preview of marker at cursor position
@@ -538,7 +565,7 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 		var angles = [tool.active_angle]
 		if tool.active_mirror:
 			angles.append(fposmod(tool.active_angle + 180.0, 360.0))
-		
+		var points = PoolVector2Array()
 		for angle in angles:
 			var line_points = _calculate_line_endpoints(
 				pos,
@@ -552,20 +579,16 @@ func _draw_custom_marker_preview(pos, world_left, world_right, world_top, world_
 			
 			# Only draw if line segment is valid (within map bounds)
 			if line_points[0] != line_points[1]:
-				_draw_canvas.draw_line(
-					line_points[0],
-					line_points[1],
-					LINE_COLOR,
-					LINE_WIDTH
-				)
+				points.append_array(PoolVector2Array(line_points))
+		_shape_renderer.draw_strokes(_draw_canvas, points, LINE_COLOR, LINE_WIDTH)
 	
 	elif tool.active_marker_type == tool.MARKER_TYPE_SHAPE:
 		# Draw preview shape — cell_size comes from _draw
 		if cell_size:
 			var radius_px = tool.active_shape_radius * min(cell_size.x, cell_size.y)
 			var angle_rad = deg2rad(tool.active_shape_angle)
-			var vertices = GeometryUtils.calculate_polygon_vertices(pos, radius_px, tool.active_shape_sides, angle_rad)
-			GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, LINE_COLOR, LINE_WIDTH)
+			var vertices = GeometryUtils.calculate_polygon_vertices(Vector2.ZERO, radius_px, tool.active_shape_sides, angle_rad)
+			_shape_renderer.draw_polygon_outline(_draw_canvas, vertices, LINE_COLOR, LINE_WIDTH, pos)
 
 	
 	# Draw preview marker
@@ -603,10 +626,12 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 			var angles = [eff_angle]
 			if data.get("mirror", false):
 				angles.append(fposmod(eff_angle + 180.0, 360.0))
+			var points = PoolVector2Array()
 			for ang in angles:
 				var line_points = _calculate_line_endpoints(preview_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
 				if line_points[0] != line_points[1]:
-					_draw_canvas.draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+					points.append_array(PoolVector2Array(line_points))
+			_shape_renderer.draw_strokes(_draw_canvas, points, line_color, LINE_WIDTH)
 		"Shape":
 			if data.has("shape_primitives"):
 				# Modified shape — draw stored segments translated + rotated to cursor
@@ -622,16 +647,16 @@ func _draw_template_preview(preview_pos: Vector2, world_left: float, world_right
 				var radius_px = data.get("shape_radius", 1.0) * min(cell_size.x, cell_size.y)
 				var eff_angle = fposmod(data.get("shape_angle", 0.0) + tool.template_rotation_offset, 360.0)
 				var angle_rad = deg2rad(eff_angle)
-				var vertices  = GeometryUtils.calculate_polygon_vertices(preview_pos, radius_px, data.get("shape_sides", 6), angle_rad)
-				GuidesLinesRender.draw_polygon_outline(_draw_canvas, vertices, line_color, LINE_WIDTH)
+				var vertices  = GeometryUtils.calculate_polygon_vertices(Vector2.ZERO, radius_px, data.get("shape_sides", 6), angle_rad)
+				_shape_renderer.draw_polygon_outline(_draw_canvas, vertices, line_color, LINE_WIDTH, preview_pos)
 		"Path":
 			var rel_pts = data.get("relative_points", [])
 			if rel_pts.size() >= 2:
 				var rot_rad = deg2rad(tool.template_rotation_offset)
 				var pts = []
 				for rp in rel_pts:
-					pts.append(preview_pos + rp.rotated(rot_rad))
-				_draw_path_points(pts, data.get("path_closed", false), data.get("path_end_arrow", false), data.get("arrow_head_length", 50.0), data.get("arrow_head_angle", 30.0), cam_zoom, line_color, LINE_WIDTH)
+					pts.append(rp.rotated(rot_rad))
+				_draw_path_points(pts, data.get("path_closed", false), data.get("path_end_arrow", false), data.get("arrow_head_length", 50.0), data.get("arrow_head_angle", 30.0), cam_zoom, line_color, LINE_WIDTH, preview_pos)
 
 	_draw_marker_anchor(preview_pos, MARKER_SIZE, marker_color, arc_color)
 
@@ -640,10 +665,12 @@ func _draw_group_geometry(data: Dictionary, color: Color, width: float, world_le
 		"Line":
 			var angles = [data.get("angle", 0.0)]
 			if data.get("mirror", false): angles.append(angles[0] + 180.0)
+			var strokes = PoolVector2Array()
 			for angle in angles:
 				var points = _calculate_line_endpoints(data.position, angle, world_left, world_right, world_top, world_bottom, map_rect)
 				if points[0] != points[1]:
-					_draw_canvas.draw_line(points[0], points[1], color, width)
+					strokes.append_array(PoolVector2Array(points))
+			_shape_renderer.draw_strokes(_draw_canvas, strokes, color, width)
 		"Shape":
 			_draw_shape_segments(data.get("shape_primitives", []), color, width)
 		"Path":
@@ -662,10 +689,12 @@ func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right,
 		var angles = [marker.angle]
 		if marker.mirror:
 			angles.append(fposmod(marker.angle + 180.0, 360.0))
+		var points = PoolVector2Array()
 		for ang in angles:
 			var line_points = _calculate_line_endpoints(drag_pos, ang, world_left, world_right, world_top, world_bottom, map_rect)
 			if line_points[0] != line_points[1]:
-				_draw_canvas.draw_line(line_points[0], line_points[1], line_color, LINE_WIDTH)
+				points.append_array(PoolVector2Array(line_points))
+		_shape_renderer.draw_strokes(_draw_canvas, points, line_color, LINE_WIDTH)
 
 	elif marker.marker_type == "Shape":
 		var offset = drag_pos - marker.position
@@ -675,10 +704,7 @@ func _draw_move_drag_preview(marker, drag_pos: Vector2, world_left, world_right,
 	elif marker.marker_type == "Path":
 		if marker.marker_points.size() >= 2:
 			var offset = drag_pos - marker.position
-			var pts = []
-			for p in marker.marker_points:
-				pts.append(p + offset)
-			_draw_path_points(pts, marker.path_closed, marker.path_end_arrow, marker.arrow_head_length, marker.arrow_head_angle, cam_zoom, line_color, LINE_WIDTH)
+			_draw_path_points(marker.marker_points, marker.path_closed, marker.path_end_arrow, marker.arrow_head_length, marker.arrow_head_angle, cam_zoom, line_color, LINE_WIDTH, offset)
 
 	_draw_marker_anchor(drag_pos, MARKER_SIZE, marker_color, arc_color)
 
@@ -708,37 +734,13 @@ func _draw_path_preview(world_left, world_right, world_top, world_bottom, cam_zo
 		# Draw outline
 		_draw_canvas.draw_arc(point, MARKER_SIZE / 2.0, 0, TAU, 32, _PREVIEW_ARC_COLOR, 2)
 	
-	# Draw lines between placed points
-	if tool.path_temp_points.size() >= 2:
-		for i in range(tool.path_temp_points.size() - 1):
-			_draw_canvas.draw_line(
-				tool.path_temp_points[i],
-				tool.path_temp_points[i + 1],
-				LINE_COLOR,
-				LINE_WIDTH
-			)
-	
-	# Draw preview line from last point to cursor
-	if tool.path_preview_point != null and tool.path_temp_points.size() > 0:
-		var last_point = tool.path_temp_points[tool.path_temp_points.size() - 1]
-		_draw_canvas.draw_line(
-			last_point,
-			tool.path_preview_point,
-			PREVIEW_LINE_COLOR,
-			LINE_WIDTH * 0.7
-		)
-		
-		# Draw cursor preview circle
+	_draw_path_points(tool.path_temp_points, false, false, 0, 0, cam_zoom, LINE_COLOR, LINE_WIDTH)
+	if tool.path_preview_point != null:
+		var last_point = tool.path_temp_points.back()
+		_draw_path_points([last_point, tool.path_preview_point], false, tool.active_path_end_arrow,
+			active_arrow_length_px, tool.active_arrow_head_angle, Vector2.ONE, PREVIEW_LINE_COLOR, LINE_WIDTH * 0.7)
 		_draw_canvas.draw_circle(tool.path_preview_point, MARKER_SIZE / 3.0, _PATH_PREVIEW_CURSOR_COLOR)
-		
-		# Draw arrow preview at cursor if path_end_arrow is enabled
-		if tool.active_path_end_arrow:
-			var arrow_length = active_arrow_length_px  # Pre-computed in _draw
-			var head_points = GeometryUtils.calculate_arrowhead_points(
-				tool.path_preview_point, last_point, arrow_length, tool.active_arrow_head_angle)
-			GuidesLinesRender.draw_arrow(_draw_canvas, last_point, tool.path_preview_point, head_points,
-				Color(tool.active_color.r, tool.active_color.g, tool.active_color.b, 0.5), LINE_WIDTH * 0.7)
-	
+
 	# Draw "close path" indicator if near first point
 	if tool.path_temp_points.size() >= 3 and tool.path_preview_point != null:
 		var first_point = tool.path_temp_points[0]
@@ -790,42 +792,21 @@ func _draw_spiral_preview(pos: Vector2, settings: Dictionary, closed: bool, cell
 	var points = tool.spiral_preview_points(settings, closed, cell_size)
 	if points.size() < 2:
 		return
-	_draw_canvas.draw_set_transform(pos, 0.0, Vector2.ONE)
-	_draw_canvas.draw_polyline(points, color, width)
+	var head = []
 	if not closed and end_arrow:
-		var start = points[points.size() - 2]
-		var end = points[points.size() - 1]
-		var head = GeometryUtils.calculate_arrowhead_points(end, start, GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
-		GuidesLinesRender.draw_arrow(_draw_canvas, start, end, head, color, width)
-	_draw_canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		head = GeometryUtils.calculate_arrowhead_points(points[points.size() - 1], points[points.size() - 2],
+			GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
+	_shape_renderer.draw_path(_draw_canvas, Array(points), closed, head, color, width, pos)
 
-func _draw_path_points(points: Array, closed: bool, end_arrow: bool, arrow_length: float, arrow_angle: float, zoom: Vector2, color: Color, width: float) -> void:
+func _draw_path_points(points: Array, closed: bool, end_arrow: bool, arrow_length: float, arrow_angle: float, zoom: Vector2, color: Color, width: float, offset: Vector2 = Vector2.ZERO) -> void:
 	if points.size() < 2:
 		return
-	var polyline = PoolVector2Array(points)
-	if closed and points.size() >= 3:
-		polyline.append(points[0])
-	_draw_canvas.draw_polyline(polyline, color, width)
+	var head = []
 	if end_arrow:
-		var start = points[points.size() - 2]
-		var end = points[points.size() - 1]
-		var head = GeometryUtils.calculate_arrowhead_points(end, start, GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
-		GuidesLinesRender.draw_arrow(_draw_canvas, start, end, head, color, width)
+		head = GeometryUtils.calculate_arrowhead_points(points.back(), points[points.size() - 2],
+			GuidesLinesRender.get_adaptive_width(arrow_length, zoom), arrow_angle)
+	_shape_renderer.draw_path(_draw_canvas, points, closed, head, color, width, offset)
 
-# ponytail: batch consecutive segments without reordering; fragmented outlines keep
-# multiple commands. Index endpoints if profiling justifies stitching unordered fragments.
+# Authoritative segments stay disconnected, including Cut/Difference gaps.
 func _draw_shape_segments(primitives: Array, color: Color, width: float, offset: Vector2 = Vector2.ZERO, rotation: float = 0.0) -> void:
-	var points = PoolVector2Array()
-	for segment in primitives:
-		if segment.get("type", "seg") != "seg":
-			continue
-		var a = segment.a + offset if rotation == 0.0 else segment.a.rotated(rotation) + offset
-		var b = segment.b + offset if rotation == 0.0 else segment.b.rotated(rotation) + offset
-		if points.size() > 0 and points[points.size() - 1] != a:
-			_draw_canvas.draw_polyline(points, color, width)
-			points = PoolVector2Array()
-		if points.empty():
-			points.append(a)
-		points.append(b)
-	if points.size() >= 2:
-		_draw_canvas.draw_polyline(points, color, width)
+	_shape_renderer.draw_shape_segments(_draw_canvas, primitives, color, width, offset, rotation)

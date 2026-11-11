@@ -5,6 +5,41 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.7] — 2026-11-11
+
+### Added
+- Right-click a guide marker to open its own Move/Delete menu, independent of
+  UnofficialPatch. Move follows the cursor until a left click on the map confirms
+  it; another mouse button, wheel, key or click outside the map cancels the preview.
+  Both actions use the existing undo/redo history and preserve the clicked target.
+- Optional UnofficialPatch API v1 integration adds Guide Marker → Move / Delete
+  to the standard Select tool's menu. Move activates Guides Lines; Delete stays
+  in Select. Provider registration is map-scoped and removed with its scene node.
+
+### Changed
+- Centralize optional-mod discovery, custom_snap snapping/grid sizing, hex Edge
+  correction and coordinate sampling in `scripts/integrations/OptionalMods.gd`.
+  Missing, late, disabled and replaced optional APIs preserve vanilla behavior.
+
+### Fixed
+- Draw Shape outlines and previews with cached indexed `ArrayMesh` strokes instead
+  of separate native AA line commands, preserving constant edge widths, boolean
+  gaps, transforms and opacity. Screen-scale alpha fringes smooth exposed edges;
+  shared endpoints remain unfaded to avoid seams on short spiral segments.
+- Complete the ArrayMesh migration for Line and Path markers, including open
+  spirals, placement/move previews and templates. Batch each Path and its
+  arrowhead into one cached mesh; avoid drawing the final segment twice.
+- Log whether the current map exposes the UnofficialPatch Select menu host.
+- Keep right-click Path finalization ahead of marker-menu hit testing and release
+  dismissed popup targets after action dispatch, preserving Move.
+- Batch mirrored Line segments in one mesh in every marker rendering mode. Pass
+  Path drag/template translation through the draw transform instead of translating
+  every point in an extra array.
+- Bound custom_snap coordinate sampling to 1000 probes per marker ray. Very dense
+  grids use sparse labels over the full map instead of blocking the editor.
+- Discover the optional `snappy_mod` API after late registration instead of
+  permanently falling back to vanilla grid units after the first unsuccessful check.
+
 ## [2.4.6] — 2026-11-10
 
 ### Added
@@ -15,10 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve holes, nested islands and disconnected contours in fill and Shape
   boolean operations, including tangent boundaries and undo/redo.
 - Reduce repeated clipping, geometry conversion and hole-bridge calculations.
-
-### Validation
-- All 155 standalone tests pass (12049 assertions). User testing confirmed the
-  changes working in Dungeondraft.
 
 ## [2.4.5] — 2026-11-09
 
@@ -35,13 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public Template/group API: selection, transform state, resolved world geometry,
   plain stamps, previews and exact-geometry Shape boolean operations. Single
   templates now also support uniform scale in the sidebar and placement preview.
-
-### Validation
-- Regression checks cover selection, sidebar controls, preview/placement parity,
-  geometry, history, malformed data and map format migration in Godot 3.4.
-- All 127 standalone tests pass (7607 assertions), including template API transforms,
-  exact-geometry booleans, final bounds anchors, placement history and preview rendering.
-- User reported the current changes working in Dungeondraft on 2026-11-09.
 
 ### Fixed
 - Recenter modified Shape anchors at the bounds center of their final segment

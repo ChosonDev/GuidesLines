@@ -1,17 +1,18 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.6<br>
+**Version:** 2.4.7<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.6
+### What's New in 2.4.7
 
-Build-preview queries now reuse cached fill zones, save them with the map and
-invalidate them when related geometry changes. Fill and Shape boolean operations
-preserve holes, nested islands and disconnected contours, with less repeated
-geometry work for complex markers.
+Right-click markers for Move/Delete, including in Select when Unofficial Patch
+is enabled for the map. Line, Shape and Path outlines now use cached ArrayMesh
+strokes for consistent widths and fewer drawing commands. Optional custom_snap
+support handles late registration and disabled settings; dense-grid coordinate
+sampling is bounded to keep the editor responsive.
 
 **Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
@@ -183,7 +184,7 @@ Groups are saved with their map; there are no persistent group links after place
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.6"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.7"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -378,8 +379,8 @@ Arrow markers use **2-point placement** with automatic completion:
 #### Deleting Markers
 
 **Method 1: Right-Click (Quick)**
-- Right-click near any marker to delete instantly
-- Works when NOT in path/arrow placement mode
+- With Guides Lines active, right-click a marker's anchor or outline to open its menu
+- Choose **Delete** to remove that marker
 - Fully undoable (Ctrl+Z)
 
 **Method 2: Delete Mode (Precise)**
@@ -395,16 +396,34 @@ Arrow markers use **2-point placement** with automatic completion:
 
 #### Undo/Redo
 
-- **Ctrl+Z**: Undo last operation (placement, deletion, delete all)
+- **Ctrl+Z**: Undo last operation (placement, move, deletion, delete all)
 - **Ctrl+Y** (or Ctrl+Shift+Z): Redo operation
 - History limit: 100 operations per type
 - Full state restoration (color, angle, all parameters)
 
 #### Notes
 
-- **Markers cannot be moved** - delete and recreate to reposition
+- Choose **Move** in a marker's context menu to enter Move mode. The preview
+  follows the cursor, preserving the clicked offset; left-click on the map to
+  commit with the current snapping setting. Any other mouse button, wheel, key
+  press or click outside the map cancels the pending movement without changing
+  the marker. Move mode remains selected for ordinary drag operations.
 - **Use preview** to verify placement before clicking
-- **Right-click deletion** doesn't work during path/arrow placement
+- Right-clicking empty map space keeps the existing path finish/preview rotation
+  behavior. This menu does not require UnofficialPatch.
+- With optional **UnofficialPatch** (right-click provider API v1), the standard
+  **Select** tool also offers **Guide Marker → Move / Delete** near a visible
+  guide marker. Move activates Guides Lines and starts its click-to-place preview;
+  Delete stays in Select. Native map-object selection is unchanged.
+- Line, Shape and Path outlines use cached ArrayMesh strokes, including spirals,
+  arrowheads, move/placement previews and templates. Fill uses polygon rendering;
+  anchor circles and coordinate labels use native drawing.
+- Enable **Unofficial Patch** (`Moulk.BugFixes`) for the map to use its Select
+  menu; installing the folder alone does not activate it. Native asset selection
+  is unnecessary: right-click the marker's anchor or outline.
+- Optional-mod discovery, custom_snap grid behavior and UnofficialPatch provider
+  registration live in `scripts/integrations/OptionalMods.gd`. Providers register
+  for the current map, retry late initialization and unregister on map replacement.
 
 ---
 
@@ -604,7 +623,7 @@ gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
 |----------|--------|
 | **`9`** (default, configurable) | Activate Guide Markers tool |
 | **ESC** | Cancel path/arrow placement |
-| **Right-Click** | Finish path (open) / Cancel arrow / Delete marker (when not placing) / Shape +45° (before placement) |
+| **Right-Click** | Marker: Move/Delete menu. Empty map: finish path (open) / Shape or Template +45° |
 | **Ctrl+Z** | Undo last operation |
 | **Ctrl+Y** / **Ctrl+Shift+Z** | Redo operation |
 | **Scroll Wheel** (Line, over Angle) | Adjust angle ±5° |
@@ -679,10 +698,11 @@ gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
 - **HistoryApi**: Full undo/redo with custom record classes
 - **ModConfigApi**: Persistent settings panel (Edit → Preferences → Mods)
 - **InputMapApi**: Configurable hotkey (Edit → Preferences → Shortcuts)
-- **ModRegistry API**: Enhanced mod detection (custom_snap)
+- **OptionalMods**: Late discovery of optional APIs and map-scoped integrations
 - **UpdateChecker**: Automatic GitHub release notifications
 - **GuidesLinesApi**: External inter-mod API registered as `self.Global.API.GuidesLinesApi`
 - **custom_snap**: Detects and uses custom grid snapping
+- **UnofficialPatch API v1**: Guide Marker actions in the standard Select menu
 
 ### Save Format
 
@@ -766,6 +786,8 @@ Markers stored in map file under `guide_markers` key:
 
 ### Optional Mods
 - **custom_snap**: Enhanced grid snapping (auto-detected)
+- **UnofficialPatch**: Guide Marker → Move / Delete in Select (right-click API v1;
+  verified against the installed 1.7.4 sources)
 
 ### Compatible Mods
 - All _Lib-based mods
@@ -780,7 +802,13 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.6 (Current) — 2026-11-10
+### v2.4.7 (Current) — 2026-11-11
+- Marker Move/Delete context menu and optional UnofficialPatch integration in Select.
+- Cached ArrayMesh strokes for Line, Shape and Path, with mirrored-line batching and translated Path mesh reuse.
+- Fix Path finalization priority, popup cleanup and optional custom_snap discovery; bound dense-grid coordinate sampling.
+- All 175 standalone Godot tests pass; the user confirmed the changes working in Dungeondraft.
+
+### v2.4.6 — 2026-11-10
 - Quiet build-preview queries with persistent fill-zone caching and targeted invalidation.
 - Fix holes, nested islands, disconnected contours and tangent boundaries in fill and Shape boolean operations.
 - Reduce repeated geometry calculations; all 155 standalone tests pass and user testing confirmed the changes in Dungeondraft.
