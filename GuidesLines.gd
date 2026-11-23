@@ -109,7 +109,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.4.7")
+			LOGGER.info("Mod starting - version 2.4.8")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -315,6 +315,11 @@ func update(_delta):
 	# Update proximity and permanent guides if enabled
 	if cross_guides_enabled or perm_vertical_enabled or perm_horizontal_enabled:
 		_update_proximity_and_permanent_guides(_delta)
+
+# Forward canvas GUI input from ModBaseTool._ContentInput so UI popups take priority.
+func on_content_input(event):
+	if guides_tool and guides_tool.is_enabled and guides_tool.overlay and is_instance_valid(guides_tool.overlay):
+		guides_tool.overlay.handle_content_input(event)
 
 # Drop owned overlays when the host replaces their map or parent node.
 # Marker data is retained; this only releases scene resources and host references.

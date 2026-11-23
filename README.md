@@ -1,18 +1,16 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.7<br>
+**Version:** 2.4.8<br>
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.7
+### What's New in 2.4.8
 
-Right-click markers for Move/Delete, including in Select when Unofficial Patch
-is enabled for the map. Line, Shape and Path outlines now use cached ArrayMesh
-strokes for consistent widths and fewer drawing commands. Optional custom_snap
-support handles late registration and disabled settings; dense-grid coordinate
-sampling is bounded to keep the editor responsive.
+Canvas mouse input now routes through Dungeondraft's `on_content_input` pipeline
+instead of `_input`, so third-party context menus and popup panels receive clicks
+before Guides Lines places or deletes markers.
 
 **Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
 
@@ -184,7 +182,7 @@ Groups are saved with their map; there are no persistent group links after place
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.7"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.8"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
 5. Tool panel should display marker type dropdown and settings
@@ -802,7 +800,11 @@ Markers stored in map file under `guide_markers` key:
 
 ## Version History
 
-### v2.4.7 (Current) — 2026-11-11
+### v2.4.8 (Current) — 2026-11-23
+- Route canvas mouse clicks, right-clicks and wheel events through `ModBaseTool._ContentInput` (`on_content_input`) and guard `_input` on active modals, preventing Guides Lines from intercepting clicks meant for third-party context menus and popup overlays.
+- All 175 standalone Godot tests pass; the user confirmed the fix working in Dungeondraft.
+
+### v2.4.7 — 2026-11-11
 - Marker Move/Delete context menu and optional UnofficialPatch integration in Select.
 - Cached ArrayMesh strokes for Line, Shape and Path, with mirrored-line batching and translated Path mesh reuse.
 - Fix Path finalization priority, popup cleanup and optional custom_snap discovery; bound dense-grid coordinate sampling.

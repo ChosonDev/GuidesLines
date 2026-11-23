@@ -105,7 +105,7 @@ func click(button = BUTTON_RIGHT, pressed = true):
 	var event = InputEventMouseButton.new()
 	event.button_index = button
 	event.pressed = pressed
-	overlay._input(event)
+	overlay.handle_content_input(event)
 
 func open_menu():
 	tool.cached_worldui.MousePosition = Vector2(5, 0)

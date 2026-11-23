@@ -183,14 +183,52 @@ func _input(event):
 		return
 	if context_menu and context_menu.handle_input(event, _is_mouse_over_canvas()):
 		return
+	if get_viewport() and get_viewport().gui_has_modal_stack():
+		return
 	if event is InputEventKey and tool.ui and tool.ui.text_field_has_focus():
 		return
-	if event is InputEventMouse and not _is_mouse_over_canvas():
-		# Release still finishes an existing drag after the pointer leaves the canvas.
-		if not (event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed):
+
+	# Handle ESC key for Path / template capture cancellation
+	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
+		if tool.template_capture_mode:
+			tool.cancel_template_capture()
+			get_tree().set_input_as_handled()
 			return
+		if tool.path_placement_active:
+			tool._cancel_path_placement()
+			get_tree().set_input_as_handled()
+			return
+
+	# LMB released — finalize drag in move mode (including when pointer leaves the canvas)
+	if event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed:
+		if tool.move_mode and tool._move_selected_marker:
+			var new_pos = tool._move_drag_pos - tool._move_drag_offset
+			if tool.parent_mod.Global.Editor.IsSnapping:
+				new_pos = tool.snap_position_to_grid(new_pos)
+			tool.move_marker(tool._move_selected_marker, new_pos)
+			tool._move_selected_marker = null
+			get_tree().set_input_as_handled()
+			return
+
+	# Mouse motion — live preview while dragging in move mode
+	if event is InputEventMouseMotion and tool.move_mode and tool._move_selected_marker:
+		update()
+		return
+
+# Canvas mouse input forwarded from ModBaseTool._ContentInput (Content.gui_input).
+# Running in the GUI dispatch phase ensures PopupMenus and overlay Controls above
+# the canvas consume clicks before GuidesLines handles them.
+func handle_content_input(event):
+	if not tool or not tool.is_enabled:
+		return
+	if context_menu and context_menu.handle_input(event, _is_mouse_over_canvas()):
+		return
+	if get_viewport() and get_viewport().gui_has_modal_stack():
+		return
+	if event is InputEventMouse and not _is_mouse_over_canvas():
+		return
 	
-	# Handle RIGHT-CLICK for Path finalization
+	# Handle RIGHT-CLICK for context menu, Path finalization, and rotation
 	if event is InputEventMouseButton and event.button_index == BUTTON_RIGHT:
 		if not tool.path_placement_active and event.pressed and tool.cached_worldui and tool.cached_worldui.IsInsideBounds and context_menu:
 			var position = tool.cached_worldui.MousePosition
@@ -211,17 +249,6 @@ func _input(event):
 		# Template type: RMB rotates by 45 degrees (not in delete/move mode, not in capture mode)
 		if tool.active_marker_type == tool.MARKER_TYPE_TEMPLATE and event.pressed and not tool.delete_mode and not tool.move_mode and not tool.template_capture_mode:
 			tool.rotate_template_45()
-			get_tree().set_input_as_handled()
-			return
-	
-	# Handle ESC key for Path cancellation
-	if event is InputEventKey and event.scancode == KEY_ESCAPE and event.pressed:
-		if tool.template_capture_mode:
-			tool.cancel_template_capture()
-			get_tree().set_input_as_handled()
-			return
-		if tool.path_placement_active:
-			tool._cancel_path_placement()
 			get_tree().set_input_as_handled()
 			return
 	
@@ -324,22 +351,6 @@ func _input(event):
 					tool.place_marker(pos)
 				
 				update()  # Request redraw
-
-	# LMB released — finalize drag in move mode
-	if event is InputEventMouseButton and event.button_index == BUTTON_LEFT and not event.pressed:
-		if tool.move_mode and tool._move_selected_marker:
-			var new_pos = tool._move_drag_pos - tool._move_drag_offset
-			if tool.parent_mod.Global.Editor.IsSnapping:
-				new_pos = tool.snap_position_to_grid(new_pos)
-			tool.move_marker(tool._move_selected_marker, new_pos)
-			tool._move_selected_marker = null
-			get_tree().set_input_as_handled()
-			return
-
-	# Mouse motion — live preview while dragging in move mode
-	if event is InputEventMouseMotion and tool.move_mode and tool._move_selected_marker:
-		update()
-		return
 
 # Separate CanvasItems retain placed geometry while the cursor preview redraws.
 func _draw():

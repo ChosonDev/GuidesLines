@@ -5,6 +5,15 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.8] — 2026-11-23
+
+### Fixed
+- Route canvas mouse clicks, right-clicks and wheel adjustments through
+  `ModBaseTool._ContentInput` (`on_content_input`) instead of `MarkerOverlay._input`,
+  and guard `_input` against active modal popups. Third-party `PopupMenu` /
+  `PopupPanel` overlays and context menus now receive left-clicks before Guides
+  Lines handles the canvas, matching built-in tools such as `ObjectTool`.
+
 ## [2.4.7] — 2026-11-11
 
 ### Added

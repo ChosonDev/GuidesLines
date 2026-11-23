@@ -563,10 +563,12 @@ func test_overlay_canvas_gate_tracks_layout_scale_visibility_and_dialogs():
 	wheel.button_index = BUTTON_WHEEL_UP
 	wheel.pressed = true
 	tool.active_angle = 0.0
-	overlay._input(wheel)
+	overlay.handle_content_input(wheel)
 	assert_eq(tool.active_angle, 0.0, "Wheel over UI must reach its control")
 	content.test_mouse = content.get_global_transform_with_canvas().xform(Vector2(350, 200))
 	overlay._input(wheel)
+	assert_eq(tool.active_angle, 0.0, "Wheel must not bypass GUI dispatch in _input")
+	overlay.handle_content_input(wheel)
 	assert_eq(tool.active_angle, 1.0)
 	content.hide()
 	assert_false(overlay._is_mouse_over_canvas())
@@ -584,8 +586,20 @@ func test_overlay_canvas_gate_tracks_layout_scale_visibility_and_dialogs():
 	var click = InputEventMouseButton.new()
 	click.button_index = BUTTON_LEFT
 	click.pressed = true
-	overlay._input(click)
+	overlay.handle_content_input(click)
 	assert_eq(tool.markers.size(), 0, "UI click cannot place a marker")
+	content.test_mouse = content.get_global_transform_with_canvas().xform(Vector2(350, 200))
+	# _input must not intercept left clicks before third-party popups/menus in GUI dispatch.
+	overlay._input(click)
+	assert_eq(tool.markers.size(), 0, "Left click in _input must not place a marker before GUI")
+	var existing = add_shape()
+	existing.position = Vector2(30, 40)
+	tool.delete_mode = true
+	overlay._input(click)
+	assert_eq(tool.markers.size(), 1, "Left click in _input must not delete a marker before GUI")
+	overlay.handle_content_input(click)
+	assert_eq(tool.markers.size(), 0, "Content input deletes marker in delete mode")
+	tool.delete_mode = false
 	var marker = add_shape()
 	tool.move_mode = true
 	tool._move_selected_marker = marker
