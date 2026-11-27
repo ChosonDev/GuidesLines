@@ -122,6 +122,31 @@ class DeleteAllMarkersRecord:
 		return "GuidesLines.DeleteAll"
 
 
+# History record for recoloring a single marker.
+class RecolorMarkerRecord:
+	var tool
+	var marker_id: int
+	var old_color: Color
+	var new_color: Color
+
+	func _init(tool_ref, id: int, p_old_color: Color, p_new_color: Color):
+		tool = tool_ref
+		marker_id = id
+		old_color = p_old_color
+		new_color = p_new_color
+
+	func redo():
+		if tool.markers_lookup.has(marker_id):
+			tool._do_recolor_marker(tool.markers_lookup[marker_id], new_color)
+
+	func undo():
+		if tool.markers_lookup.has(marker_id):
+			tool._do_recolor_marker(tool.markers_lookup[marker_id], old_color)
+
+	func record_type():
+		return "GuidesLines.RecolorMarker"
+
+
 # History record for applying a Difference operation.
 # Uses snapshots to undo, because there is no "diff marker" that could be removed.
 class DifferenceRecord:

@@ -109,7 +109,7 @@ func start():
 		if self.Global.API and self.Global.API.has("Logger"):
 			LOGGER = self.Global.API.Logger.for_class(CLASS_NAME)
 			
-			LOGGER.info("Mod starting - version 2.4.8")
+			LOGGER.info("Mod starting - version 2.4.9")
 			LOGGER.debug("Registered with _Lib successfully")
 			
 			# Register UpdateChecker for automatic update notifications
@@ -389,6 +389,19 @@ func _update_proximity_and_permanent_guides(_delta):
 # ============================================================================
 
 
+func _sync_mod_config_bool(key: String, enabled: bool) -> void:
+	if mod_config == null:
+		return
+	if mod_config.get(key) == enabled:
+		return
+	mod_config.set(key, enabled)
+	if mod_config.has_method("save_cfg"):
+		mod_config.save_cfg()
+
+func _sync_guide_overlay_ui() -> void:
+	if guides_tool and guides_tool.ui:
+		guides_tool.ui._sync_guide_overlay_checkboxes()
+
 func _on_cross_guides_toggled(enabled):
 	if cross_guides_enabled == enabled:
 		return
@@ -396,6 +409,8 @@ func _on_cross_guides_toggled(enabled):
 	if not enabled:
 		cross_show_v = false
 		cross_show_h = false
+	_sync_mod_config_bool("cross_guides_enabled", enabled)
+	_sync_guide_overlay_ui()
 	if guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "cross_guides", enabled)
 
@@ -404,6 +419,8 @@ func _on_perm_vertical_toggled(enabled):
 		return
 	perm_vertical_enabled = enabled
 	_on_perm_guide_changed(enabled)
+	_sync_mod_config_bool("perm_vertical_enabled", enabled)
+	_sync_guide_overlay_ui()
 	if guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "perm_vertical", enabled)
 
@@ -412,6 +429,8 @@ func _on_perm_horizontal_toggled(enabled):
 		return
 	perm_horizontal_enabled = enabled
 	_on_perm_guide_changed(enabled)
+	_sync_mod_config_bool("perm_horizontal_enabled", enabled)
+	_sync_guide_overlay_ui()
 	if guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "perm_horizontal", enabled)
 
@@ -420,6 +439,8 @@ func _on_perm_coordinates_toggled(enabled):
 		return
 	show_coordinates_enabled = enabled
 	_on_perm_guide_changed(enabled)
+	_sync_mod_config_bool("show_coordinates_enabled", enabled)
+	_sync_guide_overlay_ui()
 	if guides_lines_api:
 		guides_lines_api.emit_signal("settings_changed", "show_coordinates", enabled)
 

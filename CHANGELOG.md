@@ -5,9 +5,85 @@ All notable changes to the Guides Lines mod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.9] — 2026-11-28
+
+### Added
+
+- Floating top-center toolbar anchored to the editor canvas (`VPartition/Panels/HSplit/Content`)
+  with a two-row layout:
+  - **Main bar**: icon-only marker type selector (`Line`, `Shape`, `Path`, `Fill`, `Template`),
+    unified `Place | Move | Delete` action switcher, and always-visible `Overlap Mode` icon
+    buttons (`Normal`, `Merge`, `Conforming`, `Wrapping`, `Difference`, `Cut`) that stay
+    disabled in inapplicable modes instead of shifting layout.
+  - **Context settings bar**: compact single-row controls for `Line`, `Shape` (including
+    single-row `Spiral`), `Path` (including single-row `Spiral`, arrowhead controls, and
+    `Cancel Path`), `Fill`, and `Template` (actions, transform controls, and a collapsible
+    template list).
+- Five monochrome 64×64 marker-type icons (`icons/line64.png`, `icons/shape64.png`,
+  `icons/path64.png`, `icons/fill64.png`, `icons/template64.png`) matching the existing
+  overlap-mode icon style.
+- Expanded right-click marker context menu with a disabled target header (`<Type> #<ID>`),
+  `Duplicate` (click-to-place preview with snapping and undo/redo), `Pick Settings`
+  (copies type, color, and type-specific parameters), `Apply Active Color` (undoable via
+  `RecolorMarkerRecord`), and `Save as Template`.
+- Expanded optional UnofficialPatch `SelectTool` submenu (`Guide Marker`) with `Move`,
+  `Duplicate`, `Save as Template`, `Pick Settings`, and `Delete`.
+- `Guide Overlays` card in the left tool panel (`Proximity Cross`, `Vertical Center`,
+  `Horizontal Center`, `Grid Coordinates`) with two-way synchronization and immediate
+  persistence to `ModConfig` (`user://mod_config/choson_guideslines.json`).
+
+### Changed
+
+- Reorganized the left tool panel into styled card sections (`Marker Style`, `Map Display`,
+  `Guide Overlays`, `Cleanup`) containing only global and shared settings, while moving all
+  per-tool settings and `Place | Move | Delete` controls into the top-center bar.
+
+```mermaid
+flowchart TD
+    UI["GuidesLines UI"] --> Top["Top-Center Floating Bar (Editor Content)"]
+    UI --> Left["Left Tool Panel (Styled Cards)"]
+    UI --> Ctx["Marker Context Menu (RMB / SelectTool)"]
+
+    Top --> Row1["Row 1: Main Bar"]
+    Top --> Row2["Row 2: Context Settings Bar"]
+
+    Row1 --> Types["Marker Types (Icons): Line, Shape, Path, Fill, Template"]
+    Row1 --> Actions["Action Mode: Place | Move | Delete"]
+    Row1 --> Overlap["Overlap Mode (Icons, always visible, disabled when N/A)"]
+
+    Row2 --> SLine["Line: Angle, Quick Angles, Mirror, Coords"]
+    Row2 --> SShape["Shape: Subtype, Sides / Radius-Side / Angle, or 1-row Spiral"]
+    Row2 --> SPath["Path: Freeform/Spiral (1-row), Arrow + Len/Angle, Cancel"]
+    Row2 --> SFill["Fill: Hint, Delete All Fills"]
+    Row2 --> STmpl["Template: Add, Create Group, Rot/Scale/Reset, Scroll List"]
+
+    Left --> CStyle["Marker Style: Color"]
+    Left --> CDisp["Map Display: Show Markers, Opacity"]
+    Left --> COver["Guide Overlays (ModConfig sync): Cross, V/H Center, Coords"]
+    Left --> CClean["Cleanup: Delete All Markers"]
+
+    Ctx --> CHead["Header: Type #ID (disabled)"]
+    Ctx --> CActs["Move, Duplicate, Pick Settings, Apply Active Color*, Save as Template, Delete"]
+```
+
+*\* `Apply Active Color` is available in the GuidesLines tool menu; `SelectTool` exposes
+`Move`, `Duplicate`, `Save as Template`, `Pick Settings`, and `Delete`.*
+
+### Fixed
+
+- Recursively disable nested tool-specific controls, top settings bar controls, and
+  `ColorPicker` in `Move` and `Delete` modes while keeping `Map Display`, `Guide Overlays`,
+  and the `Place | Move | Delete` switcher interactive, and restoring `Spiral` / `Template`
+  per-control states on exit.
+- Gate `MarkerOverlay._is_mouse_over_canvas()` against the visible top-center floating
+  panels so hovering them hides canvas previews and prevents click-through.
+- Support `"color"` in `GuideMarker.set_property()` so recoloring updates both `color` and
+  `draw_color` cleanly.
+
 ## [2.4.8] — 2026-11-23
 
 ### Fixed
+
 - Route canvas mouse clicks, right-clicks and wheel adjustments through
   `ModBaseTool._ContentInput` (`on_content_input`) instead of `MarkerOverlay._input`,
   and guard `_input` against active modal popups. Third-party `PopupMenu` /
@@ -17,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.7] — 2026-11-11
 
 ### Added
+
 - Right-click a guide marker to open its own Move/Delete menu, independent of
   UnofficialPatch. Move follows the cursor until a left click on the map confirms
   it; another mouse button, wheel, key or click outside the map cancels the preview.
@@ -26,11 +103,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in Select. Provider registration is map-scoped and removed with its scene node.
 
 ### Changed
+
 - Centralize optional-mod discovery, custom_snap snapping/grid sizing, hex Edge
   correction and coordinate sampling in `scripts/integrations/OptionalMods.gd`.
   Missing, late, disabled and replaced optional APIs preserve vanilla behavior.
 
 ### Fixed
+
 - Draw Shape outlines and previews with cached indexed `ArrayMesh` strokes instead
   of separate native AA line commands, preserving constant edge widths, boolean
   gaps, transforms and opacity. Screen-scale alpha fringes smooth exposed edges;
@@ -52,10 +131,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.6] — 2026-11-10
 
 ### Added
+
 - Quiet hover queries and a build-preview API with persistent, bounded fill-zone
   caching and invalidation when related markers or grid settings change.
 
 ### Fixed
+
 - Preserve holes, nested islands and disconnected contours in fill and Shape
   boolean operations, including tangent boundaries and undo/redo.
 - Reduce repeated clipping, geometry conversion and hole-bridge calculations.
@@ -63,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.5] — 2026-11-09
 
 ### Added
+
 - Group templates in the Template panel: toggle multiple marker selections with
   faint contour highlights, save/cancel, and preview the entire composition with
   shared rotation, uniform scale and center snapping.
@@ -77,6 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   templates now also support uniform scale in the sidebar and placement preview.
 
 ### Fixed
+
 - Recenter modified Shape anchors at the bounds center of their final segment
   geometry after Merge, Difference, Conforming and Wrapping, without translating
   the outline. Empty outlines retain their previous anchor; Cut keeps Path anchors.
@@ -87,12 +170,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.4] — 2026-11-09
 
 ### Fixed
+
 - Fill and `GuidesLinesApi.compute_fill_polygon()` now subtract overlapping Shapes
   that do not contain the click point after intersecting the hit Shapes. This
   preserves inner holes at every nesting level and fixes BuildingPlanner floor
   fills covering entire inner circles instead of only the selected ring.
 
 ### Tests
+
 - Add regression coverage for eight nested circles in both marker orders, partial
   overlaps and inner holes. All 109 standalone Godot 3.4 tests pass.
 - User testing in Dungeondraft confirmed that the nested-ring fix works.
@@ -100,6 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.3] — 2026-11-08
 
 ### Changed
+
 - Keep placed markers and fills in a separate retained CanvasItem, so cursor,
   template, drag and API previews redraw independently. Invalidate placed geometry
   for edits, history replay, map loading, display settings and camera/grid changes.
@@ -109,6 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.2] — 2026-11-08
 
 ### Fixed
+
 - Preserve grid-relative parameters when capturing unmodified regular Shape templates;
   retain exact edited and explicitly empty outlines.
 - Path spirals ignore the Shape-only width minimum, including API placement and reload.
@@ -121,6 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test setup requires the local pinned GUT checkout instead of downloading it implicitly.
 
 ### Changed
+
 - Spiral previews reuse cached pixel polylines and canvas translation; parameter-only
   Shape templates share the bounded geometry cache. Polygon/Path outlines use native
   polyline drawing, and spiral clearance checks use spatial buckets before exact tests.
@@ -129,6 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reuse API preview storage while preserving per-frame refresh and expiry behavior.
 
 ### Added
+
 - Shape/Spiral closed constant-width strips and Path/Spiral open centerlines,
   with fractional turns, winding, inner/outer radii, spacing-based sizing,
   rotation, Shape width, Path reversal and optional end arrows.
@@ -167,15 +256,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 A new **Template** tool type is available in the type selector (alongside Line, Shape, Path, Fill).
 
 **Capturing templates:**
+
 - Click **Add Template** to enter capture mode ("Click a marker…"), then click any existing marker on the map to snapshot its configuration as a named template.
 - The template stores the full marker state, including modified Shape geometry (Merge / Conforming / Difference / Cut primitives) and Path point layouts.
 
 **Placing templates:**
+
 - Select a template from the list and click anywhere on the map to place a copy.
 - **Mouse wheel** rotates the template in 1° steps (Line) / 5° steps (Shape, Path); **RMB** rotates by 45°. The rotation offset resets each time a different template is selected.
 - A semi-transparent preview follows the cursor, reflecting the current rotation.
 
 **Shape Overlap Modes:**
+
 - When the selected template is a Shape, an **Overlap Mode** panel appears (identical to the Shape tool row: Normal, Merge, Conforming, Wrapping, Difference, Cut).
 - All six modes apply correctly during template placement, including proper geometry propagation for primitive-based (modified) shapes.
 
@@ -190,6 +282,7 @@ Templates are stored in-session and are not persisted across map reloads.
 A new **Move Markers Mode** toggle is available in the tool panel (below Delete Mode).
 
 **Behaviour:**
+
 - While Move Mode is active, the standard placement preview is hidden.
 - Clicking on an existing marker's centre and holding LMB picks it up; a semi-transparent preview follows the cursor.
 - Releasing LMB drops the marker at the new position (grid snapping is respected).
@@ -207,6 +300,7 @@ A new **Move Markers Mode** toggle is available in the tool panel (below Delete 
 A new **Cut** mode is available in the Shape **Overlap Mode** row (alongside Normal, Merge, Conforming, Wrapping, Difference).
 
 **Behaviour:** When Cut mode is active and the user places a Shape, no new marker is created. Instead, every existing Shape marker whose outline **intersects** the placed shape is clipped:
+
 - Segments that fall inside the cut area are removed.
 - The remaining segments are split into disconnected chains; each chain becomes a **Path** marker (the original Shape marker is converted in-place for the first chain, extra chains spawn new markers).
 - A Shape that lies **fully inside** the cut area is deleted entirely.
@@ -223,16 +317,19 @@ The operation is fully **undoable/redoable** via the history system.
 Shape markers now support a second size input — **Side** — as an alternative to Radius. When enabled, the shape is sized so that its **edge length** equals the given value in grid cells, rather than its circumradius.
 
 Practical alignment guarantees:
+
 - **Square / any 4-sided shape** with Side = 1 → edges exactly match one square grid cell.
 - **Hexagon** with Side = 1 → edges exactly match one hexagonal grid cell (both Corner and Edge radial modes are handled automatically).
 
 **UI changes** (`GuidesLinesToolUI`):
+
 - A new **"Size by: Radius / Side"** `OptionButton` appears in the Shape settings panel for all non-circle presets.
 - While in Side mode the **Radius** row is hidden and replaced by a **Side** spinbox. Switching back to Radius mode restores the radius row.
 - The Circle preset always uses Radius mode (the toggle is hidden for it).
 - Mouse-wheel scroll adjusts the Side value (and updates Radius accordingly) when Side mode is active.
 
 **Hex Edge-mode correction** (`GuidesLinesTool`):
+
 - When Custom Snap mod is active with a hex geometry in **Edge** (apothem) mode, the circumradius is automatically scaled by `2/√3 ≈ 1.1547` so the shape still aligns with the hex grid cell.
 - The correction is re-evaluated every frame in `Update()`, so switching Corner↔Edge in Custom Snap takes effect immediately without re-entering the Side value.
 
@@ -263,6 +360,7 @@ A new shortcut **"Toggle Delete Mode"** (default: `Ctrl+D`) is now available in 
 When Custom Snap mod was enabled and any non-Normal shape interaction mode (Conforming, Wrapping, Difference, Merge) was used, newly placed Shape markers were rendered at the wrong size — up to 4× larger than in Normal mode.
 
 **Fix — single source of truth for `cell_size`:**
+
 - `GuidesLinesTool._get_grid_cell_size()` — replaced the `.has()` guard with a direct property access (`cached_snappy_mod.custom_snap_enabled`), consistent with how the overlay always read it.
 - `MarkerOverlay._get_grid_cell_size()` — removed the duplicated implementation; now delegates to `tool._get_grid_cell_size()` so all code paths use identical logic.
 
@@ -271,6 +369,7 @@ When Custom Snap mod was enabled and any non-Normal shape interaction mode (Conf
 ## [2.3.0] — 2026-05-01
 
 ### Changed
+
 - **Release packaging** — the ZIP archive now contains a `GuidesLines/` subfolder
   instead of placing files at the archive root.  
   Files `.gitignore` and `.gitmodules` are excluded from the release.
@@ -291,6 +390,7 @@ When placing a square marker (Shape, 4 sides, 45° rotation) such that it inters
 - **Pass 2 — gap bridging:** builds a vertex-valence map over all collected segments. In a valid closed-polygon edge-set every vertex has even valence; vertices with odd valence are open ends left by the discarded connector(s). Open ends are greedily paired by nearest distance and synthetic bridge segments are added to close the boundary.
 
 #### Files changed
+
 - **`scripts/utils/GeometryUtils.gd`** — `merge_polygons_outline()` extended with Pass 1 (de-dup) and Pass 2 (gap-bridging) after the `clip_polygon_against_shapes` calls.
 
 ---
@@ -302,10 +402,12 @@ Clicks were being processed by `MarkerOverlay` even when a Dungeondraft popup/wi
 **Root cause:** `_input` fires before `Control._gui_input`, so `is_input_handled()` is not yet set when `MarkerOverlay` receives the event. There was no explicit check for open windows.
 
 **Fix** (`scripts/overlays/MarkerOverlay.gd`):
+
 - Before processing any left click, the handler now iterates `editor.Windows.values()` and returns early if any window is `visible`.
 - The viewport boundary guard was extended to also reject clicks within **100 px of the top and bottom edges** of the viewport (in addition to the existing 450 px left-panel guard), preventing accidental interaction with the top and bottom UI bars.
 
 #### Files changed
+
 - **`scripts/overlays/MarkerOverlay.gd`** — added visible-window check and top/bottom viewport margin guards to the left-click handler.
 
 ---
@@ -313,6 +415,7 @@ Clicks were being processed by `MarkerOverlay` even when a Dungeondraft popup/wi
 ### Fixed — Merging two tangentially touching circles produced only one circle with a shifted center
 
 When two identical circular Shape markers (e.g. 50 sides, radius 1 cell) were placed so that only their outermost points touched (tangent contact, zero-area intersection), the Merge operation:
+
 1. Wrote only the outline of the **second** (newly placed) circle to the primary marker.
 2. Moved the primary marker's center to the **midpoint** between both circles, despite the shape being a single circle.
 
@@ -325,6 +428,7 @@ When two identical circular Shape markers (e.g. 50 sides, radius 1 cell) were pl
 **Fix 2** (`GuidesLinesTool._do_apply_merge`): `center_sum += marker.position` and `center_count += 1` are now accumulated **only after** `chain_segments_to_polygon` returns a non-empty result, ensuring the centroid is not shifted when the geometry step fails or produces no usable polygon.
 
 #### Files changed
+
 - **`scripts/utils/GeometryUtils.gd`** — `chain_segments_to_polygon()` extended with figure-8 continuation block.
 - **`scripts/tool/GuidesLinesTool.gd`** — `_do_apply_merge()` centroid accumulation moved after successful geometry step.
 
@@ -351,6 +455,7 @@ The Shape interaction mode controls (Merge, Conforming, Wrapping, Difference) ha
 - Returns `{"affected_markers": [], "absorbed_marker_ids": []}` when no actual merge is performed.
 
 #### Files changed
+
 - **`scripts/tool/GuidesLinesToolUI.gd`** — `_create_shape_settings_ui()` redesigned with icon buttons; `_load_icon()` now supports scaling parameter.
 - **`scripts/tool/GuidesLinesTool.gd`** — `_do_apply_merge()` validates shape identity before merging; validates vertex count after merging.
 - **`scripts/api/guides_lines_api.gd`** — `place_shape_merge()` docstring updated to clarify behavior with identical shapes.
@@ -367,6 +472,7 @@ Both methods previously returned incomplete data for the new marker and the mark
 - **`place_shape_wrapping`** — `dented_by: Array[int]` (IDs only) replaced by `affected_markers: Array[{marker_id, new_polygon}]`, matching the structure used by all other shape interaction methods. The legacy `dented_by` field is removed.
 
 Both methods now return a consistent structure:
+
 ```gdscript
 {
   "marker_id":        int,
@@ -389,6 +495,7 @@ Four 64×64 PNG icons are now displayed on the Merge, Conforming, Wrapping, and 
 - `icons/difference64.png`
 
 #### Files changed
+
 - **`scripts/tool/GuidesLinesTool.gd`** — `api_place_shape_conforming` reads the placed marker's descriptor and adds `marker_polygon` to the return dict; `api_place_shape_wrapping` snapshots overlapping marker polygons before placement and returns them as `affected_markers`; Merge branch in `place_marker()` falls through to normal placement when no targets are found.
 - **`scripts/api/guides_lines_api.gd`** — error-return dicts, docstrings, and logger messages updated for both methods.
 - **`scripts/tool/GuidesLinesToolUI.gd`** — `_create_shape_settings_ui()` loads and applies icons to the four mode checkboxes via `add_icon_override`; added `_load_icon(filename)` helper.
@@ -437,15 +544,19 @@ Previously, when a Merge placement overlapped multiple existing Shape markers, e
 Four new methods in `GuidesLinesApi` expose all four Shape interaction modes programmatically, each with full undo/redo support.
 
 #### `place_shape_merge(position, radius, angle, sides) → Dictionary`
+
 Merges a virtual shape into every overlapping existing Shape marker (union of outlines). No new marker is created. Returns `{"affected_markers": [{marker_id, new_polygon, old_position, new_position}, …]}`. Returns `{}` on failure, `{"affected_markers": []}` if nothing overlapped.
 
 #### `place_shape_conforming(position, radius, angle, sides, color) → Dictionary`
+
 Places a new Shape marker normally while denting every overlapping existing Shape to accommodate it. Returns `{"marker_id": int, "affected_markers": [{marker_id, new_polygon}, …]}`. `marker_id` is `-1` on failure.
 
 #### `place_shape_wrapping(position, radius, angle, sides, color) → Dictionary`
+
 Places a new Shape marker whose own outline is dented by all overlapping existing shapes. Existing markers are left unchanged. Returns `{"marker_id": int, "dented_by": [int, …], "marker_polygon": [Vector2, …]}`. `marker_id` is `-1` on failure.
 
 #### `apply_shape_difference(position, radius, angle, sides) → Dictionary`
+
 Punches a hole into every overlapping existing Shape marker using a virtual cutter shape. No new marker is created. Returns `{"affected_markers": [{marker_id, new_polygon}, …]}`. Returns `{}` on failure, `{"affected_markers": []}` if nothing overlapped.
 
 ---
@@ -457,6 +568,7 @@ Punches a hole into every overlapping existing Shape marker using a virtual cutt
 Two new methods in `GuidesLinesApi` allow external mods to render a live shape preview on the map and inspect the full current tool configuration.
 
 #### `set_shape_preview(coords, radius, angle, sides, color)`
+
 Queues a one-frame Shape preview rendered directly on the map overlay at `coords`.
 
 - The preview is drawn by `MarkerOverlay` on the next paint pass and cleared automatically. To keep it alive call this method every frame (e.g. from `_process`).
@@ -464,13 +576,15 @@ Queues a one-frame Shape preview rendered directly on the map overlay at `coords
 - Uses the same `GeometryUtils.calculate_shape_vertices` + `GuidesLinesRender.draw_polygon_outline` pipeline as the built-in cursor preview, so the result is visually identical to the normal Shape hover.
 
 #### `clear_shape_preview()`
+
 Explicitly clears any pending API preview immediately, triggering an overlay redraw. Useful when the external mod hides its UI or the cursor leaves the map.
 
 #### `get_tool_state() → Dictionary`
+
 Returns a snapshot of the full current tool state. All fields:
 
 | Key | Type | Description |
-|---|---|---|
+| --- | --- | --- |
 | `ready` | `bool` | `false` if the tool is not yet loaded (map not open) |
 | `active_marker_type` | `String` | `"Line"` \| `"Shape"` \| `"Path"` \| `"Fill"` |
 | `active_angle` | `float` | Line angle in degrees |
@@ -494,6 +608,7 @@ Returns a snapshot of the full current tool state. All fields:
 | `path_temp_point_count` | `int` | Points collected so far in active path |
 
 #### Files changed
+
 - **`scripts/tool/GuidesLinesTool.gd`** — added `var _api_preview = {}` field used as the one-frame preview slot.
 - **`scripts/overlays/MarkerOverlay.gd`** — `_process` triggers redraw when `_api_preview` is non-empty; `_draw()` calls new `_draw_api_shape_preview()` and auto-clears the slot; added `_draw_api_shape_preview()`.
 - **`scripts/api/guides_lines_api.gd`** — added `# TOOL STATE & PREVIEW` section with `set_shape_preview()`, `clear_shape_preview()`, and `get_tool_state()`.
@@ -507,6 +622,7 @@ Returns a snapshot of the full current tool state. All fields:
 A series of refactors across all overlay classes removes redundant per-frame calculations and heap allocations from the hot `_draw()` path. No visual or API behaviour has changed.
 
 #### MarkerOverlay.gd
+
 - **Color constants** — five static `Color(...)` literals used inside preview draw methods are now `const` class fields (`_PREVIEW_MARKER_COLOR`, `_PREVIEW_ARC_COLOR`, `_PATH_PREVIEW_LINE_COLOR`, `_PATH_PREVIEW_FIRST_COLOR`, `_PATH_PREVIEW_CURSOR_COLOR`), eliminating per-frame object allocations.
 - **`coord_marker_size` / `coord_text_offset`** — previously recomputed via `get_adaptive_width` for every marker that has `show_coordinates` enabled; now computed once in `_draw()` and passed as parameters down to `_draw_marker_coordinates_cached`.
 - **`custom_snap`** — previously fetched per-marker inside `_draw_custom_marker`; now fetched once in `_draw()` and passed as a parameter.
@@ -514,6 +630,7 @@ A series of refactors across all overlay classes removes redundant per-frame cal
 - **Marker / line sizes** — `marker_size_draw`, `line_width_draw`, `preview_line_width`, `preview_marker_size` already computed once in `_draw()` (from previous session); signatures updated throughout to carry all sizes as parameters.
 
 #### PermanentOverlay.gd
+
 - **Map center cache** (`_update_map_cache`) — `WorldRect` is accessed and `map_cx / map_cy` recomputed only when `WorldRect` actually changes (same pattern as `CrossOverlay`). Cache is updated in `_process()` and invalidates the coord cache automatically.
 - **`GuidesLinesRender.get_adaptive_width`** — `center_marker_size`, `marker_size`, and `text_offset` now use `get_adaptive_width` consistently (was raw `* cam_zoom.x`), unifying the approach with `MarkerOverlay`.
 - **Coordinate point cache** (`_perm_coord_cache_v / _perm_coord_cache_h`) — the expensive `while` loops (vanilla grid iteration and custom-snap snapping) previously ran every frame. Now extracted into `_rebuild_perm_coord_cache()` and executed only when viewport bounds, map center, or snap settings change. `_draw_grid_coordinates` simply iterates the pre-built arrays; only zoom-dependent dot/text sizes are computed at draw time.
@@ -541,6 +658,7 @@ Two new methods allow other mods to programmatically retrieve fill polygons usin
 Both methods fully delegate to internal Fill-tool helpers (`_fill_handler._collect_hit_markers`, `_fill_handler._compute_fill_polygon`, `tool._get_shape_descriptor`), so their results are always consistent with what the Fill tool produces.
 
 #### Files changed
+
 - **`scripts/api/guides_lines_api.gd`** — added `# FILL POLYGON QUERIES` section with `compute_fill_polygon()` and `get_shape_polygon()`.
 
 ---
@@ -556,6 +674,7 @@ Both methods fully delegate to internal Fill-tool helpers (`_fill_handler._colle
 - All internal references to the old `fill_mode` boolean flag and `set_fill_mode()` have been removed; fill mode is now determined by `active_marker_type == MARKER_TYPE_FILL`.
 
 #### Files changed
+
 - **`GuidesLinesTool.gd`** — added `MARKER_TYPE_FILL = "Fill"` constant; removed `fill_mode` var and `set_fill_mode()`; updated `set_delete_mode()` to reset type to Line when Fill was active; updated `handle_fill_click()` guard to `active_marker_type != MARKER_TYPE_FILL`.
 - **`GuidesLinesToolUI.gd`** — added `MARKER_TYPE_FILL` constant, `fill_settings_container` variable, `_create_fill_settings_ui()` function, and `sync_type_selector_to_active_type()` helper; added "Fill" item (index 3) to `type_selector`; updated `_switch_type_ui()` and `_on_marker_type_changed()` to handle Fill; removed standalone Fill Mode `CheckButton`, its spacer, and `_on_fill_mode_toggled()` callback; **Delete All Fills** button now lives inside the Fill settings panel.
 - **`MarkerOverlay.gd`** — replaced all three `tool.fill_mode` references with `tool.active_marker_type == tool.MARKER_TYPE_FILL`.
@@ -574,6 +693,7 @@ Two new display controls are now available directly in the **Guide Markers** too
 Both settings are also exposed through `GuidesLinesApi` for inter-mod use.
 
 #### Files changed
+
 - **`GuidesLines.gd`** — added `markers_visible: bool` and `markers_opacity: float` state variables.
 - **`GuidesLinesToolUI.gd`** — extended `_create_common_settings_ui()` with "Map Display" section; added callbacks `_on_markers_visible_toggled`, `_on_markers_opacity_changed`; added sync helpers `_update_markers_visible_checkbox`, `_update_markers_opacity_spinbox`.
 - **`MarkerOverlay.gd`** — `_draw()` skips the marker loop when `markers_visible` is `false`; `_draw_custom_marker()` applies `markers_opacity` to every `draw_line`, `draw_circle`, `draw_arc`, and `draw_arrow` call.
@@ -588,6 +708,7 @@ Both settings are also exposed through `GuidesLinesApi` for inter-mod use.
 Removed the small grey hint `Label` nodes that appeared below certain controls in the Shape settings panel. Their text is now set as `hint_tooltip` directly on the corresponding control, so descriptions appear on hover instead of cluttering the panel layout.
 
 #### Files changed
+
 - **`GuidesLinesToolUI.gd`** — `radius_hbox.hint_tooltip` (circumradius note); `merge_check.hint_tooltip`, `conforming_check.hint_tooltip`, `wrapping_check.hint_tooltip`, `diff_check.hint_tooltip`; all four corresponding `Label` nodes and their `container.add_child` calls removed.
 
 ---
@@ -604,6 +725,7 @@ The **Cut Into Existing Shapes** mode has been replaced by two new complementary
 Both modes are mutually exclusive with each other, Merge, and Difference. Undo/Redo fully supported via the existing `PlaceMarkerRecord` snapshot mechanism.
 
 #### Files changed
+
 - **`GuidesLinesTool.gd`** — `cut_existing_shapes` → `conforming_mode`; `_apply_cut_to_existing_shapes` → `_apply_conforming_to_existing_shapes` (now uses `_shapes_overlap` + appends diff boundary); added `wrapping_mode` and `_apply_wrapping_to_new_shape()`; `_snapshot_potential_clip_targets` updated to use `_shapes_overlap`.
 - **`GuidesLinesToolUI.gd`** — checkboxes `ConformingModeCheckbox` and `WrappingModeCheckbox`; callbacks `_on_conforming_mode_toggled` / `_on_wrapping_mode_toggled`; mutual exclusion updated across all four mode toggles.
 - **`GuidesLinesHistory.gd`** — `PlaceMarkerRecord.redo()` guard updated to `conforming_mode`.
@@ -748,7 +870,7 @@ outline again in addition to any partial arcs from earlier crossing differences.
 `cached_draw_data` now carries two independent lists:
 
 | Field | Semantics |
-|---|---|
+| --- | --- |
 | `render_primitives` | Replacement outline for the marker edge (`[]` = use full-shape fallback). |
 | `render_fills` | Diff-boundary lines drawn **on top** of the outline, always independently. |
 
@@ -760,6 +882,7 @@ outline again in addition to any partial arcs from earlier crossing differences.
   `if cell_size:` block, preventing loss on grid-change or undo.
 
 `MarkerOverlay._draw_custom_marker` now performs two explicit passes:
+
 1. Draw outline — `render_primitives` if non-empty, full-shape fallback otherwise.
 2. Always draw every item in `render_fills` on top regardless of outline state.
 
@@ -816,7 +939,7 @@ removed from the canvas; only the "holes" it carved remain.
 #### New geometry helpers (`GeometryUtils.gd`)
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `clip_polygon_inside_shape(poly_pts, shape)` | Keeps only sub-segments of a polygon whose midpoint is **inside** the given shape — used to draw the diff boundary inside the target. |
 | `clip_circle_inside_shape(center, r, shape)` | Same for circle arcs. |
 | `clip_primitives_against_shapes(prims, shapes)` | Filters a mixed `seg`/`arc` list to remove portions inside any of the given shapes (used to clean fills after stacked diffs). |
@@ -831,7 +954,7 @@ removed from the canvas; only the "holes" it carved remain.
 **`GuidesLinesTool.gd`**
 
 | Symbol | Description |
-|---|---|
+| --- | --- |
 | `difference_mode: bool` | Feature flag. |
 | `difference_ops: Array` | Persistent list of applied difference operations. |
 | `DifferenceRecord` (inner class) | `HistoryRecord` subclass; stores diff descriptor, op dict, and per-marker snapshots for undo. |
@@ -864,7 +987,7 @@ Only one mode can be active at a time; enabling one automatically disables the o
 #### `scripts/utils/GeometryUtils.gd` — new static functions
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `segment_segment_intersect(a1,a2,b1,b2)` | Returns the intersection `Vector2` of two segments, or `null` if parallel / non-overlapping. |
 | `segment_intersects_circle(a,b,center,r)` | Returns an `Array` of 0–2 `Vector2` points where segment `[a]→[b]` crosses the circle. |
 | `point_inside_circle(p,center,r)` | Returns `true` if `p` is strictly inside the circle. |
@@ -882,14 +1005,14 @@ Only one mode can be active at a time; enabling one automatically disables the o
 **New variables**
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `auto_clip_shapes` | `false` | **Clip Intersecting Shapes** — mutual mode: both the new and all intersecting existing markers are clipped. |
 | `cut_existing_shapes` | `false` | **Cut Into Existing Shapes** — one-way mode: only existing markers are clipped by the new shape; the new marker is left intact. |
 
 **New private methods**
 
 | Method | Description |
-|---|---|
+| --- | --- |
 | `_get_shape_descriptor(marker, cell_size)` | Converts a marker's `draw_data` into a `{shape_type, …}` dict for GeometryUtils. |
 | `_shapes_intersect(desc_a, desc_b)` | Returns `true` if the outlines of two shape descriptors actually cross. Handles all Poly×Poly, Poly×Circle, Circle×Circle combinations. |
 | `_recompute_marker_clip(marker, cell_size)` | Rebuilds `marker.clip_data` from the current `clipped_by_ids` list. |
@@ -918,7 +1041,7 @@ Only one mode can be active at a time; enabling one automatically disables the o
 #### Undo / Redo behaviour
 
 | Action | Effect on clip state |
-|---|---|
+| --- | --- |
 | Place B (clips A) → Undo | `_remove_shape_clipping(B.id)` restores A's full outline |
 | Delete A → Undo | `_apply_shape_clipping` / `_apply_cut_to_existing_shapes` reapplies A's clipping |
 | Redo Place B | `_do_place_marker` re-runs the appropriate clipping pass |
@@ -938,7 +1061,7 @@ No public API signatures were changed.
 #### `scripts/utils/GeometryUtils.gd` — new static functions
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `closest_point_on_circle(p, center, r)` | Nearest point on a circle's circumference; handles the degenerate case where `p` lies exactly at the centre. |
 | `closest_point_on_polygon_edges(p, pts, closed=true)` | Nearest point on any edge of a polygon or polyline. `closed=true` (default) wraps the last edge back to `pts[0]`; `closed=false` treats the array as an open polyline. Replaces per-method `for i in range(…)` edge loops. |
 | `nearest_polygon_vertex(p, pts)` | Returns the vertex in `pts` closest to `p`, or `null` for an empty array. |
@@ -973,6 +1096,7 @@ No public API signatures were changed.
 ## [2.0.11] - 2026-02-21
 
 ### Added
+
 - **`GuidesLinesApi` — External API for inter-mod communication**: New file `scripts/api/guides_lines_api.gd` exposes a rich programmatic interface so other mods can interact with GuidesLines without touching internal state.
   - **Signals**: `marker_placed(marker_id, position)`, `marker_deleted(marker_id)`, `all_markers_deleted()`, `settings_changed(setting_name, value)`.
   - **Marker placement**: `place_line_marker()`, `place_shape_marker()`, `place_arrow_marker()`, `place_path_marker()` — all with full parameter control and automatic history (undo/redo) recording.
@@ -988,11 +1112,13 @@ No public API signatures were changed.
   - API is registered via `_Lib`'s `ApiApi` as `"GuidesLinesApi"` and can be consumed by other mods with `self.Global.API.GuidesLinesApi`.
 
 ### Changed
+
 - `GuidesLines.gd` now loads `guides_lines_api.gd`, instantiates `GuidesLinesApi`, and registers it after all classes are loaded via new `_register_external_api()` helper.
 - `GuidesLinesTool.Update()` now always runs (even when the tool is not the active tool) so that API-placed markers are drawn correctly at all times.
 - `GuidesLinesTool` creates its overlay even while the tool is inactive, ensuring markers placed via the API are visible immediately.
 
 ### Technical Changes
+
 - **`GuidesLinesTool` — API bridge methods**: Added `api_place_marker(marker_data)` and `api_delete_marker_by_id(marker_id)` as thin public wrappers that call the internal `_do_*` helpers and record the appropriate `HistoryApi` records, keeping the inner `PlaceMarkerRecord`/`DeleteMarkerRecord` classes private.
 - **Event notifications**: `_do_place_marker()`, `_do_delete_marker()`, and `_do_delete_all()` now call `guides_lines_api._notify_marker_placed/deleted/all_deleted()` after mutating state, so signal subscribers always receive events regardless of whether the action originated from the user or the API.
 - `_do_delete_marker()` now captures `deleted_id` before erasing the entry from `markers_lookup` to guarantee the correct id is forwarded to the notification call.
@@ -1000,6 +1126,7 @@ No public API signatures were changed.
 ## [2.0.10] - 2026-02-19
 
 ### Added
+
 - **Shape subtype "Custom (N-sided)"**: New polygon subtype that allows placing a regular polygon with any number of sides from 3 to 50.
   - Added **"Custom (N-sided)"** option to the Shape Type selector in the tool panel.
   - Added **Sides** SpinBox (range 3–50) in the Shape settings UI. The control is only visible when the "Custom" subtype is selected.
@@ -1015,6 +1142,7 @@ No public API signatures were changed.
 - Rotation controls (scroll wheel, RMB +45°) work unchanged for the Custom subtype.
 
 ### Fixed
+
 - History capture protocol violations report diagnostics. Virtual shape descriptors
   require an explicit radius instead of reading the current UI radius.
 - Fixed `match` block in `GuideMarker._recalculate_geometry()`: the `"Custom"` branch was incorrectly indented outside the `match` statement, causing a crash on placement. Also restored the missing `cached_draw_data["points"] = ...` call that had been lost in the same block.
@@ -1022,6 +1150,7 @@ No public API signatures were changed.
 ## [2.0.9] - 2026-02-19
 
 ### Added
+
 - **Shape Mouse Controls**: Shape markers now follow object-tool conventions for mouse interaction:
   - **Scroll Wheel** — rotates the shape (5°/tick).
   - **Alt + Scroll Wheel** — changes the shape radius (0.1 cells/tick, previous wheel behavior).
@@ -1030,41 +1159,49 @@ No public API signatures were changed.
 - Added `rotate_shape_45()` method to `GuidesLinesTool` — rotates shape by 45° on RMB press.
 
 ### Changed
+
 - Circle subtype is excluded from all rotation controls (scroll wheel angle and RMB +45°), as rotation has no effect on circles.
 
 ### Fixed
+
 - **Grid snapping not working**: Marker placement never snapped to the grid even when snapping was globally enabled. Root cause was using the non-existent property `Global.Editor.IsSnapToGrid` (always evaluated to `false`) instead of the correct official API property `Global.Editor.IsSnapping`. Fixed in `place_marker()`, `_handle_path_placement()`, and `_handle_arrow_placement()`.
 
 ## [2.0.8] - 2026-02-19
 
 ### Added
+
 - **Mod Settings Panel**: Integrated with `_Lib` `ModConfigApi` — settings are now accessible via **Edit → Preferences → Mods → Guides Lines**.
 - **Persistent Settings**: Toggle states for Proximity Cross Guides, Permanent Vertical/Horizontal Center Lines, and Show Grid Coordinates are now saved between sessions (`user://mod_config/choson_guideslines.json`).
 - **Configurable Hotkey**: Added a hotkey to activate the Guide Markers tool (default: `9`), configurable via **Edit → Preferences → Shortcuts → Guides Lines**. Shortcut assignment is saved between sessions.
 
 ### Changed
+
 - Settings variables (`cross_guides_enabled`, `perm_vertical_enabled`, `perm_horizontal_enabled`, `show_coordinates_enabled`) are now managed through `ModConfigApi` rather than being hardcoded.
 
 ## [2.0.7] - 2026-02-17
 
 ### Changed
+
 - The "Snap to Grid" checkbox has been removed from the tool's UI.
 - The mod now respects Dungeondraft's global "Snap to Grid" setting, providing better integration and a more consistent user experience.
 - Marker placement (including lines, shapes, paths, and arrows) will only snap to the grid if the global snapping option is enabled in Dungeondraft.
 
 ### Fixed
+
 - Resolved a bug where markers would always snap to the grid, regardless of the global setting.
 - Fixed several parsing errors caused by incorrect indentation and leftover code from the refactoring process.
 
 ## [2.0.6] - 2026-02-17
 
 ### Refactoring
+
 - Reorganized the `scripts` folder by grouping files into subdirectories based on their functionality (`tool`, `render`, `overlays`, `guides`, `utils`).
 - Updated all `preload` and `ResourceLoader.load` paths to reflect the new file structure.
 
 ## [2.0.5] - 2026-02-17
 
 ### Refactoring
+
 - **Drawing Logic Refactoring**:
   - Created a new static helper class `GuidesLinesRender` (`scripts/GuidesLinesRender.gd`) to centralize all drawing logic.
   - Moved adaptive line width calculation, text-with-outline rendering, and drawing of primitives (lines, circles, polygons, arrows) into `GuidesLinesRender`.
@@ -1074,6 +1211,7 @@ No public API signatures were changed.
   - Ensured consistent rendering behavior across all guide types by using the centralized rendering class.
 
 ### Bug Fixes
+
 - Fixed several parsing errors (`Expected indented block`, `Identifier not found`) that occurred during the refactoring process by ensuring correct `preload` usage and cleaning up corrupted code blocks.
 
 ## [2.0.4] - 2026-02-17
@@ -1081,12 +1219,14 @@ No public API signatures were changed.
 ### 🚀 Optimized & Refactored
 
 **Code Architecture**:
+
 - **Consolidated Geometry**: Created a new `GeometryUtils` static helper class to handle all geometric calculations.
 - **Unified Math**: Moved duplicate logic for polygon generation, line clipping, and ray intersection to `GeometryUtils`.
 - **Improved Ray Clippping**: Implemented a robust "Slab Method" algorithm for `get_ray_to_rect_edge` to correctly handle ray intersections with map boundaries from both inside and outside.
 - **Cleaner Code**: Significantly reduced code duplication in `GuideMarker.gd` and `MarkerOverlay.gd`.
 
 **Stability**:
+
 - **Parser Fixes**: Resolved GDScript parsing errors related to class loading order (`extends` before `class_name`).
 - **Constant Management**: Replaced usage of potentially ambiguous `TAU` with `GeometryUtils.TWO_PI`.
 
@@ -1106,6 +1246,7 @@ No public API signatures were changed.
 ### 🚀 Optimized & Fixed
 
 **Performance & Memory**:
+
 - **Critical Memory Leak Fix**: Fixed memory leak in `PermanentOverlay` and `MarkerOverlay` where font resources were re-created every frame. Fonts are now cached once.
 - **Instant Marker Access**: Implemented `Dictionary` lookup for markers (O(1) access), significantly speeding up Undo/Redo operations and deletions for large numbers of markers.
 - **Cached Geometry**: `CrossOverlay` now pre-calculates and caches map dimensions and guide line coordinates instead of recalculating them every draw call.
@@ -1116,6 +1257,7 @@ No public API signatures were changed.
 ### 🐛 Fixed
 
 **Performance Optimizations**:
+
 - Fixed critical performance issue with infinite `update_count` accumulation in `GuidesLinesTool._process()`
 - Removed forced `update()` calls every frame (60fps × 4 overlays = 240fps rendering)
 - Added conditional rendering: overlays now update only when camera/markers/state changes
@@ -1123,17 +1265,20 @@ No public API signatures were changed.
 - Eliminated performance degradation during idle time
 
 **UI Interaction**:
+
 - Fixed markers being created when clicking UI buttons (now checks viewport x < 450)
 - Fixed preview marker freezing at last position when cursor enters UI area (now disappears cleanly)
 - Preview now updates smoothly only when cursor is outside UI region
 
 **Visual Improvements**:
+
 - Added adaptive scaling for lines and markers at low zoom levels (50% and below)
 - Lines and markers now scale proportionally with camera zoom for better visibility
 - All visual elements (lines, markers, text, arrows) adapt to zoom level
 - Consolidated preview constants (PREVIEW_MARKER_SIZE, PREVIEW_LINE_WIDTH) at class level
 
 **Line Marker Rendering**:
+
 - Fixed Line marker rays disappearing when marker point is outside camera viewport
 - Implemented proper ray-viewport intersection algorithm for off-screen markers
 - Added map boundary clipping: lines no longer extend beyond map edges (WorldRect)
@@ -1141,6 +1286,7 @@ No public API signatures were changed.
 - Fixed Mirror parameter: rays now correctly render in one direction, Mirror adds opposite ray
 
 **Code Quality**:
+
 - Fixed GDScript parse error: moved constants to class level (not inside functions)
 - Simplified `_get_ray_to_viewport_edge()` function for better maintainability
 - Removed unnecessary helper functions
@@ -1154,13 +1300,14 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ### 🚀 Added
 
 **New Marker System**:
-- **Line Markers**: 
+
+- **Line Markers**:
   - Any angle (0-360°) with infinite length to map boundaries
   - Mirror mode for symmetrical designs
   - Mouse wheel adjustment (5° increments)
   - Custom color per marker
   
-- **Shape Markers**: 
+- **Shape Markers**:
   - 5 subtypes: Circle, Square, Pentagon, Hexagon, Octagon
   - Adjustable radius (0.5-100 cells)
   - Full rotation (0-360°)
@@ -1168,7 +1315,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Mouse wheel rotation adjustment (5° increments)
   - Custom color per marker
   
-- **Path Markers**: 
+- **Path Markers**:
   - Multi-point custom paths with sequential placement
   - Click to add points (minimum 2, no maximum)
   - Right-click to finish as open path
@@ -1182,7 +1329,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Grid snapping support for each point
   - Custom color per marker
   
-- **Arrow Markers**: 
+- **Arrow Markers**:
   - 2-point directional arrows with arrowheads
   - Automatic completion at second point
   - Customizable arrowhead:
@@ -1193,6 +1340,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Custom color per marker
 
 **Enhanced Features**:
+
 - Mouse wheel parameter adjustment while hovering over controls
 - Color picker for each marker with independent color memory per type
 - Smart UI: type-specific settings appear dynamically
@@ -1203,6 +1351,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ### 🔄 Changed
 
 **Complete UI Redesign**:
+
 - Single marker type selector (dropdown instead of checkboxes)
 - Dynamic settings panels based on selected type
 - All marker parameters accessible before placement
@@ -1210,12 +1359,14 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 - Reset to Defaults button for all settings
 
 **Architecture Improvements**:
+
 - Single `marker_type` field instead of `marker_types` array
 - Each marker stores its own visual parameters
 - Type-specific settings stored independently
 - Simplified data model with better extensibility
 
 **Behavior Changes**:
+
 - Right-click now cancels Path/Arrow placement (no longer deletes markers during preview)
 - Right-click deletion only works when NOT in placement mode
 - Settings are remembered per-type when switching between marker types
@@ -1230,13 +1381,14 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - New format uses single type with parameters
   - No automatic migration from v1.x to v2.0.0
   
-- **API Changes**: 
+- **API Changes**:
   - `GuideMarker.has_type()` removed
   - `GuideMarker.add_type()` removed
   - `GuideMarker.remove_type()` removed
   - Replaced with: `marker_type`, `angle`, `line_range`, `circle_radius`, `shape_subtype`, `shape_angle`, `path_points`, `path_closed`, `arrow_head_length`, `arrow_head_angle`, `color`, `mirror`
 
 **Migration Path**:
+
 - ⚠️ **Backup all maps** before upgrading from v1.x
 - Old maps must be recreated with new marker system
 - No automated conversion tool available
@@ -1255,6 +1407,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ### 🔧 Technical Changes
 
 **Code Structure**:
+
 - Refactored `GuidesLinesTool.gd` (~800 lines modified)
   - Single `active_marker_type` instead of array
   - Added `type_settings` dictionary for per-type state
@@ -1274,11 +1427,13 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - ESC key cancellation support
 
 **History System**:
+
 - Custom record classes now track full marker state including visual parameters
 - Proper restoration of color, angle, radius, and all type-specific properties
 - History limits maintained (100 records per operation type)
 
 **Constants**:
+
 - Added: `MARKER_TYPE_LINE`, `MARKER_TYPE_SHAPE`, `MARKER_TYPE_PATH`, `MARKER_TYPE_ARROW`
 - Added: `SHAPE_SUBTYPE_CIRCLE`, `SHAPE_SUBTYPE_SQUARE`, etc.
 - Renamed: `LINE_COLOR` → `DEFAULT_LINE_COLOR`
@@ -1315,14 +1470,17 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.10] - 2026-02-04
 
 ### Added
+
 - **UpdateChecker Integration**: Automatic update notifications
 - **HistoryApi Integration**: Full undo/redo support
 
 ### Fixed
+
 - Corrected Logger API usage
 - Fixed Global.API references
 
 ### Technical Changes
+
 - Custom History Record classes
 - UpdateChecker for GitHub repository
 
@@ -1331,12 +1489,15 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.9] - 2026-02-03
 
 ### Changed
+
 - **UI Redesign**: All settings in tool panel
 
 ### Fixed
+
 - **_Lib-1.2.0 Compatibility**: Complete rewrite for new API
 
 ### Technical Changes
+
 - Removed ModConfig integration
 - Updated Logger initialization
 
@@ -1345,11 +1506,13 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.8] - 2026-02-01
 
 ### Added
+
 - **Logger API Integration**
 - **HistoryApi Integration**
 - **ModConfigApi Integration**
 
 ### Improved
+
 - **ModRegistry Integration**
 - **Code Quality**
 
@@ -1358,6 +1521,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.7] - 2026-02-01
 
 ### Updated
+
 - **Compatibility Update**: _Lib 1.2.0
 
 ---
@@ -1365,9 +1529,11 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.6] - 2026-01-17
 
 ### Fixed
+
 - Application crash when `custom_snap` not activated
 
 ### Improved
+
 - Smart Coordinates Toggle
 
 ---
@@ -1375,6 +1541,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.5] - 2026-01-XX
 
 ### Features
+
 - Basic guide lines system
 - Multiple marker types (vertical, horizontal, diagonal)
 - Grid coordinate display
@@ -1392,6 +1559,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 [1.0.5]: https://github.com/ChosonDev/GuidesLines/releases/tag/v1.0.5
 
 ### Changed - Major Refactoring (Phase 2)
+
 - **Shape Marker System**: Completely redesigned Circle markers into versatile Shape markers
   - Replaced Circle marker type with Shape marker type
   - Added 5 shape subtypes: Circle, Square, Pentagon, Hexagon, Octagon
@@ -1417,6 +1585,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Fixed Reset to Defaults button not resetting Arrow parameters (Head Length, Head Angle)
 
 ### Changed - Major Refactoring (Phase 1)
+
 - **Complete Marker System Redesign**: Replaced fixed guide line types with flexible custom marker system
   - Removed pre-defined marker types (vertical, horizontal, diagonal left, diagonal right)
   - Introduced marker type system: Line, Shape, Path, and Arrow types (with extensibility for future types)
@@ -1533,45 +1702,46 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Updated `set_snap_to_grid()` to cancel Path placement when snap is disabled
   - Updated `_switch_type_ui()` to cancel Path placement when switching away from Path type
 
- - **MarkerOverlay.gd** (~640 lines restructured):
-  - Added mouse wheel input handling in `_input()`:
-    - Wheel up/down adjusts angle for Line type (5° increments)
-    - Wheel up/down adjusts radius for Circle type (0.5 cell increments)
-    - Ignores wheel when CTRL is held (preserves zoom functionality)
-  - Added input handling for Path type:
-    - Right-click (RMB) finalizes open path
-    - ESC key cancels Path placement
-  - Added input handling for Arrow type:
-    - ESC key cancels Arrow placement before second point
-  - Updated `_process()` to track mouse position for Path and Arrow previews
-  - Completely rewrote `_draw()` to support custom marker types including Path and Arrow previews
-  - Added `_draw_custom_marker()` - unified drawing for any marker type (Line, Circle, Path, Arrow)
-  - Added `_draw_custom_marker_preview()` - preview drawing at cursor
-  - Added `_draw_path_preview()` - interactive path placement preview with:
-    - Visual differentiation for first point (green, larger)
-    - Intermediate points (red, semi-transparent)
-    - Preview line from last point to cursor (white, dashed style)
-    - Pulsing indicator when hovering near first point to close path
-  - Added `_draw_arrow_preview()` - interactive arrow placement preview with:
-    - Green start point
-    - White preview line from start to cursor
-    - Preview arrowhead at cursor position
-  - Added `_draw_arrowhead()` - helper function to draw arrowhead chevron using trigonometry
-  - Added `_calculate_line_endpoints()` - computes line endpoints for any angle/range
-  - Removed old separate drawing code for vertical/horizontal/diagonal lines
-  - Line rendering now supports arbitrary angles and finite ranges
-  - Circle rendering with proper coordinate display
-  - Path rendering with lines connecting all points (closed or open)
-  - Arrow rendering with main line and arrowhead chevron
-  - Preview now shows exact appearance before placement
-  - Added `_draw_coordinates_on_path()` - displays cumulative distance at each path point
-  - Updated `_draw_marker_coordinates()` to handle Arrow type
+- **MarkerOverlay.gd** (~640 lines restructured):
+- Added mouse wheel input handling in `_input()`:
+  - Wheel up/down adjusts angle for Line type (5° increments)
+  - Wheel up/down adjusts radius for Circle type (0.5 cell increments)
+  - Ignores wheel when CTRL is held (preserves zoom functionality)
+- Added input handling for Path type:
+  - Right-click (RMB) finalizes open path
+  - ESC key cancels Path placement
+- Added input handling for Arrow type:
+  - ESC key cancels Arrow placement before second point
+- Updated `_process()` to track mouse position for Path and Arrow previews
+- Completely rewrote `_draw()` to support custom marker types including Path and Arrow previews
+- Added `_draw_custom_marker()` - unified drawing for any marker type (Line, Circle, Path, Arrow)
+- Added `_draw_custom_marker_preview()` - preview drawing at cursor
+- Added `_draw_path_preview()` - interactive path placement preview with:
+  - Visual differentiation for first point (green, larger)
+  - Intermediate points (red, semi-transparent)
+  - Preview line from last point to cursor (white, dashed style)
+  - Pulsing indicator when hovering near first point to close path
+- Added `_draw_arrow_preview()` - interactive arrow placement preview with:
+  - Green start point
+  - White preview line from start to cursor
+  - Preview arrowhead at cursor position
+- Added `_draw_arrowhead()` - helper function to draw arrowhead chevron using trigonometry
+- Added `_calculate_line_endpoints()` - computes line endpoints for any angle/range
+- Removed old separate drawing code for vertical/horizontal/diagonal lines
+- Line rendering now supports arbitrary angles and finite ranges
+- Circle rendering with proper coordinate display
+- Path rendering with lines connecting all points (closed or open)
+- Arrow rendering with main line and arrowhead chevron
+- Preview now shows exact appearance before placement
+- Added `_draw_coordinates_on_path()` - displays cumulative distance at each path point
+- Updated `_draw_marker_coordinates()` to handle Arrow type
 
 - **GuidesLines.gd**:
   - Removed unused callback: `_on_marker_type_toggled()`
   - Minor code cleanup
 
 ### Breaking Changes
+
 - **Save Format**: Maps saved with this version cannot be loaded in v1.0.10 or earlier
   - Old maps with vertical/horizontal/diagonal markers will NOT load correctly
   - Removed backward compatibility code
@@ -1579,6 +1749,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 - **API Changes**: Anyone extending GuideMarker class will need to update to new structure
 
 ### Notes
+
 - This is a work-in-progress intermediate commit
 - Version number unchanged (still 1.0.10) pending completion
 - Extensive testing needed before release
@@ -1587,6 +1758,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.10] - 2026-02-04
 
 ### Added
+
 - **UpdateChecker Integration**: Automatic update notifications
   - Integrated with _Lib UpdateChecker API for GitHub release tracking
   - Automatic version checking on startup
@@ -1604,11 +1776,13 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Seamless cooperation with other mods using HistoryApi
 
 ### Fixed
+
 - Corrected Logger API usage to properly use ClassInstancedLogger pattern
 - Fixed unsupported format specifier %v (changed to %s for Vector2 output)
-- Fixed Global.API references to use parent_mod.Global.API for proper _Lib access
+- Fixed Global.API references to use parent_mod.Global.API for proper_Lib access
 
 ### Technical Changes
+
 - Implemented custom History Record classes:
   - `PlaceMarkerRecord` - tracks marker creation with full state
   - `DeleteMarkerRecord` - tracks single marker deletion with restoration data
@@ -1624,6 +1798,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.9] - 2026-02-03
 
 ### Changed
+
 - **UI Redesign**: All settings moved to Guide Markers tool panel
   - Removed ModConfigApi settings menu (compatibility issues with _Lib-1.2.0)
   - All guide overlay settings now accessible directly in tool panel
@@ -1631,6 +1806,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - Settings organized in logical sections: Marker Types, Options, and Guide Overlays
 
 ### Fixed
+
 - **_Lib-1.2.0 Compatibility**: Complete rewrite for new API structure
   - Fixed Logger API usage (removed non-existent `for_mod()` method)
   - Updated to use `self.Global.API` instead of `Global.API`
@@ -1642,6 +1818,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 - Improved mod detection using proper unique_id lookup instead of searching for field name
 
 ### Technical Changes
+
 - Removed ModConfig integration (ModConfigApi builder)
 - Added new UI callbacks: `_on_cross_guides_toggled`, `_on_perm_vertical_toggled`, `_on_perm_horizontal_toggled`, `_on_perm_coordinates_toggled`
 - Updated Logger initialization to use InstancedLogger directly
@@ -1652,6 +1829,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.8] - 2026-02-01
 
 ### Added
+
 - **Logger API Integration**: Professional structured logging system
   - Replaced all `print()` calls with Logger API for better diagnostics
   - Added log levels (debug, info, error) for different message types
@@ -1674,6 +1852,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
     - Permanent Guides (vertical/horizontal lines, coordinates)
 
 ### Improved
+
 - **ModRegistry Integration**: Enhanced mod detection
   - Better detection of custom_snap mod using ModRegistry
   - Shows detected mod name and version in logs
@@ -1687,9 +1866,10 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - More maintainable codebase
 
 ### Technical Changes
+
 - Added LOGGER variable to main mod and tool classes
 - Implemented _init_mod_config() for ModConfigApi setup
-- Added history action handlers: _do_place_marker, _undo_place_marker, etc.
+- Added history action handlers: _do_place_marker,_undo_place_marker, etc.
 - Removed manual settings panel creation (replaced by ModConfigApi)
 - Removed manual toggle callback functions
 - Enhanced snappy_mod detection with proper mod info retrieval
@@ -1697,13 +1877,15 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.7] - 2026-02-01
 
 ### Updated
+
 - **Compatibility Update**: Updated for _Lib 1.2.0 and Dungeondraft 1.1.1.1
-  - Fixed snappy_mod detection to work with new _Lib API structure
+  - Fixed snappy_mod detection to work with new_Lib API structure
   - Replaced unsafe `_get_property_list()` access with safe `get()` method
   - Improved compatibility with _Lib's new InstancedApiApi system
   - Added _Lib as explicit dependency
 
 ### Technical Changes
+
 - Simplified snappy_mod detection logic using defensive programming
 - Removed iteration through property list in favor of direct get() call
 - Updated dd_version requirement to 1.1.1.1
@@ -1711,6 +1893,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.6] - 2026-01-17
 
 ### Fixed
+
 - **Critical Fix**: Application crash when `custom_snap` mod is not activated
   - Fixed incompatibility with Godot 3.4's property access mechanism for dynamic properties
   - Centralized `snappy_mod` detection in main mod file (`GuidesLines.gd`)
@@ -1719,11 +1902,13 @@ This is a **major breaking release** with a complete architectural overhaul. Map
   - All overlay classes now use cached reference to `snappy_mod` instead of performing runtime checks
 
 ### Improved
+
 - **Smart Coordinates Toggle**: "Show Grid Coordinates" option now automatically disables when no guide lines are active
   - In Guide Markers tool: disabled when no marker line types are selected
   - In Guide Settings panel: disabled when both permanent center lines are off
 
 ### Technical Changes
+
 - Replaced `cached_api` with `cached_snappy_mod` in tool and overlay classes
 - Added `snappy_mod_checked` flag to prevent redundant API property list queries
 - Simplified `_get_custom_snap()` methods to return cached reference
@@ -1734,6 +1919,7 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 ## [1.0.5] - Previous Version
 
 ### Features
+
 - Advanced guide lines system with placeable markers
 - Multiple marker types: vertical, horizontal, diagonal (45° and 135°)
 - Grid coordinate display on guide lines
@@ -1742,4 +1928,3 @@ This is a **major breaking release** with a complete architectural overhaul. Map
 - Save/load markers with map files
 - Optional proximity-based cross guides
 - Optional permanent center guide lines
-

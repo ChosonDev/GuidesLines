@@ -175,8 +175,12 @@ func _is_mouse_over_canvas() -> bool:
 	# This is the host's Content.gui_input target (Editor.tscn / Editor.cs).
 	# Local coordinates account for UI scale and resized side/top/bottom panels.
 	var content = editor.get_node_or_null("VPartition/Panels/HSplit/Content")
-	return content is Control and content.is_visible_in_tree() and Rect2(Vector2.ZERO,
-		content.rect_size).has_point(content.get_local_mouse_position())
+	if not (content is Control and content.is_visible_in_tree() and Rect2(Vector2.ZERO,
+		content.rect_size).has_point(content.get_local_mouse_position())):
+		return false
+	if tool.ui and tool.ui.is_mouse_over_floating_ui():
+		return false
+	return true
 
 func _input(event):
 	if not tool or not tool.is_enabled:

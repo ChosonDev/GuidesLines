@@ -1,4 +1,4 @@
-﻿extends Reference
+extends Reference
 
 # GuidesLinesTool - Tool for managing guide markers
 # Stores markers internally and draws them via overlay
@@ -169,6 +169,8 @@ func _init(mod):
 # Enable tool when selected in Dungeondraft
 func Enable():
 	is_enabled = true
+	if ui:
+		ui.update_overlap_panel_state()
 	if LOGGER:
 		LOGGER.info("Guide Markers tool ENABLED")
 
@@ -180,6 +182,8 @@ func Disable():
 	if ui:
 		ui.release_text_focus()
 	cancel_template_capture()
+	if ui:
+		ui.update_overlap_panel_state()
 	if LOGGER:
 		LOGGER.info("Guide Markers tool DISABLED")
 
@@ -542,10 +546,14 @@ func capture_marker_as_template(pos: Vector2) -> void:
 		ui._update_template_capture_button(false)
 
 	var marker = find_marker_at(pos, 20.0)
-	if not marker:
+	if not capture_marker_object_as_template(marker):
 		if overlay:
 			overlay.update()
-		return
+
+# Snapshot a specific marker instance as a new template.
+func capture_marker_object_as_template(marker) -> bool:
+	if not marker or markers_lookup.get(marker.id) != marker:
+		return false
 
 	var tmpl_id = template_next_id
 	template_next_id += 1
@@ -616,6 +624,7 @@ func capture_marker_as_template(pos: Vector2) -> void:
 		overlay.update()
 	if LOGGER:
 		LOGGER.debug("Captured marker as template (id: %d, type: %s)" % [tmpl_id, marker.marker_type])
+	return true
 
 # Select template by index (sets as active for placement).
 func select_template(index: int) -> void:
@@ -1292,6 +1301,109 @@ func move_marker(marker, new_pos: Vector2):
 func _do_move_marker(marker, new_pos: Vector2):
 	marker.set_property("position", new_pos)
 	invalidate_geometry()
+
+# Recolor [marker] to [new_color] and record the action in history.
+func recolor_marker(marker, new_color: Color) -> bool:
+	if not marker or markers_lookup.get(marker.id) != marker or marker.color == new_color:
+		return false
+	var old_color = marker.color
+	_do_recolor_marker(marker, new_color)
+	_record_history(GuidesLinesHistory.RecolorMarkerRecord.new(self, marker.id, old_color, new_color))
+	return true
+
+# Low-level recolor — called by recolor_marker() and by undo/redo.
+func _do_recolor_marker(marker, new_color: Color) -> void:
+	marker.set_property("color", new_color)
+	marker.update_opacity(_current_opacity())
+	if overlay:
+		overlay.invalidate_markers()
+
+# Place a standalone duplicate of [marker] at [new_pos] as one undoable action.
+func duplicate_marker_at(marker, new_pos: Vector2):
+	if not marker or markers_lookup.get(marker.id) != marker:
+		return null
+	var delta = new_pos - marker.position
+	var dup_data = {
+		"id":                next_id,
+		"position":          new_pos,
+		"marker_type":       marker.marker_type,
+		"marker_subtype":    marker.marker_subtype,
+		"spiral_settings":   marker.spiral_settings.duplicate(true),
+		"color":             marker.color,
+		"angle":             marker.angle,
+		"mirror":            marker.mirror,
+		"coordinates":       marker.show_coordinates if marker.marker_type == MARKER_TYPE_LINE else false,
+		"shape_radius":      marker.shape_radius,
+		"shape_angle":       marker.shape_angle,
+		"shape_sides":       marker.shape_sides,
+		"path_closed":       marker.path_closed,
+		"path_end_arrow":    marker.path_end_arrow,
+		"arrow_head_length": marker.arrow_head_length,
+		"arrow_head_angle":  marker.arrow_head_angle,
+	}
+	if marker.marker_type == MARKER_TYPE_PATH and marker.marker_points.size() > 0:
+		var translated_points = []
+		for pt in marker.marker_points:
+			translated_points.append(pt + delta)
+		dup_data["marker_points"] = translated_points
+	if marker.marker_type == MARKER_TYPE_SHAPE and marker.cached_draw_data.has("primitives"):
+		var translated_prims = []
+		for seg in marker.get_primitives():
+			translated_prims.append({"type": seg.get("type", "seg"), "a": seg.a + delta, "b": seg.b + delta})
+		dup_data["shape_primitives"] = translated_prims
+	next_id += 1
+	_do_place_marker(dup_data, false, false)
+	_record_history(GuidesLinesHistory.PlaceMarkerRecord.new(self, dup_data, {}, false, false))
+	return markers_lookup.get(dup_data["id"])
+
+# Copy [marker]'s type, color, and type-specific parameters into active tool settings.
+func pick_settings_from_marker(marker) -> bool:
+	if not marker or markers_lookup.get(marker.id) != marker:
+		return false
+	if move_mode:
+		set_move_mode(false)
+	if delete_mode:
+		set_delete_mode(false)
+	set_color(marker.color)
+	if ui:
+		ui._set_control_value("ColorPicker", active_color, "color")
+	set_marker_type(marker.marker_type)
+	if marker.marker_type == MARKER_TYPE_LINE:
+		set_angle(marker.angle)
+		set_mirror(marker.mirror)
+		set_show_coordinates(marker.show_coordinates)
+	elif marker.marker_type == MARKER_TYPE_SHAPE:
+		if marker.marker_subtype == "Spiral" and not marker.spiral_settings.empty():
+			active_shape_spiral = marker.spiral_settings.duplicate(true)
+			set_shape_preset(SHAPE_SPIRAL)
+		else:
+			var preset = SHAPE_CUSTOM
+			match marker.shape_sides:
+				64: preset = SHAPE_CIRCLE
+				4: preset = SHAPE_SQUARE
+				5: preset = SHAPE_PENTAGON
+				6: preset = SHAPE_HEXAGON
+				8: preset = SHAPE_OCTAGON
+			active_shape_size_mode = "radius"
+			type_settings[MARKER_TYPE_SHAPE]["size_mode"] = "radius"
+			set_shape_preset(preset)
+			set_shape_sides(marker.shape_sides)
+			set_shape_radius(marker.shape_radius)
+			set_shape_angle(marker.shape_angle)
+	elif marker.marker_type == MARKER_TYPE_PATH:
+		if marker.marker_subtype == "Spiral" and not marker.spiral_settings.empty():
+			active_path_spiral = marker.spiral_settings.duplicate(true)
+			set_path_subtype(1)
+		else:
+			set_path_subtype(0)
+		set_path_end_arrow(marker.path_end_arrow)
+		set_path_arrow_head_length(marker.arrow_head_length)
+		set_path_arrow_head_angle(marker.arrow_head_angle)
+	if ui:
+		ui.sync_type_settings_controls(active_marker_type)
+	if overlay:
+		overlay.update()
+	return true
 
 # ============================================================================
 # FILL MODE — ENTRY POINT (called from MarkerOverlay)
@@ -2097,7 +2209,6 @@ func set_shape_mode(mode: String):
 	# Update button pressed states
 	if ui:
 		ui._update_shape_mode_buttons(mode)
-		ui._sync_template_overlap_mode_buttons()
 
 	if LOGGER:
 		LOGGER.info("Shape interaction mode changed to: %s" % [mode])

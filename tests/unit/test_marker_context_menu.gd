@@ -107,13 +107,22 @@ func click(button = BUTTON_RIGHT, pressed = true):
 	event.pressed = pressed
 	overlay.handle_content_input(event)
 
-func open_menu():
+func open_menu(expected_header = ""):
 	tool.cached_worldui.MousePosition = Vector2(5, 0)
 	click()
 	assert_true(menu.popup.visible)
-	assert_eq(menu.popup.get_item_count(), 2)
-	assert_eq(menu.popup.get_item_text(0), "Move")
-	assert_eq(menu.popup.get_item_text(1), "Delete")
+	assert_eq(menu.popup.get_item_count(), 9)
+	assert_true(menu.popup.is_item_disabled(0))
+	if expected_header != "":
+		assert_eq(menu.popup.get_item_text(0), expected_header)
+	assert_true(menu.popup.is_item_separator(1))
+	assert_eq(menu.popup.get_item_text(2), "Move")
+	assert_eq(menu.popup.get_item_text(3), "Duplicate")
+	assert_eq(menu.popup.get_item_text(4), "Pick Settings")
+	assert_eq(menu.popup.get_item_text(5), "Apply Active Color")
+	assert_eq(menu.popup.get_item_text(6), "Save as Template")
+	assert_true(menu.popup.is_item_separator(7))
+	assert_eq(menu.popup.get_item_text(8), "Delete")
 
 func test_path_finish_takes_priority_over_existing_marker_menu():
 	add_marker()
@@ -282,20 +291,75 @@ func test_marker_context_empty_canvas_fallback_and_lifecycle_cleanup():
 
 func test_marker_context_popup_routes_native_keyboard_selection():
 	add_marker()
-	open_menu()
+	open_menu("Shape #1")
 	var event = InputEventKey.new()
 	event.pressed = true
 	# Exercise Godot's modal GUI routing, not only the action callback.
 	overlay.set_process_input(true)
 	event.scancode = KEY_DOWN
-	Input.parse_input_event(event)
-	Input.parse_input_event(event)
+	for _i in range(6):
+		Input.parse_input_event(event)
 	event.scancode = KEY_ENTER
 	Input.parse_input_event(event)
 	yield(get_tree(), "idle_frame")
 	assert_false(menu.popup.visible)
 	assert_false(tool.markers_lookup.has(1))
 	assert_eq(records.size(), 1)
+
+func test_marker_context_duplicate_pick_recolor_and_template():
+	var marker = add_marker(1, "Shape")
+	marker.set_property("shape_sides", 6)
+	marker.set_property("shape_radius", 2.5)
+	marker.set_property("shape_angle", 30.0)
+	marker.set_property("color", Color.green)
+	# Duplicate: preview then commit on LMB with undo/redo
+	open_menu("Shape #1")
+	menu.popup.emit_signal("id_pressed", menu.DUPLICATE)
+	assert_true(tool.move_mode)
+	assert_true(tool._move_selected_marker == marker)
+	assert_eq(tool.markers.size(), 1, "Duplicate waits for placement click")
+	tool.cached_worldui.MousePosition = Vector2(205, 100)
+	click(BUTTON_LEFT)
+	assert_eq(tool.markers.size(), 2)
+	assert_eq(marker.position, Vector2.ZERO, "Original marker stays in place")
+	var dup = tool.markers[1]
+	assert_eq(dup.position, Vector2(200, 100))
+	assert_eq(dup.shape_sides, 6)
+	assert_eq(dup.shape_radius, 2.5)
+	assert_eq(dup.color, Color.green)
+	assert_eq(records.size(), 1)
+	records[0].undo()
+	assert_eq(tool.markers.size(), 1)
+	records[0].redo()
+	assert_eq(tool.markers.size(), 2)
+	# Apply Active Color with undo/redo
+	tool.active_color = Color.red
+	open_menu("Shape #1")
+	menu.popup.emit_signal("id_pressed", menu.APPLY_COLOR)
+	assert_eq(marker.color, Color.red)
+	assert_almost_eq(marker.draw_color.a, 0.7, 0.0001)
+	assert_eq(records.size(), 2)
+	records[1].undo()
+	assert_eq(marker.color, Color.green)
+	records[1].redo()
+	assert_eq(marker.color, Color.red)
+	# Save as Template in one click
+	open_menu("Shape #1")
+	menu.popup.emit_signal("id_pressed", menu.SAVE_TEMPLATE)
+	assert_eq(tool.templates.size(), 1)
+	assert_eq(tool.templates[0].data.shape_sides, 6)
+	# Pick Settings copies type/params/color and exits move mode
+	tool.active_color = Color.white
+	tool.set_marker_type("Line")
+	tool.set_move_mode(true)
+	open_menu("Shape #1")
+	menu.popup.emit_signal("id_pressed", menu.PICK_SETTINGS)
+	assert_false(tool.move_mode)
+	assert_eq(tool.active_marker_type, "Shape")
+	assert_eq(tool.active_shape_sides, 6)
+	assert_eq(tool.active_shape_radius, 2.5)
+	assert_eq(tool.active_shape_angle, 30.0)
+	assert_eq(tool.active_color, Color.red)
 
 func integrations():
 	var world = IntegrationWorld.new()
@@ -351,7 +415,7 @@ func test_optional_mods_select_menu_uses_up_dispatch_move_delete_and_history():
 	tool.cached_worldui.MousePosition = Vector2(5, 0)
 	var items = support.get_void_context_items()
 	assert_eq(items[0].label, "Guide Marker")
-	assert_eq(items[0].submenu.size(), 2)
+	assert_eq(items[0].submenu.size(), 5)
 	# Exercise the real upstream provider collector, submenu builder and dispatch.
 	var upstream_path = mod_root.plus_file("../../ExternalMods/UnofficialPatch/scripts/right_click_util.gd").simplify_path()
 	var upstream = load(upstream_path).new()
@@ -374,18 +438,43 @@ func test_optional_mods_select_menu_uses_up_dispatch_move_delete_and_history():
 	assert_eq(marker.position, Vector2.ZERO)
 	records[0].redo()
 	assert_eq(marker.position, Vector2(295, 400))
+	# Save as Template works directly from SelectTool without switching tools
 	tool.Disable()
 	tool.parent_mod.Global.Editor.ActiveToolName = "SelectTool"
 	tool.cached_worldui.MousePosition = marker.position
 	assert_eq(support.get_context_items(["native selection"]).size(), 1)
-	add_marker(2)
-	tool.cached_worldui.MousePosition = Vector2.ZERO
-	submenu.emit_signal("id_pressed", submenu.get_item_id(1))
-	assert_false(tool.markers_lookup.has(marker.id))
-	assert_true(tool.markers_lookup.has(2))
+	submenu.emit_signal("id_pressed", submenu.get_item_id(2))
+	assert_eq(tool.templates.size(), 1)
 	assert_eq(tool.parent_mod.Global.Editor.ActiveToolName, "SelectTool")
-	assert_eq(records.size(), 2)
-	records[1].undo()
+	# Duplicate from SelectTool switches to GuidesLinesTool and places copy on LMB
+	assert_eq(support.get_context_items(["native selection"]).size(), 1)
+	submenu.emit_signal("id_pressed", submenu.get_item_id(1))
+	assert_eq(tool.parent_mod.Global.Editor.ActiveToolName, "GuidesLinesTool")
+	tool.cached_worldui.MousePosition = Vector2(100, 100)
+	click(BUTTON_LEFT)
+	assert_eq(tool.markers.size(), 2)
+	# Pick Settings from SelectTool switches to GuidesLinesTool and copies settings
+	tool.Disable()
+	tool.parent_mod.Global.Editor.ActiveToolName = "SelectTool"
+	tool.active_marker_type = "Line"
+	tool.cached_worldui.MousePosition = marker.position
+	assert_eq(support.get_context_items(["native selection"]).size(), 1)
+	submenu.emit_signal("id_pressed", submenu.get_item_id(3))
+	assert_eq(tool.parent_mod.Global.Editor.ActiveToolName, "GuidesLinesTool")
+	assert_eq(tool.active_marker_type, "Shape")
+	# Delete from SelectTool works without switching tools
+	tool.Disable()
+	tool.parent_mod.Global.Editor.ActiveToolName = "SelectTool"
+	tool.cached_worldui.MousePosition = marker.position
+	assert_eq(support.get_context_items(["native selection"]).size(), 1)
+	add_marker(99)
+	tool.cached_worldui.MousePosition = Vector2.ZERO
+	submenu.emit_signal("id_pressed", submenu.get_item_id(4))
+	assert_false(tool.markers_lookup.has(marker.id))
+	assert_true(tool.markers_lookup.has(99))
+	assert_eq(tool.parent_mod.Global.Editor.ActiveToolName, "SelectTool")
+	assert_eq(records.size(), 3)
+	records[2].undo()
 	assert_true(tool.markers_lookup.has(marker.id))
 	native_menu.free()
 	upstream._g = null
@@ -492,7 +581,7 @@ func test_optional_mods_full_up_right_click_opens_without_native_selection():
 		assert_true(upstream._context_menu.visible)
 		assert_eq(upstream._context_menu.get_item_text(0), "Guide Marker")
 		var submenu = upstream._context_menu.get_node(upstream._context_menu.get_item_submenu(0))
-		submenu.emit_signal("id_pressed", submenu.get_item_id(1))
+		submenu.emit_signal("id_pressed", submenu.get_item_id(4))
 		assert_false(tool.markers_lookup.has(marker.id))
 		assert_eq(editor.ActiveToolName, "SelectTool")
 		assert_eq(records.size(), 1)

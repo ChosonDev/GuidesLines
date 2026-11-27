@@ -174,6 +174,11 @@ func set_property(prop, value):
 			if path_end_arrow != value: path_end_arrow = value; changed = true
 		"show_coordinates":
 			if show_coordinates != value: show_coordinates = value; changed = true
+		"color":
+			if color != value:
+				color = value
+				draw_color = Color(color.r, color.g, color.b, draw_color.a)
+				changed = true
 		"marker_points":
 			# Arrays are passed by reference, so we assume it changed if set
 			marker_points = value; changed = true

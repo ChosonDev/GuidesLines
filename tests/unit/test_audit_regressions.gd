@@ -57,6 +57,7 @@ func test_template_rename_fields_commit_cancel_and_restore_host_shortcuts_on_lif
 	tool.template_group_ids = {marker_id: true, 10: true}
 	assert_true(tool.save_group_template())
 	make_panel()
+	tool.Enable()
 	tool.set_marker_type("Template")
 	var rows = tool.ui._template_list_container.get_children()
 	for index in range(2):
@@ -125,6 +126,7 @@ func test_template_rename_fields_commit_cancel_and_restore_host_shortcuts_on_lif
 
 func test_group_panel_signals_capture_counts_cancel_focus_and_transform_reset():
 	make_panel()
+	tool.Enable()
 	tool.set_marker_type("Template")
 	add_shape(1)
 	api.place_path_marker([Vector2(400, 0), Vector2(500, 0)])
@@ -143,7 +145,7 @@ func test_group_panel_signals_capture_counts_cancel_focus_and_transform_reset():
 	ui._create_group_btn.emit_signal("pressed")
 	assert_eq(tool.templates.size(), 1)
 	assert_true(ui._group_transform_container.visible)
-	assert_false(ui._template_overlap_modes_container.visible)
+	assert_false(ui._should_show_overlap_panel())
 	assert_false(ui._cancel_group_btn.visible)
 	assert_eq(ui._create_group_btn.text, "Create Group")
 	ui.get_control("GroupRotation").value = 90
@@ -313,6 +315,8 @@ func test_spiral_panel_signals_visibility_validation_and_type_memory():
 	make_panel()
 	tool.set_marker_type("Shape")
 	tool.ui.get_control("ShapeSubtypeSelector").emit_signal("item_selected", 6)
+	assert_true(tool.ui.get_control("SettingsPanel").is_a_parent_of(tool.ui.get_control("ShapeSpiralPanel")))
+	assert_true(tool.ui.get_control("SettingsPanel").is_a_parent_of(tool.ui.get_control("PathSpiralPanel")))
 	assert_true(tool.ui.get_control("ShapeSpiralPanel").visible)
 	assert_false(tool.ui.get_control("RadiusRow").visible)
 	assert_false(tool.ui.get_control("SideRow").visible)
@@ -347,6 +351,7 @@ func test_spiral_panel_signals_visibility_validation_and_type_memory():
 	tool.ui.get_control("ShapeSubtypeSelector").emit_signal("item_selected", 1)
 	assert_false(tool.ui.get_control("ShapeSpiralPanel").visible)
 	assert_true(tool.ui.get_control("ShapeAngleRow").visible)
+	yield(get_tree(), "idle_frame")
 
 func test_spiral_preview_matches_snapped_placement_and_arrow_at_each_zoom():
 	var overlay = probe("scripts/overlays/MarkerOverlay.gd")
@@ -613,31 +618,50 @@ func test_overlay_canvas_gate_tracks_layout_scale_visibility_and_dialogs():
 
 
 func test_overlap_icons_share_cached_textures_but_keep_scale_variants():
+	var content = make_editor_content()
 	make_panel()
-	var shape_row = tool.ui.get_control("ShapeModesRow")
-	var template_row = tool.ui.get_control("TemplateShapeModesRow")
-	# The row names are owned by the existing panel builder.
-	assert_not_null(shape_row)
-	assert_not_null(template_row)
-	if shape_row == null or template_row == null:
+	var first_type_row = tool.ui.get_control("MarkerTypeModesRow")
+	var first_row = tool.ui.get_control("OverlapModesRow")
+	assert_not_null(first_type_row)
+	assert_not_null(first_row)
+	if first_type_row == null or first_row == null:
 		return
+	var first_type_icons = []
+	for index in range(5):
+		var icon = first_type_row.get_child(index).icon
+		assert_not_null(icon)
+		first_type_icons.append(icon)
+	var first_icons = []
 	for index in range(6):
-		assert_not_null(shape_row.get_child(index).icon)
-		assert_eq(shape_row.get_child(index).icon, template_row.get_child(index).icon)
+		var icon = first_row.get_child(index).icon
+		assert_not_null(icon)
+		first_icons.append(icon)
+	make_panel()
+	var second_type_row = tool.ui.get_control("MarkerTypeModesRow")
+	var second_row = tool.ui.get_control("OverlapModesRow")
+	assert_not_null(second_type_row)
+	assert_not_null(second_row)
+	assert_eq(content.get_child_count(), 1, "Recreating panel must not duplicate floating top bar")
+	for index in range(5):
+		assert_eq(second_type_row.get_child(index).icon, first_type_icons[index])
+	for index in range(6):
+		assert_eq(second_row.get_child(index).icon, first_icons[index])
 	var full = tool.ui._load_icon("normal64.png", 1.0)
 	var half = tool.ui._load_icon("normal64.png", 0.5)
 	assert_ne(full, half)
 	assert_eq(full.get_width(), 64)
 	assert_eq(half.get_width(), 32)
+	yield(get_tree(), "idle_frame")
 
 
 func test_real_panel_signals_edit_tool_parameters_and_restore_all_types():
+	make_editor_content()
 	make_panel()
 	tool.ui.get_control("AngleSpinBox").value = 37.0
 	tool.ui.get_control("MirrorCheckbox").pressed = true
 	assert_eq(tool.active_angle, 37.0)
 	assert_true(tool.active_mirror)
-	tool.ui.type_selector.emit_signal("item_selected", 1)
+	tool.ui.get_control("ShapeTypeButton").emit_signal("pressed")
 	assert_eq(tool.active_marker_type, "Shape")
 	tool.ui.get_control("ShapeRadiusSpinBox").value = 3.0
 	tool.ui.get_control("ShapeAngleSpinBox").value = 27.0
@@ -645,7 +669,7 @@ func test_real_panel_signals_edit_tool_parameters_and_restore_all_types():
 	assert_eq(tool.active_shape_radius, 3.0)
 	assert_eq(tool.active_shape_angle, 27.0)
 	assert_eq(tool.active_shape_sides, 5)
-	tool.ui.type_selector.emit_signal("item_selected", 2)
+	tool.ui.get_control("PathTypeButton").emit_signal("pressed")
 	tool.ui.get_control("PathEndArrowCheckbox").pressed = true
 	tool.ui.get_control("PathArrowHeadLengthSpinBox").value = 25.0
 	tool.ui.get_control("PathArrowHeadAngleSpinBox").value = 20.0
@@ -716,7 +740,40 @@ func test_map_reference_refresh_releases_replaced_and_freed_overlays():
 	yield(get_tree(), "idle_frame")
 
 
+func make_editor_content():
+	var editor = mod.Global.Editor
+	if editor is Node and is_instance_valid(editor):
+		if not editor.is_inside_tree():
+			add_child(editor)
+		var existing = editor.get_node_or_null("VPartition/Panels/HSplit/Content")
+		if existing:
+			return existing
+	else:
+		var editor_script = GDScript.new()
+		editor_script.source_code = "extends Node\nvar SearchHasFocus = false\nvar IsSnapping = false\nvar Toolset = null\n"
+		assert_eq(editor_script.reload(), OK)
+		editor = editor_script.new()
+		add_child(editor)
+		owned_nodes.append(editor)
+		mod.Global.Editor = editor
+	var vpart = Control.new()
+	vpart.name = "VPartition"
+	var panels = Control.new()
+	panels.name = "Panels"
+	var hsplit = Control.new()
+	hsplit.name = "HSplit"
+	var content = Control.new()
+	content.name = "Content"
+	content.rect_size = Vector2(1280, 720)
+	hsplit.add_child(content)
+	panels.add_child(hsplit)
+	vpart.add_child(panels)
+	editor.add_child(vpart)
+	return content
+
+
 func make_panel():
+	make_editor_content()
 	var align = VBoxContainer.new()
 	add_child(align)
 	owned_nodes.append(align)
@@ -799,15 +856,36 @@ func test_coordinate_settings_remain_independent_with_legacy_combined_setter():
 
 
 func test_modconfig_and_api_overlay_settings_emit_once_per_change():
-	mod._on_cross_guides_toggled(false)
+	var cfg_script = GDScript.new()
+	cfg_script.source_code = "extends Reference\nvar cross_guides_enabled = true\nvar perm_vertical_enabled = false\nvar perm_horizontal_enabled = false\nvar show_coordinates_enabled = false\nvar saves = 0\nfunc save_cfg(_force = false):\n\tsaves += 1\n"
+	assert_eq(cfg_script.reload(), OK)
+	var fake_cfg = cfg_script.new()
+	mod.mod_config = fake_cfg
+	make_panel()
+	assert_true(tool.ui.get_control("CrossGuidesCheckbox").pressed)
+	assert_false(tool.ui.get_control("PermVerticalCheckbox").pressed)
+	tool.ui.get_control("CrossGuidesCheckbox").pressed = false
 	api.set_cross_guides(false)
-	mod._on_perm_vertical_toggled(true)
+	tool.ui.get_control("PermVerticalCheckbox").pressed = true
 	api.set_permanent_vertical(true)
 	mod._on_perm_horizontal_toggled(true)
 	api.set_permanent_horizontal(true)
 	mod._on_perm_coordinates_toggled(true)
 	api.set_permanent_coordinates(true)
 	assert_eq_deep(changes, [["cross_guides", false], ["perm_vertical", true], ["perm_horizontal", true], ["show_coordinates", true]])
+	assert_false(fake_cfg.cross_guides_enabled)
+	assert_true(fake_cfg.perm_vertical_enabled)
+	assert_true(fake_cfg.perm_horizontal_enabled)
+	assert_true(fake_cfg.show_coordinates_enabled)
+	assert_eq(fake_cfg.saves, 4, "Each distinct overlay change persists once to ModConfig")
+	assert_true(tool.ui.get_control("PermHorizontalCheckbox").pressed, "ModConfig/API updates sync sidebar checkboxes")
+	assert_true(tool.ui.get_control("PermCoordinatesCheckbox").pressed)
+	# Simulated ModConfig load/update with matching values must not re-save or re-emit.
+	fake_cfg.perm_vertical_enabled = false
+	mod._on_perm_vertical_toggled(false)
+	assert_eq(fake_cfg.saves, 4, "Changes originating from ModConfig do not trigger redundant save_cfg")
+	assert_false(tool.ui.get_control("PermVerticalCheckbox").pressed)
+	mod.mod_config = null
 	mod.guides_tool = null
 	api.set_markers_visible(false)
 	api.set_markers_opacity(0.5)
@@ -817,27 +895,117 @@ func test_modconfig_and_api_overlay_settings_emit_once_per_change():
 
 
 func test_panel_cache_replacement_and_overlap_buttons_stay_in_sync():
+	var content = make_editor_content()
 	var panel = make_panel()
 	var old_spin = tool.ui.get_control("ShapeSidesSpinBox")
 	assert_eq(old_spin.max_value, 64.0)
 	assert_eq(old_spin.value, 64.0)
+	var top_bar = tool.ui.get_control("TopBar")
+	var type_panel = tool.ui.get_control("TypePanel")
+	var settings_panel = tool.ui.get_control("SettingsPanel")
+	var overlap_row = tool.ui.get_control("OverlapModesRow")
+	assert_not_null(top_bar)
+	assert_not_null(type_panel)
+	assert_not_null(settings_panel)
+	assert_not_null(overlap_row)
+	assert_eq(top_bar.get_parent(), content)
+	assert_eq(type_panel.get_parent(), top_bar)
+	assert_eq(settings_panel.get_parent(), top_bar)
+	assert_eq(type_panel.get_index(), 0)
+	assert_eq(settings_panel.get_index(), 1)
+	assert_true(type_panel.is_a_parent_of(overlap_row), "Overlap modes live inside main top bar")
+	assert_false(top_bar.visible, "Hidden while tool is disabled")
+	tool.Enable()
+	assert_true(top_bar.visible, "Top bar visible when enabled")
+	assert_true(type_panel.visible, "Main bar visible when enabled")
+	assert_true(overlap_row.visible, "Overlap row stays visible for default Line type")
+	for button in overlap_row.get_children():
+		assert_true(button.disabled, "Overlap buttons disabled for Line type")
+	assert_true(settings_panel.visible, "Settings bar visible for Line")
+	assert_true(tool.ui.get_control("LineTopSettings").visible)
+	assert_false(tool.ui.get_control("ShapeTopSettings").visible)
+	assert_false(tool.ui.get_control("PathTopSettings").visible)
+	tool.set_marker_type("Shape")
+	assert_true(tool.ui.get_control("ShapeTypeButton").pressed)
+	assert_true(settings_panel.visible, "Settings bar visible for Shape")
+	assert_true(tool.ui.get_control("ShapeTopSettings").visible)
+	for button in overlap_row.get_children():
+		assert_false(button.disabled, "Overlap buttons enabled for Shape")
 	for mode in ["normal", "merge", "conforming", "wrapping", "difference", "cut"]:
 		tool.set_shape_mode(mode)
-		for row_name in ["ShapeModesRow", "TemplateShapeModesRow"]:
-			var row = tool.ui.get_control(row_name)
-			var pressed = 0
-			for button in row.get_children():
-				if button.pressed:
-					pressed += 1
-			assert_eq(pressed, 1, mode + row_name)
+		var pressed = 0
+		for button in overlap_row.get_children():
+			if button.pressed:
+				pressed += 1
+		assert_eq(pressed, 1, mode)
 		assert_eq(tool.ui._active_overlap_mode(), mode)
+	assert_true(tool.ui.get_control("PlaceModeButton").pressed, "Place mode active by default")
+	tool.ui.get_control("MoveModeButton").emit_signal("pressed")
+	assert_true(tool.move_mode)
+	assert_true(tool.ui.get_control("MoveModeButton").pressed)
+	assert_false(tool.ui.get_control("PlaceModeButton").pressed)
+	assert_true(type_panel.visible, "Type bar stays visible in move mode")
+	assert_true(settings_panel.visible, "Settings bar stays visible in move mode")
+	for button in tool.ui.get_control("MarkerTypeModesRow").get_children():
+		assert_true(button.disabled, "Type buttons disabled in move mode")
+	for button in overlap_row.get_children():
+		assert_true(button.disabled, "Buttons disabled in move mode")
+	assert_true(tool.ui.get_control("ShapeSubtypeSelector").disabled, "Top settings controls disabled in move mode")
+	assert_false(tool.ui.get_control("ShapeRadiusSpinBox").editable, "Top settings spinboxes disabled in move mode")
+	assert_true(tool.ui.get_control("ColorPicker").disabled, "Color picker disabled in move mode")
+	assert_false(tool.ui.get_control("MarkersVisibleCheckbox").disabled, "Map display stays enabled in move mode")
+	assert_true(tool.ui.get_control("DeleteAllMarkersButton").disabled, "Delete All stays disabled in move mode")
+	tool.ui.get_control("DeleteModeButton").emit_signal("pressed")
+	assert_true(tool.delete_mode)
+	assert_false(tool.move_mode)
+	assert_true(tool.ui.get_control("DeleteModeButton").pressed)
+	assert_false(tool.ui.get_control("DeleteAllMarkersButton").disabled, "Delete All enabled in delete mode")
+	assert_true(type_panel.visible, "Type bar stays visible in delete mode")
+	for button in tool.ui.get_control("MarkerTypeModesRow").get_children():
+		assert_true(button.disabled, "Type buttons disabled in delete mode")
+	for button in overlap_row.get_children():
+		assert_true(button.disabled, "Buttons disabled in delete mode")
+	tool.ui.get_control("PlaceModeButton").emit_signal("pressed")
+	assert_false(tool.delete_mode)
+	assert_false(tool.move_mode)
+	assert_true(tool.ui.get_control("PlaceModeButton").pressed)
+	assert_false(tool.ui.get_control("ShapeSubtypeSelector").disabled, "Top settings controls re-enabled in place mode")
+	assert_true(tool.ui.get_control("ShapeRadiusSpinBox").editable, "Top settings spinboxes re-enabled in place mode")
+	assert_false(tool.ui.get_control("ColorPicker").disabled, "Color picker re-enabled in place mode")
+	for button in tool.ui.get_control("MarkerTypeModesRow").get_children():
+		assert_false(button.disabled, "Type buttons re-enabled after exiting special modes")
+	for button in overlap_row.get_children():
+		assert_false(button.disabled, "Buttons re-enabled after exiting special modes")
+	tool.set_marker_type("Path")
+	assert_true(settings_panel.visible, "Settings bar visible for Path")
+	assert_true(tool.ui.get_control("PathTopSettings").visible)
+	for button in overlap_row.get_children():
+		assert_true(button.disabled, "Overlap buttons disabled for Path")
+	tool.set_marker_type("Fill")
+	assert_true(settings_panel.visible, "Settings bar visible for Fill")
+	assert_true(tool.ui.get_control("FillTopSettings").visible)
+	for button in overlap_row.get_children():
+		assert_true(button.disabled, "Overlap buttons disabled for Fill")
+	add_shape(1)
+	tool.capture_marker_as_template(Vector2.ZERO)
+	tool.set_marker_type("Template")
+	tool.select_template(0)
+	assert_true(tool.ui.get_control("TemplateTypeButton").pressed)
+	assert_true(settings_panel.visible, "Settings bar visible for Template")
+	assert_true(tool.ui.get_control("TemplateTopSettings").visible)
+	for button in overlap_row.get_children():
+		assert_false(button.disabled, "Overlap buttons enabled for single Shape template")
+	tool.Disable()
+	assert_false(top_bar.visible, "Top bar hidden when tool is disabled")
 	panel.free()
 	make_panel()
+	yield(get_tree(), "idle_frame")
 	assert_true(is_instance_valid(tool.ui.get_control("ShapeSidesSpinBox")))
 	assert_false(is_instance_valid(old_spin))
 	tool.ui._set_spinbox_value("ShapeSidesSpinBox", 12)
 	assert_eq(tool.active_shape_sides, 64, "Programmatic sync must not invoke callbacks")
 	assert_eq(tool.ui.get_control("ShapeSidesSpinBox").value, 12.0)
+	yield(get_tree(), "idle_frame")
 
 
 func test_clipping_shared_core_preserves_crossing_inside_outside_and_degenerate_cases():

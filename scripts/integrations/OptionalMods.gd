@@ -90,7 +90,12 @@ func get_void_context_items() -> Array:
 	if _target == null:
 		return []
 	return [{"label": "Guide Marker", "submenu": [
-		{"label": "Move", "action_id": "move"}, {"label": "Delete", "action_id": "delete"}]}]
+		{"label": "Move", "action_id": "move"},
+		{"label": "Duplicate", "action_id": "duplicate"},
+		{"label": "Save as Template", "action_id": "save_template"},
+		{"label": "Pick Settings", "action_id": "pick_settings"},
+		{"label": "Delete", "action_id": "delete"},
+	]}]
 
 func on_context_action(action_id, _raw) -> void:
 	if not _host_available() or _target == null:
@@ -104,7 +109,7 @@ func on_context_action(action_id, _raw) -> void:
 	if not is_instance_valid(tool.overlay) or not is_instance_valid(tool.overlay.context_menu):
 		return
 	var menu = tool.overlay.context_menu
-	if action_id == "move":
+	if action_id in ["move", "duplicate", "pick_settings"]:
 		if not global.Editor.Toolset:
 			return
 		global.Editor.Toolset.Quickswitch("GuidesLinesTool")
@@ -113,7 +118,14 @@ func on_context_action(action_id, _raw) -> void:
 		# Quickswitch changes the host immediately; the mod's update follows later.
 		if not tool.is_enabled:
 			tool.Enable()
-		menu.execute(menu.MOVE, marker, _click_position)
+		var menu_action = menu.MOVE
+		if action_id == "duplicate":
+			menu_action = menu.DUPLICATE
+		elif action_id == "pick_settings":
+			menu_action = menu.PICK_SETTINGS
+		menu.execute(menu_action, marker, _click_position)
+	elif action_id == "save_template":
+		menu.execute(menu.SAVE_TEMPLATE, marker, _click_position)
 	elif action_id == "delete":
 		menu.execute(menu.DELETE, marker, _click_position)
 

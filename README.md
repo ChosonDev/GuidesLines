@@ -1,18 +1,16 @@
 # GuidesLines - Dungeondraft Mod
 
-**Version:** 2.4.8<br>
+**Version:** 2.4.9
 **Compatible with:** Dungeondraft 1.1.1.1 and later  
 **Requires:** _Lib-1.2.0
 
 Advanced guide system with fully customizable markers for precise map alignment and composition.
 
-### What's New in 2.4.8
+### What's New in 2.4.9
 
-Canvas mouse input now routes through Dungeondraft's `on_content_input` pipeline
-instead of `_input`, so third-party context menus and popup panels receive clicks
-before Guides Lines places or deletes markers.
-
-**Spiral** markers, introduced in 2.4.2, let you create closed Shape strips or open Path spirals with adjustable radii, turns, spacing, winding and rotation. Shape spirals include width control; Path spirals support reversal and end arrows. Both work with templates, undo/redo and map saving.
+- **Top-center floating toolbar**: Marker type selection (`Line`, `Shape`, `Path`, `Fill`, `Template`) with monochrome icons, unified `Place | Move | Delete` switcher, and always-visible `Overlap Mode` buttons (disabled when inapplicable) now sit centered above the canvas, with a second context row holding compact single-row settings for the active tool (including single-row `Spiral` controls, `Fill`, and `Template`).
+- **Streamlined left tool panel**: Reorganized into clean card sections (`Marker Style`, `Map Display`, `Guide Overlays`, `Cleanup`), with `Guide Overlays` (`Proximity Cross`, `Vertical Center`, `Horizontal Center`, `Grid Coordinates`) synced two-way with `ModConfig` and persisted across sessions.
+- **Expanded marker context menu**: Right-clicking a marker now shows a target header (`<Type> #<ID>`) and adds `Duplicate` (click-to-place with undo/redo), `Pick Settings`, `Apply Active Color` (undoable), and `Save as Template`. Optional UnofficialPatch `SelectTool` integration exposes `Move`, `Duplicate`, `Save as Template`, `Pick Settings`, and `Delete`.
 
 ---
 
@@ -182,10 +180,10 @@ Groups are saved with their map; there are no persistent group links after place
 ### Verification
 
 1. Launch Dungeondraft
-2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.8"
+2. Check **Mods** menu → **Mod Versions** — should show "Guide Markers v2.4.9"
 3. Create/open a map
 4. Select **Design** category → **Guide Markers** tool (or press **`9`**)
-5. Tool panel should display marker type dropdown and settings
+5. Top-center floating bar should display marker type icons, `Place | Move | Delete`, `Overlap Mode`, and active tool settings; the left panel shows `Marker Style`, `Map Display`, `Guide Overlays`, and `Cleanup`
 
 ---
 
@@ -202,10 +200,11 @@ Groups are saved with their map; there are no persistent group links after place
    - **Mirror**: Check for symmetrical paired line at 180° offset
    - **Color**: Click to pick custom color
    - **Tip**: Hover over angle spinbox and scroll mouse wheel to adjust in 5° increments
-5. Click on map to place marker
-6. Guide lines appear instantly, extending infinitely to map edges
+4. Click on map to place marker
+5. Guide lines appear instantly, extending infinitely to map edges
 
 **Angle Reference:**
+
 - 0° = Horizontal right →
 - 90° = Vertical down ↓
 - 180° = Horizontal left ←
@@ -242,6 +241,7 @@ Groups are saved with their map; there are no persistent group links after place
 7. Shape outline appears with specified radius and rotation
 
 **Shape Angle Behavior:**
+
 - Square: rotates on all 4 corners
 - Pentagon/Hexagon/Octagon/Custom: rotates all vertices
 - Circle: all rotation controls disabled (circles have no rotation)
@@ -272,6 +272,7 @@ Choose **Path Type: Freeform** for interactive sequential placement:
 7. Path appears in chosen color
 
 **Path Tips:**
+
 - Each point snaps to grid (if enabled)
 - Preview line shows exactly where next segment will go
 - Coordinate display (if enabled) shows cumulative distance from start
@@ -364,6 +365,7 @@ Arrow markers use **2-point placement** with automatic completion:
    - **Right-click** or **ESC key**
 
 **Arrow Tips:**
+
 - Both points snap to grid (if enabled)
 - Preview shows exact arrowhead appearance
 - Arrowhead scales with camera zoom for visibility
@@ -377,17 +379,20 @@ Arrow markers use **2-point placement** with automatic completion:
 #### Deleting Markers
 
 **Method 1: Right-Click (Quick)**
+
 - With Guides Lines active, right-click a marker's anchor or outline to open its menu
 - Choose **Delete** to remove that marker
 - Fully undoable (Ctrl+Z)
 
 **Method 2: Delete Mode (Precise)**
+
 1. Enable **"Delete Markers Mode"** checkbox
 2. All other options disabled, preview hidden
 3. Click near marker (within 20 pixels of center) to delete
 4. Disable checkbox to return to placement mode
 
 **Method 3: Delete All**
+
 - Click **"Delete All Markers"** button
 - Removes all markers instantly
 - Fully undoable (Ctrl+Z)
@@ -430,12 +435,14 @@ Arrow markers use **2-point placement** with automatic completion:
 `GuidesLinesApi` is available to other mods via `self.Global.API.GuidesLinesApi` after a map is loaded.
 
 **Check readiness:**
+
 ```gdscript
 if self.Global.API.has("GuidesLinesApi") and self.Global.API.GuidesLinesApi.is_ready():
     var gl = self.Global.API.GuidesLinesApi
 ```
 
 **Or listen for late registration:**
+
 ```gdscript
 self.Global.API.connect("api_registered", self, "_on_api_registered")
 func _on_api_registered(api_id, _api):
@@ -444,6 +451,7 @@ func _on_api_registered(api_id, _api):
 ```
 
 **Placement:**
+
 ```gdscript
 var id = gl.place_line_marker(Vector2(512, 512), 45.0)            # Line at 45°
 var id = gl.place_shape_marker(Vector2(512, 512), "Hexagon", 3.0) # Hexagon r=3
@@ -537,8 +545,8 @@ names; groups have `kind = "group"` and `items`, singles have `data`.
 ```gdscript
 var templates = gl.get_templates()
 if not templates.empty():
-	gl.select_template(templates[0].id) # Also activates the Template tab.
-	gl.set_template_transform(30.0, 1.5) # Absolute sidebar rotation / uniform scale.
+ gl.select_template(templates[0].id) # Also activates the Template tab.
+ gl.set_template_transform(30.0, 1.5) # Absolute sidebar rotation / uniform scale.
 
 # World-space snapshots; does not place, allocate IDs, snap or modify sidebar state.
 var markers = gl.get_template_markers(position, -1, 15.0, 2.0)
@@ -570,6 +578,7 @@ Use `begin_history_capture()` / `end_history_capture()` around sequential edits
 when another mod owns the compound undo action. Room Builder demonstrates this.
 
 **Signals:**
+
 ```gdscript
 gl.connect("marker_placed", self, "_on_marker_placed")  # (marker_id, position)
 gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
@@ -610,6 +619,7 @@ gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
 - Works with custom_snap modified grids
 
 **Smart Behavior:**
+
 - Auto-disables when no guide lines active
 - Updates dynamically as markers are added/removed
 
@@ -618,7 +628,7 @@ gl.connect("marker_deleted", self, "_on_marker_deleted") # (marker_id)
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
+| ---------- | -------- |
 | **`9`** (default, configurable) | Activate Guide Markers tool |
 | **ESC** | Cancel path/arrow placement |
 | **Right-Click** | Marker: Move/Delete menu. Empty map: finish path (open) / Shape or Template +45° |
@@ -745,31 +755,37 @@ Markers stored in map file under `guide_markers` key:
 ## Troubleshooting
 
 ### Mod not appearing
+
 - **Check**: _Lib-1.2.0 installed?
 - **Check**: Dungeondraft version ≥ 1.1.1.1?
 - **Action**: Restart Dungeondraft completely
 
 ### Guide lines not visible
+
 - **Check**: At least one marker placed?
 - **Check**: Guide Markers tool active?
 - **Action**: Try placing a Line marker at (0, 0)
 
 ### Undo not working
+
 - **Check**: _Lib-1.2.0 properly installed?
 - **Check**: History limit not exceeded? (100 per type)
 - **Action**: Restart Dungeondraft
 
 ### Path placement stuck
+
 - **Action**: Press ESC to cancel
 - **Action**: Switch to different marker type
 - **Check**: Minimum 2 points for open path, 3 for closed
 
 ### Custom_snap not detected
+
 - **Check**: custom_snap enabled in Mods menu?
 - **Check**: Map created with custom_snap active?
 - **Note**: Detection happens once per map load
 
 ### Old map won't load
+
 - **Reason**: v1.x maps incompatible with v2.0.0
 - **Solution**: Use v1.x mod version for old maps
 - **Alternative**: Recreate markers in v2.0.0 (better flexibility!)
@@ -779,43 +795,59 @@ Markers stored in map file under `guide_markers` key:
 ## Compatibility
 
 ### Requirements
+
 - **Dungeondraft**: 1.1.1.1+
 - **_Lib**: 1.2.0 (required)
 
 ### Optional Mods
+
 - **custom_snap**: Enhanced grid snapping (auto-detected)
 - **UnofficialPatch**: Guide Marker → Move / Delete in Select (right-click API v1;
   verified against the installed 1.7.4 sources)
 
 ### Compatible Mods
+
 - All _Lib-based mods
 - Essential Utils
 - Minor Utils
 - Most Dungeondraft mods
 
 ### Known Incompatibilities
+
 - **None** - If you find one, please report on [GitHub Issues](https://github.com/ChosonDev/GuidesLines/issues)
 
 ---
 
 ## Version History
 
-### v2.4.8 (Current) — 2026-11-23
+### v2.4.9 (Current) — 2026-11-28
+
+- Floating top-center two-row toolbar over the canvas: icon-only marker type selector (`Line`, `Shape`, `Path`, `Fill`, `Template`), unified `Place | Move | Delete` switcher, always-visible `Overlap Mode` bar (disabled when inapplicable), and compact single-row context settings for all five marker types (including single-row `Spiral` controls).
+- Reorganized left tool panel into styled card sections (`Marker Style`, `Map Display`, `Guide Overlays`, `Cleanup`) with two-way `ModConfig` sync and session persistence for `Guide Overlays`.
+- Expanded marker right-click context menu (`<Type> #<ID>` header, `Move`, `Duplicate`, `Pick Settings`, `Apply Active Color`, `Save as Template`, `Delete`) and UnofficialPatch `SelectTool` submenu (`Move`, `Duplicate`, `Save as Template`, `Pick Settings`, `Delete`).
+- Recursive disabling of nested and top-bar controls in `Move`/`Delete` modes, floating-panel canvas hover gating, and `GuideMarker.set_property("color", ...)` support.
+- All 176 standalone Godot tests pass (18,516 assertions).
+
+### v2.4.8 — 2026-11-23
+
 - Route canvas mouse clicks, right-clicks and wheel events through `ModBaseTool._ContentInput` (`on_content_input`) and guard `_input` on active modals, preventing Guides Lines from intercepting clicks meant for third-party context menus and popup overlays.
 - All 175 standalone Godot tests pass; the user confirmed the fix working in Dungeondraft.
 
 ### v2.4.7 — 2026-11-11
+
 - Marker Move/Delete context menu and optional UnofficialPatch integration in Select.
 - Cached ArrayMesh strokes for Line, Shape and Path, with mirrored-line batching and translated Path mesh reuse.
 - Fix Path finalization priority, popup cleanup and optional custom_snap discovery; bound dense-grid coordinate sampling.
 - All 175 standalone Godot tests pass; the user confirmed the changes working in Dungeondraft.
 
 ### v2.4.6 — 2026-11-10
+
 - Quiet build-preview queries with persistent fill-zone caching and targeted invalidation.
 - Fix holes, nested islands, disconnected contours and tangent boundaries in fill and Shape boolean operations.
 - Reduce repeated geometry calculations; all 155 standalone tests pass and user testing confirmed the changes in Dungeondraft.
 
 ### v2.4.5 — 2026-11-09
+
 - Group templates with toggle selection, contour highlights, shared rotation/scale and one undo/redo action per stamp.
 - Inline renaming of single/group templates with shortcut suppression while typing.
 - Public template/group geometry, transform, preview and placement API for BuildingPlanner Room and other consumers.
@@ -824,64 +856,81 @@ Markers stored in map file under `guide_markers` key:
 - All 127 standalone Godot tests pass; the user confirmed the current changes working in Dungeondraft.
 
 ### v2.4.4 — 2026-11-09
+
 - Fill and `GuidesLinesApi.compute_fill_polygon()` preserve inner holes in nested and overlapping Shapes, fixing floor fills between inner rings in BuildingPlanner.
 - The nested-ring fix was confirmed working by user testing in Dungeondraft.
 
 ### v2.4.3 — 2026-11-08
+
 - Preview drawing is independent of placed markers and fills, reducing repeated work while moving the cursor.
 - Connected Shape outlines use batched polyline drawing while preserving Cut/Difference gaps, moved geometry and rotated templates.
 - User testing in Dungeondraft with many different spirals did not reproduce the previously reported system freeze.
 
 ### v2.4.2 — 2026-11-08
+
 - Shape/Spiral closed strips and Path/Spiral open paths, with adjustable radii, turns, spacing, direction and rotation.
 - Shape width, Path reversal and end arrows; integration with templates, Shape overlap modes, Fill, undo/redo and map saving.
 - Rendering and geometry performance improvements, template fixes and expanded regression tests.
 
 ### v2.4.1 — 2026-11-04
+
 - Technical maintenance: code cleanup, bug fixes, performance improvements and expanded regression tests.
 - Markers, fill regions and marker templates are saved and restored with the map.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 
 ### v2.1.0 — 2026-02-21
+
 - 🏗️ Geometry centralised into `GeometryUtils.gd` (Phase 3)
 - Internal API helpers extracted; no public signature changes
 
 ### v2.0.11 — 2026-02-21
+
 - 🔌 `GuidesLinesApi` external mod API with signals, placement, deletion, spatial queries
 
 ### v2.0.10 — 2026-02-19
+
 - ➕ Custom (N-sided) shape subtype (3–50 sides)
 
 ### v2.0.9 — 2026-02-19
+
 - 🖱️ Shape mouse controls: scroll = rotate, Alt+scroll = radius, RMB = +45°
 
 ### v2.0.8 — 2026-02-19
+
 - ⚙️ Persistent settings via ModConfigApi; configurable hotkey
 
 ### v2.0.7 — 2026-02-17
+
 - Removed Snap to Grid checkbox; respects Dungeondraft global snap
 
 ### v2.0.6 — 2026-02-17
+
 - Scripts reorganised into subdirectories (`tool/`, `render/`, `overlays/`, `guides/`, `utils/`)
 
 ### v2.0.5 — 2026-02-17
+
 - `GuidesLinesRender.gd` centralises all drawing primitives
 
 ### v2.0.4 — 2026-02-17
+
 - `GeometryUtils.gd` created; polygon, clipping, ray math consolidated
 
 ### v2.0.3 — 2026-02-16
+
 - ⚡ Geometry caching; expensive trig removed from render loop
 
 ### v2.0.0 — 2026-02-15
+
 - 🎉 Complete redesign: Line, Shape, Path, Arrow markers
 - ⚠️ Breaking: v1.x maps incompatible
 
 ### v1.0.10 — 2026-02-04
+
 - UpdateChecker + HistoryApi
 
 ### v1.0.9 — 2026-02-03
+
 - _Lib-1.2.0 compatibility
 
 [Full changelog](CHANGELOG.md)
@@ -900,12 +949,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 ## Tips & Best Practices
 
 ### For Line Markers
+
 - Use 0°/90° for axis-aligned grids
 - Use 45°/135° for diagonal perspectives
 - Enable Mirror for symmetrical designs
 - Adjust angle with mouse wheel while hovering
 
 ### For Shape Markers
+
 - Use circles for room templates
 - Use hexagons for hex-grid overlays
 - Rotate squares to create diamond guides
@@ -914,18 +965,21 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 - Use **Custom** subtype for any regular polygon (3–50 sides)
 
 ### For Path Markers
+
 - Place fewer points for smooth curves
 - Use many points for complex shapes
 - Close paths for area boundaries
 - Right-click to finish, ESC to cancel
 
 ### For Arrow Markers
+
 - Use for one-way passages
 - Great for trap triggers
 - Indicate flow direction in rivers
 - Adjust head angle for different arrow styles
 
 ### General Tips
+
 - Use "Snap to Grid" for precision
 - Enable coordinates for exact measurements
 - Use preview to verify before placing
@@ -940,11 +994,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 Created for the Dungeondraft map-making community.
 
 ### Links
+
 - [GitHub Repository](https://github.com/ChosonDev/GuidesLines)
 - [Issue Tracker](https://github.com/ChosonDev/GuidesLines/issues)
 - [Releases](https://github.com/ChosonDev/GuidesLines/releases)
 
 ### Special Thanks
+
 - **CreepyCre** (MegalomaniacMegalodon) for the [_Lib framework](https://github.com/CreepyCre/_Lib)
 - **Lievven** for the custom_snap mod inspiration
 - The Dungeondraft modding community
@@ -962,6 +1018,7 @@ Free to use and modify for personal and commercial projects.
 ## Support
 
 ### Getting Help
+
 1. Check this README's [Troubleshooting](#troubleshooting) section
 2. Search existing [GitHub Issues](https://github.com/ChosonDev/GuidesLines/issues)
 3. Create a new issue with:
@@ -971,7 +1028,9 @@ Free to use and modify for personal and commercial projects.
    - Error messages (if any)
 
 ### Feature Requests
+
 Open an issue with tag `enhancement` describing:
+
 - Desired feature
 - Use case
 - Why existing features don't solve it
@@ -979,4 +1038,3 @@ Open an issue with tag `enhancement` describing:
 ---
 
 **Happy Mapping! 🗺️**
-
